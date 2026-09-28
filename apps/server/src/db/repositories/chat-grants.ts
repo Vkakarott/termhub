@@ -131,6 +131,12 @@ export class ChatGrantsRepository {
     return count;
   }
 
+  /** Ends one tool's active grant on a tab — used when a wider grant replaces it (TER-325). */
+  async revokeTool(conversationId: string, tabId: string, tool: string, by: string, now = new Date()): Promise<number> {
+    const { count } = await this.db.chatGrant.updateMany({ where: { conversationId, tabId, tool, revokedAt: null }, data: { revokedAt: now, revokedBy: by } });
+    return count;
+  }
+
   /**
    * Every grant of one user, across all their conversations ("Abas confiáveis", spec 2026-09-26 §3.1),
    * scoped by the owning conversation's `user_id` in SQL. `active` returns what is in force (capped at

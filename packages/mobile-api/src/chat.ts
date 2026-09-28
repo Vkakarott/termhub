@@ -23,13 +23,20 @@ export const mobileDecisionBody = z
     z.object({ decision: z.literal('approve_tab'), ...proof }),
     /** Approve *and* trust the project's board in this conversation (24 h max). Always PIN-proven. */
     z.object({ decision: z.literal('approve_project'), ...proof }),
+    /** Approve *and* trust the tab for send_key and send_input in this conversation (24 h max, spec
+     * 2026-09-27 TER-325). Always PIN-proven. */
+    z.object({ decision: z.literal('approve_tab_terminal'), ...proof }),
+    /** Approve *and* trust the project's board and its tabs' keys and typing in this conversation (24 h
+     * max, spec 2026-09-27 TER-325). Always PIN-proven. */
+    z.object({ decision: z.literal('approve_project_all'), ...proof }),
   ])
   .refine((b) => b.decision !== 'approve' || (b.challenge === undefined) === (b.pin_proof === undefined), { message: 'challenge e pin_proof vão juntos' });
 
 /** A grouped confirmation from the phone (spec 2026-09-26 §7). Each approval follows the single
  * decision's rule (TER-92): a `write` card approves with the session alone, an irreversible one
  * carries its own proof, bound to that action and the word `approve` (the server decides). There is
- * no `approve_tab` nor `approve_project` here: "Permitir sempre" is always a single, PIN-proven decision. */
+ * no `approve_tab`, `approve_project`, `approve_tab_terminal` nor `approve_project_all` here: "Permitir
+ * sempre" and "Liberar" are always a single, PIN-proven decision. */
 export const mobileBatchDecisionBody = z.object({
   decisions: z
     .array(
@@ -49,6 +56,14 @@ export const mobileBatchDecisionBody = z.object({
 export function isTabGrantable(action: { tool: string; args: unknown; tab_id: string | null }): boolean {
   const args = (action.args ?? {}) as Record<string, unknown>;
   return action.tool === 'send_input' && args.answering_permission !== true && Boolean(action.tab_id);
+}
+
+/** Mirrors the server's `terminalGrantable` (apps/server/src/chat/gate.ts), which is the judge:
+ * `send_input` or `send_key` to a tab, never answering a permission. Decides whether the card offers
+ * "Liberar teclas e shell nesta aba" (spec 2026-09-27 TER-325). */
+export function isTerminalGrantable(action: { tool: string; args: unknown; tab_id: string | null }): boolean {
+  const args = (action.args ?? {}) as Record<string, unknown>;
+  return (action.tool === 'send_input' || action.tool === 'send_key') && args.answering_permission !== true && Boolean(action.tab_id);
 }
 
 /** Mirrors the server's `BOARD_GRANT_TOOLS` (apps/server/src/chat/gate.ts); the server is the judge

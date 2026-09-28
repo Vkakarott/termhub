@@ -3,11 +3,12 @@ import type { chatGrantListQuery } from '@termhub/mobile-api';
 import type { ChatAction } from '../db/repositories/chat-actions.js';
 import { describeGrantList, describeGrants, describeProjectGrantList, describeProjectGrants, type ChatGrantListItem, type ChatGrantView, type ChatProjectGrantView } from '../db/repositories/chat-actions-view.js';
 import { GRANT_LIST_MAX, type GrantCursor } from '../db/repositories/chat-grants.js';
+import type { ProjectGrantScope } from '../db/repositories/chat-project-grants.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { conflict, HttpError, notFound } from '../lib/errors.js';
 import { boardProjectOf } from './board-project.js';
 import { chatBus } from './bus.js';
-import { boardGrantable, grantable, GRANTABLE_TOOL } from './gate.js';
+import { boardGrantable, grantable, GRANTABLE_TOOL, TAB_TERMINAL_GRANT, terminalGrantable } from './gate.js';
 
 /**
  * "Permitir sempre nesta aba" is only for what the gate will honour (`grantable`): checked on the row
@@ -15,9 +16,7 @@ import { boardGrantable, grantable, GRANTABLE_TOOL } from './gate.js';
  * spent), so a refused request changes nothing. Owner-scoped: another user's row is a 404.
  */
 export async function assertGrantableAction(repos: Repositories, userId: string, actionId: string): Promise<ChatAction> {
-  const row = await repos.chatActions.findByIdForUser(actionId, userId);
-  if (!row) throw notFound('Ação não encontrada');
-  if (row.status !== 'pending') throw conflict('Esta ação já foi decidida');
+  const row = await pendingRow(repos, userId, actionId);
   if (!grantable(row.tool, (row.args ?? {}) as Record<string, unknown>)) throw new HttpError(400, 'Só dá para permitir sempre o envio de texto para uma aba', 'GRANT_NOT_ALLOWED');
   return row;
 }
@@ -32,6 +31,48 @@ export async function grantTab(repos: Repositories, userId: string, action: Chat
   return grant;
 }
 
+const TAB_TERMINAL_GRANT_NOT_ALLOWED = () => new HttpError(400, 'Só dá para liberar teclas e shell numa ação de terminal de uma aba sua', 'GRANT_NOT_ALLOWED');
+
+/** The pending row a grant button applies to, owner-scoped: 404 unknown or another user's, 409 decided. */
+async function pendingRow(repos: Repositories, userId: string, actionId: string): Promise<ChatAction> {
+  const row = await repos.chatActions.findByIdForUser(actionId, userId);
+  if (!row) throw notFound('Ação não encontrada');
+  if (row.status !== 'pending') throw conflict('Esta ação já foi decidida');
+  return row;
+}
+
+/** The owner-scoped tab of a terminal card (`terminalGrantable`), read with the caller's own user id
+ * exactly as the gate reads it — or undefined when the card is not one, or the tab does not resolve. */
+async function terminalTabOf(repos: Repositories, userId: string, row: ChatAction) {
+  if (!row.tab_id || !terminalGrantable(row.tool, (row.args ?? {}) as Record<string, unknown>)) return undefined;
+  const [tab] = await repos.tabs.findByIdsForOwner([row.tab_id], userId);
+  return tab;
+}
+
+/** "Liberar teclas e shell nesta aba" (spec 2026-09-27 TER-325) only for a pending send_key/send_input
+ * card on a tab of this user's, never one answering a permission: checked before anything is decided
+ * (and, on the phone, before the PIN challenge is spent), so a refused request changes nothing. */
+export async function assertTabTerminalGrantableAction(repos: Repositories, userId: string, actionId: string): Promise<ChatAction> {
+  const row = await pendingRow(repos, userId, actionId);
+  if (!(await terminalTabOf(repos, userId, row))) throw TAB_TERMINAL_GRANT_NOT_ALLOWED();
+  return row;
+}
+
+/** Trusts the tab of an action the user just approved for every key and any typed text, and tells every
+ * open screen. The wider level replaces a narrow "Permitir sempre nesta aba" of the same conversation and
+ * tab: that one is revoked first (and screens told), so the strip never shows both. Created before the
+ * decision is re-injected, so the injected sentence can mention it. */
+export async function grantTabTerminal(repos: Repositories, userId: string, action: ChatAction): Promise<ChatGrantView> {
+  if (!action.tab_id) throw TAB_TERMINAL_GRANT_NOT_ALLOWED();
+  const narrow = await repos.chatGrants.findActive(action.conversation_id, action.tab_id, GRANTABLE_TOOL);
+  const revoked = await repos.chatGrants.revokeTool(action.conversation_id, action.tab_id, GRANTABLE_TOOL, userId);
+  if (narrow && revoked > 0) chatBus.publish({ type: 'grant_revoked', user_id: userId, conversation_id: action.conversation_id, grant_id: narrow.id });
+  const created = await repos.chatGrants.grant({ conversation_id: action.conversation_id, tab_id: action.tab_id, tool: TAB_TERMINAL_GRANT, source_action_id: action.id, granted_by: userId });
+  const [grant] = await describeGrants(repos, [created], userId);
+  chatBus.publish({ type: 'grant', user_id: userId, conversation_id: action.conversation_id, grant });
+  return grant;
+}
+
 const PROJECT_GRANT_NOT_ALLOWED = () => new HttpError(400, 'Só dá para permitir sempre neste projeto ações de quadro de um projeto seu', 'GRANT_NOT_ALLOWED');
 
 /** "Permitir sempre neste projeto" only for a pending board card whose project resolves (spec 2026-09-26
@@ -39,19 +80,33 @@ const PROJECT_GRANT_NOT_ALLOWED = () => new HttpError(400, 'Só dá para permiti
  * Resolved with the caller's own user id, exactly as the gate does — never a "view as" owner id — so
  * the button is accepted for exactly the grants the gate will honour. */
 export async function assertProjectGrantableAction(repos: Repositories, userId: string, actionId: string): Promise<{ action: ChatAction; projectId: string }> {
-  const row = await repos.chatActions.findByIdForUser(actionId, userId);
-  if (!row) throw notFound('Ação não encontrada');
-  if (row.status !== 'pending') throw conflict('Esta ação já foi decidida');
+  const row = await pendingRow(repos, userId, actionId);
   if (!boardGrantable(row.tool)) throw PROJECT_GRANT_NOT_ALLOWED();
   const projectId = await boardProjectOf(repos, userId, row.tool, (row.args ?? {}) as Record<string, unknown>);
   if (!projectId) throw PROJECT_GRANT_NOT_ALLOWED();
   return { action: row, projectId };
 }
 
-/** Trusts the project of an action the user just approved, and tells every open screen (web and phone).
- * Created before the decision is re-injected, so the injected sentence can mention it. */
-export async function grantProject(repos: Repositories, userId: string, action: ChatAction, projectId: string): Promise<ChatProjectGrantView> {
-  const created = await repos.chatProjectGrants.grant({ conversation_id: action.conversation_id, project_id: projectId, source_action_id: action.id, granted_by: userId });
+const PROJECT_ALL_GRANT_NOT_ALLOWED = () => new HttpError(400, 'Só dá para liberar tudo neste projeto numa ação de quadro ou de terminal de um projeto seu', 'GRANT_NOT_ALLOWED');
+
+/** "Liberar tudo neste projeto" (spec 2026-09-27 TER-325): a pending board card whose project resolves
+ * (as `assertProjectGrantableAction`), or a pending terminal card whose tab is this user's — the tab's
+ * project is the one trusted. Checked before anything is decided and before the phone's PIN challenge
+ * is spent, with the caller's own user id, exactly as the gate resolves it. */
+export async function assertProjectAllGrantableAction(repos: Repositories, userId: string, actionId: string): Promise<{ action: ChatAction; projectId: string }> {
+  const row = await pendingRow(repos, userId, actionId);
+  let projectId: string | null | undefined;
+  if (boardGrantable(row.tool)) projectId = await boardProjectOf(repos, userId, row.tool, (row.args ?? {}) as Record<string, unknown>);
+  else projectId = (await terminalTabOf(repos, userId, row))?.project_id;
+  if (!projectId) throw PROJECT_ALL_GRANT_NOT_ALLOWED();
+  return { action: row, projectId };
+}
+
+/** Trusts the project of an action the user just approved — its board (`board`), or its board and its
+ * tabs' keys and typing (`all`) — and tells every open screen (web and phone). Created before the
+ * decision is re-injected, so the injected sentence can mention it. */
+export async function grantProject(repos: Repositories, userId: string, action: ChatAction, projectId: string, scope: ProjectGrantScope = 'board'): Promise<ChatProjectGrantView> {
+  const created = await repos.chatProjectGrants.grant({ conversation_id: action.conversation_id, project_id: projectId, source_action_id: action.id, granted_by: userId, scope });
   const [grant] = await describeProjectGrants(repos, [created], userId);
   chatBus.publish({ type: 'project_grant', user_id: userId, conversation_id: action.conversation_id, grant });
   return grant;

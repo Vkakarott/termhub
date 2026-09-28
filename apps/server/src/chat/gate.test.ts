@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actionClass, BOARD_GRANT_TOOLS, boardGrantable, gateDecision, grantable, idempotencyKeyFor } from './gate.js';
+import { actionClass, BOARD_GRANT_TOOLS, boardGrantable, gateDecision, grantable, idempotencyKeyFor, terminalGrantable } from './gate.js';
 
 it('classifies every tool the MCP exposes, and defaults an unknown one to irreversible', () => {
   expect(actionClass('list_machines', {})).toBe('read');
@@ -110,4 +110,18 @@ it('classifies the integration and repository setup tools: reads are reads, writ
     expect(grantable(tool, { tab_id: 't1' })).toBe(false);
     expect(boardGrantable(tool)).toBe(false);
   }
+});
+
+describe('terminalGrantable', () => {
+  it.each([
+    ['send_key', { tab_id: 't1', key: 'Enter' }, true],
+    ['send_key', { tab_id: 't1', key: 'C-c' }, true],
+    ['send_input', { tab_id: 't1', text: 'ls' }, true],
+    ['send_input', { tab_id: 't1', text: 'y', answering_permission: true }, false],
+    ['send_key', { key: 'Enter' }, false],
+    ['send_key', { tab_id: '', key: 'Enter' }, false],
+    ['run_command', { tab_id: 't1', command: 'ls' }, false],
+    ['open_tab', { project_id: 'p1' }, false],
+    ['close_tab', { tab_id: 't1' }, false],
+  ])('%s %j → %s', (tool, args, ok) => expect(terminalGrantable(tool, args)).toBe(ok));
 });

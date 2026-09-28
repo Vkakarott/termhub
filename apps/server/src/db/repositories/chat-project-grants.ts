@@ -3,11 +3,16 @@ import type { ChatProjectGrant as PrismaRow } from '../../generated/prisma/clien
 import { newId } from '../../lib/ids.js';
 import { GRANT_LIST_MAX, GRANT_TTL_MS, type GrantCursor } from './chat-grants.js';
 
+/** 'board' (TER-111): the board tools only. 'all' (TER-325): board + keys and shell on the
+ * project's tabs. */
+export type ProjectGrantScope = 'board' | 'all';
+
 /** A standing "yes" for the board tools in one project, in one conversation. */
 export interface ChatProjectGrant {
   id: string;
   conversation_id: string;
   project_id: string;
+  scope: ProjectGrantScope;
   source_action_id: string | null;
   granted_by: string;
   created_at: string;
@@ -25,6 +30,7 @@ const map = (g: PrismaRow): ChatProjectGrant => ({
   id: g.id,
   conversation_id: g.conversationId,
   project_id: g.projectId,
+  scope: g.scope === 'all' ? 'all' : 'board',
   source_action_id: g.sourceActionId,
   granted_by: g.grantedBy,
   created_at: g.createdAt.toISOString(),
@@ -43,11 +49,11 @@ export class ChatProjectGrantsRepository {
    * previous grant for the same pair — active or merely expired, both hold the partial unique slot —
    * is revoked in the same transaction, so granting again is how the 24 h restarts.
    */
-  async grant(input: { conversation_id: string; project_id: string; source_action_id?: string | null; granted_by: string }, now = new Date()): Promise<ChatProjectGrant> {
+  async grant(input: { conversation_id: string; project_id: string; source_action_id?: string | null; granted_by: string; scope?: ProjectGrantScope }, now = new Date()): Promise<ChatProjectGrant> {
     const row = await this.db.$transaction(async (tx) => {
       await tx.chatProjectGrant.updateMany({ where: { conversationId: input.conversation_id, projectId: input.project_id, revokedAt: null }, data: { revokedAt: now, revokedBy: input.granted_by } });
       return tx.chatProjectGrant.create({
-        data: { id: newId(), conversationId: input.conversation_id, projectId: input.project_id, sourceActionId: input.source_action_id ?? null, grantedBy: input.granted_by, createdAt: now, expiresAt: new Date(now.getTime() + GRANT_TTL_MS) },
+        data: { id: newId(), conversationId: input.conversation_id, projectId: input.project_id, scope: input.scope ?? 'board', sourceActionId: input.source_action_id ?? null, grantedBy: input.granted_by, createdAt: now, expiresAt: new Date(now.getTime() + GRANT_TTL_MS) },
       });
     });
     return map(row);

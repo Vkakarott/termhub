@@ -186,6 +186,16 @@ describe('tab grants', () => {
     expect(again.grants).toEqual([{ ...grant, id: 'g2' }]);
   });
 
+  it('a narrow grant for a tab keeps its active terminal grant; a same-tool re-grant still replaces', () => {
+    const terminal = { ...grant, id: 'gt', tool: 'terminal' };
+    const narrow = { ...grant, id: 'gn', tool: 'send_key' };
+    const withTerminal = applyEvent(slice, { type: 'grant', ...base, grant: terminal });
+    const both = applyEvent(withTerminal, { type: 'grant', ...base, grant: narrow });
+    expect(both.grants).toEqual([terminal, narrow]);
+    const reTerminal = applyEvent(both, { type: 'grant', ...base, grant: { ...terminal, id: 'gt2' } });
+    expect(reTerminal.grants).toEqual([narrow, { ...terminal, id: 'gt2' }]);
+  });
+
   it('grant_revoked removes it by id', () => {
     const granted: EventSlice = { ...slice, grants: [grant, { ...grant, id: 'g2', tab_id: 't2' }] };
     const revoked = applyEvent(granted, { type: 'grant_revoked', ...base, grant_id: 'g1' });
@@ -202,7 +212,7 @@ describe('tab grants', () => {
 });
 
 describe('project grants', () => {
-  const pg = { id: 'pg1', project_id: 'p1', project_name: 'termhub', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z' };
+  const pg = { id: 'pg1', project_id: 'p1', project_name: 'termhub', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z', scope: 'board' as const };
   const slice: EventSlice = { messages: [], actions: [action('a1')], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [] };
 
   it('a project_grant event adds it; a second grant for the same project replaces the first', () => {

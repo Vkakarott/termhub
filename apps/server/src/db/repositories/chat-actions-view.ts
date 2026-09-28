@@ -2,7 +2,7 @@ import { readTicketLink } from '../../integrations/ticket-link.js';
 import type { Repositories } from './index.js';
 import type { ChatAction, ChatActionClass, ChatActionStatus } from './chat-actions.js';
 import type { ChatGrant, ChatGrantWithConversation } from './chat-grants.js';
-import type { ChatProjectGrant, ChatProjectGrantWithConversation } from './chat-project-grants.js';
+import type { ChatProjectGrant, ChatProjectGrantWithConversation, ProjectGrantScope } from './chat-project-grants.js';
 import type { Task, Ticket } from './types.js';
 
 /**
@@ -424,6 +424,8 @@ export interface ChatGrantListItem {
   state: ChatGrantState;
   /** When it stopped counting: the revocation, or the expiry; null while active. */
   ended_at: string | null;
+  /** A project grant's scope (TER-325); always null for a tab grant. */
+  scope: ProjectGrantScope | null;
 }
 
 /** Enriches a page of grants like `describeGrants`: one owner-scoped lookup for the tabs and one for the
@@ -455,6 +457,7 @@ export async function describeGrantList(repos: Repositories, grants: ChatGrantWi
       conversation_archived: g.conversation_archived,
       state,
       ended_at: state === 'active' ? null : state === 'expired' ? g.expires_at : g.revoked_at,
+      scope: null,
     };
   });
 }
@@ -468,6 +471,8 @@ export interface ChatProjectGrantView {
   source_action_id: string | null;
   created_at: string;
   expires_at: string;
+  /** `board`: the board tools; `all`: those and the project's tabs' keys and typing (TER-325). */
+  scope: ProjectGrantScope;
 }
 
 /** Enriches a batch of project grants with the project's name, exactly like `describeGrants` — one
@@ -476,7 +481,7 @@ export async function describeProjectGrants(repos: Repositories, grants: ChatPro
   const ids = [...new Set(grants.map((g) => g.project_id))];
   const projects = ids.length ? await repos.projects.findByIdsForOwner(ids, ownerId) : [];
   const name = new Map(projects.map((p) => [p.id, p.name]));
-  return grants.map((g) => ({ id: g.id, project_id: g.project_id, project_name: name.get(g.project_id) ?? null, source_action_id: g.source_action_id, created_at: g.created_at, expires_at: g.expires_at }));
+  return grants.map((g) => ({ id: g.id, project_id: g.project_id, project_name: name.get(g.project_id) ?? null, source_action_id: g.source_action_id, created_at: g.created_at, expires_at: g.expires_at, scope: g.scope }));
 }
 
 /** Enriches a page of project grants like `describeGrantList`, for `kinds=all` (spec 2026-09-26 project
@@ -504,6 +509,7 @@ export async function describeProjectGrantList(repos: Repositories, grants: Chat
       conversation_archived: g.conversation_archived,
       state,
       ended_at: state === 'active' ? null : state === 'expired' ? g.expires_at : g.revoked_at,
+      scope: g.scope,
     };
   });
 }

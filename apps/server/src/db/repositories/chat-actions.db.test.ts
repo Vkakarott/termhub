@@ -85,6 +85,24 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatActionsRepository (Po
     expect(await repo.countForGrantSince(conversationId, 'pg1', new Date(Date.now() + 60_000))).toBe(0);
   });
 
+  it('countForGrantSince filters by tool when a list is given', async () => {
+    // Its own conversation: the shared `conversationId` above already carries a row under grant_id
+    // 'g1' from an earlier test, which `since` (a moment ago) would otherwise also match.
+    const toolsUserId = newId();
+    await db.user.create({ data: { id: toolsUserId, email: `${toolsUserId}@test.local`, name: 'test' } });
+    const toolsConversationId = (await new ChatRepository(db).getOrCreateForUser(toolsUserId)).id;
+    try {
+      const since = new Date(Date.now() - 60_000);
+      await repo.insertApproved({ conversation_id: toolsConversationId, tool: 'send_key', args: { tab_id: 't1', key: 'Enter' }, class: 'write', idempotency_key: 'k-g1-key', grant_id: 'g1', decided_by: toolsUserId });
+      await repo.insertApproved({ conversation_id: toolsConversationId, tool: 'create_task', args: { title: 'x' }, class: 'write', idempotency_key: 'k-g1-task', grant_id: 'g1', decided_by: toolsUserId });
+      expect(await repo.countForGrantSince(toolsConversationId, 'g1', since)).toBe(2);
+      expect(await repo.countForGrantSince(toolsConversationId, 'g1', since, ['send_key', 'send_input'])).toBe(1);
+      expect(await repo.countForGrantSince(toolsConversationId, 'g1', since, ['create_task'])).toBe(1);
+    } finally {
+      await db.user.delete({ where: { id: toolsUserId } });
+    }
+  });
+
   it('finds a denial by its key, with when it was decided, and ignores an executed row', async () => {
     const refused = await pending('k8');
     await repo.decide(refused.id, userId, 'denied');

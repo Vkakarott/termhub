@@ -122,6 +122,8 @@ export interface MockProjectGrant {
   id: string;
   conversation_id: string;
   project_id: string;
+  /** `board` ("Permitir sempre neste projeto") or `all` ("Liberar tudo neste projeto", TER-325). */
+  scope: 'board' | 'all';
   source_action_id: string | null;
   created_at: string;
   expires_at: string;

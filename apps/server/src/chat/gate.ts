@@ -154,6 +154,23 @@ export const boardGrantable = (tool: string): boolean => BOARD_GRANT_TOOLS.has(t
  * notices a card again. Past it, calls are asked as usual. */
 export const BOARD_GRANT_BUDGET = { calls: 30, windowMs: 60 * 60 * 1000 } as const;
 
+/** "Liberar teclas e shell" (spec 2026-09-27 TER-325): the `chat_grants.tool` value of a tab trusted for
+ * every key and any typed text, and the tools that level (and a project "tudo" grant) covers. Closed on
+ * purpose, like `BOARD_GRANT_TOOLS`: `run_command`, `open_tab`, `close_tab` are never covered. */
+export const TAB_TERMINAL_GRANT = 'terminal';
+export const TERMINAL_GRANT_TOOLS: ReadonlySet<string> = new Set(['send_input', 'send_key']);
+
+/** Whether the terminal level may cover this call: a covered tool, a named tab, and never an answer to
+ * a permission dialog (`answering_permission`). The gate adds the tab's state, the screen check and the
+ * text rules; the decision routes use this to offer and accept the buttons. */
+export function terminalGrantable(tool: string, args: Record<string, unknown>): args is Record<string, unknown> & { tab_id: string } {
+  const tab = args.tab_id;
+  return TERMINAL_GRANT_TOOLS.has(tool) && args.answering_permission !== true && typeof tab === 'string' && tab.length >= 1 && tab.length <= 64;
+}
+
+/** Terminal calls one grant (tab or project) covers per rolling hour; past it, calls are asked. */
+export const TERMINAL_GRANT_BUDGET = { calls: 120, windowMs: 60 * 60 * 1000 } as const;
+
 /**
  * Decides whether to allow, ask, wait, or refuse a proposed action.
  * - No row + read class → allow (reads are always safe)

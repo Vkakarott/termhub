@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HttpError } from '../lib/errors.js';
 import { chatBus } from './bus.js';
-import { assertProjectGrantableAction, decodeGrantCursor, encodeGrantCursor, grantProject, listGrants, revokeGrant } from './grants.js';
+import { assertProjectAllGrantableAction, assertProjectGrantableAction, assertTabTerminalGrantableAction, decodeGrantCursor, encodeGrantCursor, grantProject, grantTabTerminal, listGrants, revokeGrant } from './grants.js';
 
 it('round-trips a cursor', () => {
   const c = { created_at: '2026-09-25T10:00:00.000Z', id: 'abc123' };
@@ -85,6 +85,94 @@ describe('project grants', () => {
     const r = base();
     r.chatProjectGrants.findByIdForUser.mockResolvedValueOnce({ id: 'pg1' } as never);
     await expect(revokeGrant(r as never, 'u1', 'pg1')).rejects.toMatchObject({ statusCode: 409 });
+  });
+});
+
+describe('terminal grants (TER-325)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(chatBus, 'publish').mockImplementation(() => undefined);
+  });
+
+  const keyCard = { id: 'a1', conversation_id: 'c1', tool: 'send_key', args: { tab_id: 't1', key: 'enter' }, status: 'pending', tab_id: 't1' };
+  const boardCard = { id: 'a2', conversation_id: 'c1', tool: 'move_task', args: { task_id: 'k1', status: 'done' }, status: 'pending', tab_id: null };
+  const narrow = { id: 'g-narrow', conversation_id: 'c1', tab_id: 't1', tool: 'send_input', source_action_id: 'a0', granted_by: 'u1', created_at: 'x', expires_at: 'y', revoked_at: null, revoked_by: null };
+  const repos = (row: unknown = keyCard) => ({
+    chatActions: { findByIdForUser: vi.fn(async () => row) },
+    tabs: { findByIdsForOwner: vi.fn(async (ids: string[]) => (ids.includes('t1') ? [{ id: 't1', name: 'api', project_id: 'p1' }] : [])) },
+    tasks: { findByIdsForOwner: vi.fn(async () => [{ id: 'k1', project_id: 'p2' }]) },
+    projects: { findByIdsForOwner: vi.fn(async () => [{ id: 'p1', name: 'App' }]) },
+    chatGrants: {
+      findActive: vi.fn(async (): Promise<unknown> => undefined),
+      revokeTool: vi.fn(async () => 0),
+      grant: vi.fn(async (input: { tool: string }) => ({ id: 'g-term', conversation_id: 'c1', tab_id: 't1', tool: input.tool, source_action_id: 'a1', granted_by: 'u1', created_at: 'x', expires_at: 'y', revoked_at: null, revoked_by: null })),
+    },
+    chatProjectGrants: {
+      grant: vi.fn(async (input: { scope?: string }) => ({ id: 'pg1', conversation_id: 'c1', project_id: 'p1', scope: input.scope ?? 'board', source_action_id: 'a1', granted_by: 'u1', created_at: 'x', expires_at: 'y', revoked_at: null, revoked_by: null })),
+    },
+  });
+
+  it('assertTabTerminalGrantableAction accepts a pending send_key on an owned tab', async () => {
+    const r = repos();
+    expect(await assertTabTerminalGrantableAction(r as never, 'u1', 'a1')).toBe(keyCard);
+    expect(r.tabs.findByIdsForOwner).toHaveBeenCalledWith(['t1'], 'u1');
+  });
+
+  it('assertTabTerminalGrantableAction refuses run_command, answering_permission and a foreign tab with 400, a decided row with 409, an unknown one with 404', async () => {
+    const refused = { statusCode: 400, code: 'GRANT_NOT_ALLOWED', message: 'Só dá para liberar teclas e shell numa ação de terminal de uma aba sua' };
+    await expect(assertTabTerminalGrantableAction(repos({ ...keyCard, tool: 'run_command', args: { tab_id: 't1', command: 'ls' } }) as never, 'u1', 'a1')).rejects.toMatchObject(refused);
+    await expect(assertTabTerminalGrantableAction(repos({ ...keyCard, args: { tab_id: 't1', key: '1', answering_permission: true } }) as never, 'u1', 'a1')).rejects.toMatchObject(refused);
+    await expect(assertTabTerminalGrantableAction(repos({ ...keyCard, tab_id: 't9', args: { tab_id: 't9', key: 'enter' } }) as never, 'u1', 'a1')).rejects.toMatchObject(refused);
+    await expect(assertTabTerminalGrantableAction(repos({ ...keyCard, status: 'executed' }) as never, 'u1', 'a1')).rejects.toMatchObject({ statusCode: 409 });
+    const gone = repos();
+    gone.chatActions.findByIdForUser.mockResolvedValueOnce(undefined as never);
+    await expect(assertTabTerminalGrantableAction(gone as never, 'u1', 'a1')).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('grantTabTerminal writes a terminal grant and publishes grant', async () => {
+    const r = repos();
+    const g = await grantTabTerminal(r as never, 'u1', keyCard as never);
+    expect(r.chatGrants.grant).toHaveBeenCalledWith({ conversation_id: 'c1', tab_id: 't1', tool: 'terminal', source_action_id: 'a1', granted_by: 'u1' });
+    expect(g).toMatchObject({ id: 'g-term', tool: 'terminal', tab_name: 'api' });
+    expect(vi.mocked(chatBus.publish).mock.calls.map(([e]) => e.type)).toEqual(['grant']);
+  });
+
+  it('grantTabTerminal revokes an active narrow grant of the same tab first: grant_revoked, then grant', async () => {
+    const r = repos();
+    r.chatGrants.findActive.mockResolvedValueOnce(narrow);
+    r.chatGrants.revokeTool.mockResolvedValueOnce(1);
+    await grantTabTerminal(r as never, 'u1', keyCard as never);
+    expect(r.chatGrants.findActive).toHaveBeenCalledWith('c1', 't1', 'send_input');
+    expect(r.chatGrants.revokeTool).toHaveBeenCalledWith('c1', 't1', 'send_input', 'u1');
+    const events = vi.mocked(chatBus.publish).mock.calls.map(([e]) => e);
+    expect(events.map((e) => e.type)).toEqual(['grant_revoked', 'grant']);
+    expect(events[0]).toMatchObject({ user_id: 'u1', conversation_id: 'c1', grant_id: 'g-narrow' });
+    expect(r.chatGrants.revokeTool.mock.invocationCallOrder[0]).toBeLessThan(r.chatGrants.grant.mock.invocationCallOrder[0]!);
+  });
+
+  it('assertProjectAllGrantableAction resolves the project from a board card and from a terminal card\'s tab', async () => {
+    expect(await assertProjectAllGrantableAction(repos(boardCard) as never, 'u1', 'a2')).toEqual({ action: boardCard, projectId: 'p2' });
+    expect(await assertProjectAllGrantableAction(repos(keyCard) as never, 'u1', 'a1')).toEqual({ action: keyCard, projectId: 'p1' });
+  });
+
+  it('assertProjectAllGrantableAction refuses a foreign tab and delete_task with 400', async () => {
+    const refused = { statusCode: 400, code: 'GRANT_NOT_ALLOWED', message: 'Só dá para liberar tudo neste projeto numa ação de quadro ou de terminal de um projeto seu' };
+    await expect(assertProjectAllGrantableAction(repos({ ...keyCard, tab_id: 't9', args: { tab_id: 't9', key: 'enter' } }) as never, 'u1', 'a1')).rejects.toMatchObject(refused);
+    await expect(assertProjectAllGrantableAction(repos({ ...boardCard, tool: 'delete_task' }) as never, 'u1', 'a2')).rejects.toMatchObject(refused);
+    await expect(assertProjectAllGrantableAction(repos({ ...keyCard, status: 'denied' }) as never, 'u1', 'a1')).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('grantProject(..., "all") writes scope all and the view carries it', async () => {
+    const r = repos(boardCard);
+    const g = await grantProject(r as never, 'u1', boardCard as never, 'p1', 'all');
+    expect(r.chatProjectGrants.grant).toHaveBeenCalledWith(expect.objectContaining({ project_id: 'p1', scope: 'all' }));
+    expect(g.scope).toBe('all');
+  });
+
+  it('grantProject defaults to board', async () => {
+    const r = repos(boardCard);
+    await grantProject(r as never, 'u1', boardCard as never, 'p1');
+    expect(r.chatProjectGrants.grant).toHaveBeenCalledWith(expect.objectContaining({ scope: 'board' }));
   });
 });
 

@@ -4,8 +4,9 @@ export const canonicalHtu = (base: string, path: string) => base.replace(/\/$/, 
 
 /** Which decision a PIN proof is for. Signed into the message, so a proof made for "Autorizar" can
  * never be spent on "Permitir sempre nesta aba" or "Permitir sempre neste projeto" (24 h grants), nor
- * a proof for one grant on the other — or the other way round. */
-export type PinDecision = 'approve' | 'approve_tab' | 'approve_project';
+ * a proof for one grant on another (including the wider "Liberar teclas e shell nesta aba" and
+ * "Liberar tudo neste projeto", TER-325) — or the other way round. */
+export type PinDecision = 'approve' | 'approve_tab' | 'approve_project' | 'approve_tab_terminal' | 'approve_project_all';
 
 /** What the device's PIN key signs to approve a pending action (or approve it and trust its tab or
  * its project's board): the challenge and the action it applies to, newline-separated, so a proof for

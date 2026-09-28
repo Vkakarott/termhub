@@ -424,7 +424,7 @@ it('approve_project approves and trusts the project\'s board with a proof for ap
   // The decision answers the grant under the server's own key, `project_grant` (routes/m-chat.ts).
   const decided = fetches.mock.calls.findLastIndex(([input]) => input.url.endsWith('/chat/actions/a-termhub-2/decision'));
   const decisionBody = JSON.parse((await fetches.mock.results[decided]!.value).text);
-  expect(decisionBody.project_grant).toMatchObject({ project_id: 'p-termhub', source_action_id: 'a-termhub-2' });
+  expect(decisionBody.project_grant).toMatchObject({ project_id: 'p-termhub', scope: 'board', source_action_id: 'a-termhub-2' });
   expect(decisionBody.grant).toBeUndefined();
 
   const chat = await api.chat(auth, 'p-termhub');
@@ -460,6 +460,161 @@ it('approve_project on a tool outside the board set, or with no resolvable proje
   // the same challenge still approves it plainly
   await api.decide(auth, 'a-termhub-1', { decision: 'approve', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-termhub-1', 'approve') });
   expect((await api.chat(auth, 'p-termhub')).project_grants).toEqual([]);
+});
+
+/** A pending card in the termhub conversation, seeded through the mock's test control. */
+function seedCard(transport: ReturnType<typeof makeApi>['transport'], id: string, patch: { tool: string; args: Record<string, unknown>; tab_id: string | null; project_id?: string | null }) {
+  transport.controls.seedAction({
+    id,
+    conversation_id: 'c-termhub',
+    class: 'write',
+    status: 'pending',
+    machine_id: 'm-jarvis',
+    project_id: 'p-termhub',
+    grant_id: null,
+    summary: `card ${id}`,
+    created_at: new Date(START).toISOString(),
+    ...patch,
+  });
+}
+
+it('approve_tab_terminal on a send_key card grants the tab with tool "terminal", and needs a proof for that word (TER-325)', async () => {
+  const clock = { value: START };
+  const { transport, api, auth, deviceId, secret } = await enrol(clock);
+  const collected = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+  seedCard(transport, 'a-key', { tool: 'send_key', args: { tab_id: 't-api', key: '1' }, tab_id: 't-api' });
+
+  // A proof signed for `approve_tab` cannot be spent on `approve_tab_terminal`.
+  const first = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-key' });
+  await expect(
+    api.decide(auth, 'a-key', { decision: 'approve_tab_terminal', challenge: first.challenge, pin_proof: decisionProof(secret, first.challenge, 'a-key', 'approve_tab') }),
+  ).rejects.toMatchObject({ status: 401, code: 'PIN_INVALID' });
+
+  const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-key' });
+  await api.decide(auth, 'a-key', { decision: 'approve_tab_terminal', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-key', 'approve_tab_terminal') });
+
+  const chat = await api.chat(auth, 'p-termhub');
+  expect(chat.actions.find((a) => a.id === 'a-key')!.status).toBe('approved');
+  expect(chat.grants).toEqual([expect.objectContaining({ tab_id: 't-api', tool: 'terminal', source_action_id: 'a-key', tab_name: 'api' })]);
+  expect(collected.events.filter((e) => e.type === 'grant')).toEqual([expect.objectContaining({ grant: expect.objectContaining({ tool: 'terminal' }) })]);
+  const { grants } = await api.listGrants(auth, { state: 'active' });
+  expect(grants).toEqual([expect.objectContaining({ kind: 'tab', tool: 'terminal', scope: null })]);
+
+  collected.close();
+});
+
+it.each(['approve_tab_terminal', 'approve_project_all'] as const)('%s on a run_command card is 400 GRANT_NOT_ALLOWED before the challenge is spent', async (decision) => {
+  const clock = { value: START };
+  const { transport, api, auth, deviceId, secret } = await enrol(clock);
+  await jest.advanceTimersByTimeAsync(0);
+  seedCard(transport, 'a-cmd', { tool: 'run_command', args: { command: 'ls' }, tab_id: null });
+
+  const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-cmd' });
+  await expect(api.decide(auth, 'a-cmd', { decision, challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-cmd', decision) })).rejects.toMatchObject({
+    status: 400,
+    code: 'GRANT_NOT_ALLOWED',
+  });
+  // the same challenge still approves it plainly
+  await api.decide(auth, 'a-cmd', { decision: 'approve', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-cmd', 'approve') });
+  const chat = await api.chat(auth, 'p-termhub');
+  expect(chat.grants).toEqual([]);
+  expect(chat.project_grants).toEqual([]);
+});
+
+it('approve_tab_terminal on a send_input answering a permission dialog is 400 GRANT_NOT_ALLOWED', async () => {
+  const clock = { value: START };
+  const { transport, api, auth, deviceId, secret } = await enrol(clock);
+  await jest.advanceTimersByTimeAsync(0);
+  seedCard(transport, 'a-perm', { tool: 'send_input', args: { tab_id: 't-api', text: '1', answering_permission: true }, tab_id: 't-api' });
+  const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-perm' });
+  await expect(
+    api.decide(auth, 'a-perm', { decision: 'approve_tab_terminal', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-perm', 'approve_tab_terminal') }),
+  ).rejects.toMatchObject({ status: 400, code: 'GRANT_NOT_ALLOWED' });
+});
+
+it.each([
+  ['a send_input to a tab', 'a-termhub-1'],
+  ['a board card', 'a-termhub-2'],
+])('approve_project_all on %s grants the project with scope "all" (TER-325)', async (_label, actionId) => {
+  const clock = { value: START };
+  const { transport, api, auth, deviceId, secret } = await enrol(clock);
+  const collected = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+  const fetches = jest.spyOn(transport, 'fetch');
+
+  const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: actionId });
+  await api.decide(auth, actionId, { decision: 'approve_project_all', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, actionId, 'approve_project_all') });
+  const decided = fetches.mock.calls.findLastIndex(([input]) => input.url.endsWith(`/chat/actions/${actionId}/decision`));
+  const decisionBody = JSON.parse((await fetches.mock.results[decided]!.value).text);
+  expect(decisionBody.project_grant).toMatchObject({ project_id: 'p-termhub', scope: 'all', source_action_id: actionId });
+
+  const chat = await api.chat(auth, 'p-termhub');
+  expect(chat.project_grants).toEqual([expect.objectContaining({ project_id: 'p-termhub', scope: 'all' })]);
+  expect(collected.events.filter((e) => e.type === 'project_grant')).toEqual([expect.objectContaining({ grant: expect.objectContaining({ scope: 'all' }) })]);
+  const { grants } = await api.listGrants(auth, { state: 'active' });
+  expect(grants).toEqual([expect.objectContaining({ kind: 'project', scope: 'all', project_name: 'termhub' })]);
+
+  collected.close();
+});
+
+it('a tab keeps one grant per tool: a narrow grant leaves the terminal one, widening revokes the narrow one with grant_revoked (TER-325)', async () => {
+  const clock = { value: START };
+  const { transport, api, auth, deviceId, secret } = await enrol(clock);
+  const collected = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+  const decide = async (id: string, decision: 'approve_tab' | 'approve_tab_terminal') => {
+    const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: id });
+    await api.decide(auth, id, { decision, challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, id, decision) });
+  };
+
+  seedCard(transport, 'a-key1', { tool: 'send_key', args: { tab_id: 't-api', key: '1' }, tab_id: 't-api' });
+  await decide('a-key1', 'approve_tab_terminal');
+  seedCard(transport, 'a-text1', { tool: 'send_input', args: { tab_id: 't-api', text: 'ls' }, tab_id: 't-api' });
+  await decide('a-text1', 'approve_tab');
+  let chat = await api.chat(auth, 'p-termhub');
+  expect(chat.grants.map((g) => [g.tool, g.source_action_id])).toEqual([
+    ['terminal', 'a-key1'],
+    ['send_input', 'a-text1'],
+  ]);
+
+  // A same-tool re-grant replaces the older one.
+  seedCard(transport, 'a-text2', { tool: 'send_input', args: { tab_id: 't-api', text: 'pwd' }, tab_id: 't-api' });
+  await decide('a-text2', 'approve_tab');
+  chat = await api.chat(auth, 'p-termhub');
+  expect(chat.grants.map((g) => [g.tool, g.source_action_id])).toEqual([
+    ['terminal', 'a-key1'],
+    ['send_input', 'a-text2'],
+  ]);
+  const narrowId = chat.grants[1]!.id;
+
+  // Widening revokes the narrow grant and screens hear it.
+  seedCard(transport, 'a-key2', { tool: 'send_key', args: { tab_id: 't-api', key: 'Enter' }, tab_id: 't-api' });
+  await decide('a-key2', 'approve_tab_terminal');
+  chat = await api.chat(auth, 'p-termhub');
+  expect(chat.grants.map((g) => [g.tool, g.source_action_id])).toEqual([['terminal', 'a-key2']]);
+  expect(collected.events.filter((e) => e.type === 'grant_revoked')).toEqual([expect.objectContaining({ grant_id: narrowId })]);
+
+  collected.close();
+});
+
+it('approve_project_all on a terminal card resolves the project through its tab, not the row (TER-325)', async () => {
+  const clock = { value: START };
+  const { transport, api, auth, deviceId, secret } = await enrol(clock);
+  await jest.advanceTimersByTimeAsync(0);
+  const decideAll = async (id: string) => {
+    const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: id });
+    return api.decide(auth, id, { decision: 'approve_project_all', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, id, 'approve_project_all') });
+  };
+
+  // A real send_key row carries no project: the tab's project is the one trusted.
+  seedCard(transport, 'a-key', { tool: 'send_key', args: { tab_id: 't-api', key: '1' }, tab_id: 't-api', project_id: null });
+  await decideAll('a-key');
+  expect((await api.chat(auth, 'p-termhub')).project_grants).toEqual([expect.objectContaining({ project_id: 'p-termhub', scope: 'all', source_action_id: 'a-key' })]);
+
+  // A tab the mock does not know resolves no project, even when the row names one.
+  seedCard(transport, 'a-gone', { tool: 'send_input', args: { tab_id: 't-gone', text: 'ls' }, tab_id: 't-gone', project_id: 'p-termhub' });
+  await expect(decideAll('a-gone')).rejects.toMatchObject({ status: 400, code: 'GRANT_NOT_ALLOWED' });
 });
 
 it('reset archives the conversation: chat() afterwards has no messages and a new conversation id', async () => {

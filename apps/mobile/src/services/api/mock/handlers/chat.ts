@@ -9,6 +9,7 @@ import {
   chatMemoryPatchBody,
   isBoardGrantable,
   isTabGrantable,
+  isTerminalGrantable,
   kindFromNameAndMime,
   mobileBatchDecisionBody,
   mobileDecisionBody,
@@ -17,6 +18,7 @@ import {
   setHostBody,
   tabQuestionAnswerBody,
   tabSuggestionSendBody,
+  type PinDecision,
   type TChatAttachment,
   type TChatEvent,
   type TChatGrant,
@@ -76,9 +78,10 @@ function actionsFor(state: MockState, conversationId: string): MockAction[] {
 /** A grant lasts at most 24 h, like the server's `GRANT_TTL_MS`. */
 const GRANT_TTL_MS = 24 * 60 * 60_000;
 
-/** The tabs the fixtures' actions point at, by id -> name (the server joins the tab row for
- * `tab_name`; a tab the mock does not know is one that "no longer exists": `null`). */
-const TAB_NAMES: Record<string, string> = { 't-api': 'api' };
+/** The tabs the fixtures' actions point at, by id -> name and project (the server joins the tab row
+ * for `tab_name`, and resolves a terminal card's project through its tab; a tab the mock does not
+ * know is one that "no longer exists": `null` name, no project). */
+const TABS: Record<string, { name: string; project_id: string }> = { 't-api': { name: 'api', project_id: 'p-termhub' } };
 
 // --- attachments (spec 2026-09-26 §5.3) ------------------------------------------------------------
 
@@ -147,11 +150,17 @@ function activeGrantsFor(state: MockState, conversationId: string, now: number):
   return state.grants.filter((g) => g.conversation_id === conversationId && !g.revoked && Date.parse(g.expires_at) > now).map(grantView);
 }
 
-/** Trusts the tab of `action` (just approved): any other grant of the same tab in that conversation
- * is revoked first — at most one per tab, as the server's partial unique index keeps it. */
-function grantTab(state: MockState, action: MockAction, now: number): MockGrant {
+/** Trusts the tab of `action` (just approved): any other grant of the same tab and tool in that
+ * conversation is revoked first — at most one per (tab, tool), as the server's partial unique index
+ * keeps it. A `terminal` grant also revokes the narrow `send_input` one of that tab (the server's
+ * `grantTabTerminal`); a narrow grant leaves an active `terminal` one alone. Returns the new grant
+ * and the grants it revoked, whose `grant_revoked` the caller publishes. */
+function grantTab(state: MockState, action: MockAction, now: number, tool: 'send_input' | 'terminal'): { grant: MockGrant; revoked: MockGrant[] } {
+  const replaces = tool === 'terminal' ? ['terminal', 'send_input'] : [tool];
+  const revoked: MockGrant[] = [];
   for (const g of state.grants) {
-    if (g.conversation_id === action.conversation_id && g.tab_id === action.tab_id && !g.revoked) {
+    if (g.conversation_id === action.conversation_id && g.tab_id === action.tab_id && replaces.includes(g.tool) && !g.revoked) {
+      revoked.push(g);
       g.revoked = true;
       g.revoked_at = new Date(now).toISOString();
       g.revoked_by_user = true;
@@ -161,23 +170,23 @@ function grantTab(state: MockState, action: MockAction, now: number): MockGrant 
     id: randomId(10),
     conversation_id: action.conversation_id,
     tab_id: action.tab_id!,
-    tool: 'send_input',
+    tool,
     source_action_id: action.id,
     created_at: new Date(now).toISOString(),
     expires_at: new Date(now + GRANT_TTL_MS).toISOString(),
-    tab_name: TAB_NAMES[action.tab_id!] ?? null,
+    tab_name: TABS[action.tab_id!]?.name ?? null,
     revoked: false,
     revoked_at: null,
     revoked_by_user: false,
   };
   state.grants.push(grant);
-  return grant;
+  return { grant, revoked };
 }
 
 /** The wire shape of a project grant (the server's `ChatProjectGrantView`): `project_name` resolved
  * from the mock's own project fixtures, null once the project is gone. */
 function projectGrantView(state: MockState, g: MockProjectGrant): TChatProjectGrant {
-  return { id: g.id, project_id: g.project_id, project_name: state.projects.get(g.project_id)?.name ?? null, source_action_id: g.source_action_id, created_at: g.created_at, expires_at: g.expires_at };
+  return { id: g.id, project_id: g.project_id, project_name: state.projects.get(g.project_id)?.name ?? null, source_action_id: g.source_action_id, created_at: g.created_at, expires_at: g.expires_at, scope: g.scope };
 }
 
 /** `GET chat`'s `project_grants`: the conversation's project grants still in force, oldest first. */
@@ -185,13 +194,12 @@ function activeProjectGrantsFor(state: MockState, conversationId: string, now: n
   return state.projectGrants.filter((g) => g.conversation_id === conversationId && !g.revoked && Date.parse(g.expires_at) > now).map((g) => projectGrantView(state, g));
 }
 
-/** Trusts the project of `action` (just approved): any other grant of the same project in that
- * conversation is revoked first — at most one per project, mirroring `grantTab`. The mock resolves
- * the project straight from `action.project_id`, set by the fixtures the way the server would
- * resolve it from the card's own tool arguments (design spec 2026-09-26 §2). */
-function grantProject(state: MockState, action: MockAction, now: number): MockProjectGrant {
+/** Trusts `projectId` for `action` (just approved): any other grant of the same project in that
+ * conversation is revoked first — at most one per project, mirroring `grantTab`. The caller resolves
+ * the project (`grantableProjectOf`) the way the server does. */
+function grantProject(state: MockState, action: MockAction, projectId: string, now: number, scope: 'board' | 'all'): MockProjectGrant {
   for (const g of state.projectGrants) {
-    if (g.conversation_id === action.conversation_id && g.project_id === action.project_id && !g.revoked) {
+    if (g.conversation_id === action.conversation_id && g.project_id === projectId && !g.revoked) {
       g.revoked = true;
       g.revoked_at = new Date(now).toISOString();
       g.revoked_by_user = true;
@@ -200,7 +208,8 @@ function grantProject(state: MockState, action: MockAction, now: number): MockPr
   const grant: MockProjectGrant = {
     id: randomId(10),
     conversation_id: action.conversation_id,
-    project_id: action.project_id!,
+    project_id: projectId,
+    scope,
     source_action_id: action.id,
     created_at: new Date(now).toISOString(),
     expires_at: new Date(now + GRANT_TTL_MS).toISOString(),
@@ -475,6 +484,7 @@ function grantListItem(state: MockState, g: MockGrant, now: number): TChatGrantL
   return {
     kind: 'tab',
     ...grantView(g),
+    scope: null,
     project_id: project?.id ?? null,
     project_name: project?.name ?? null,
     conversation_id: g.conversation_id,
@@ -505,6 +515,7 @@ function projectGrantListItem(state: MockState, g: MockProjectGrant, now: number
     created_at: g.created_at,
     expires_at: g.expires_at,
     tab_name: null,
+    scope: g.scope,
     project_id: grantedProject?.id ?? null,
     project_name: grantedProject?.name ?? null,
     conversation_id: g.conversation_id,
@@ -546,7 +557,7 @@ function checkDecisionProof(
   state: MockState,
   device: MockDevice,
   actionId: string,
-  decision: 'approve' | 'approve_tab' | 'approve_project',
+  decision: PinDecision,
   body: { challenge: string; pin_proof: string },
   now: number,
 ): void {
@@ -777,7 +788,7 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     const hasProof = 'challenge' in body && body.challenge !== undefined && body.pin_proof !== undefined;
     if (!hasProof) {
       // Mirrors the server (TER-92): only a `write` card approves with the session alone.
-      if (body.decision === 'approve_tab' || body.decision === 'approve_project' || action.class !== 'write') throw new WireError(401, 'PIN_REQUIRED', 'Confirme com o PIN para autorizar esta ação.');
+      if (body.decision !== 'approve' || action.class !== 'write') throw new WireError(401, 'PIN_REQUIRED', 'Confirme com o PIN para autorizar esta ação.');
       action.status = 'approved';
       broadcast(state, { type: 'decision', user_id: USER_ID, conversation_id: action.conversation_id, action_id: action.id, status: 'approved' });
       return { status: 200, body: {} };
@@ -791,6 +802,20 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     if (body.decision === 'approve_project' && (!isBoardGrantable({ tool: action.tool }) || action.project_id === null)) {
       throw new WireError(400, 'GRANT_NOT_ALLOWED', 'Não dá para permitir sempre neste projeto aqui');
     }
+    // TER-325: keys and shell for a tab (send_input not answering a dialog, or send_key, to a tab);
+    // everything in the project for such a card or a board card, whose project must resolve.
+    const terminal = isTerminalGrantable({ tool: action.tool, args: action.args, tab_id: action.tab_id });
+    if (body.decision === 'approve_tab_terminal' && !terminal) {
+      throw new WireError(400, 'GRANT_NOT_ALLOWED', 'Só dá para liberar teclas e shell numa ação de terminal de uma aba');
+    }
+    // The project a board card names (`action.project_id`, set by the fixtures the way the server
+    // resolves it from the card's own arguments), or, for a terminal card, its tab's project — real
+    // send_key/send_input rows carry `project_id: null`, like the server's `terminalTabOf`.
+    const grantedProjectId =
+      body.decision === 'approve_project_all' ? (terminal ? (TABS[action.tab_id!]?.project_id ?? null) : isBoardGrantable({ tool: action.tool }) ? action.project_id : null) : action.project_id;
+    if (body.decision === 'approve_project_all' && grantedProjectId === null) {
+      throw new WireError(400, 'GRANT_NOT_ALLOWED', 'Não dá para liberar tudo neste projeto aqui');
+    }
 
     checkDecisionProof(state, device, action.id, body.decision, { challenge: body.challenge!, pin_proof: body.pin_proof! }, now);
     device.pinFailures = 0;
@@ -798,14 +823,18 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     broadcast(state, { type: 'decision', user_id: USER_ID, conversation_id: action.conversation_id, action_id: action.id, status: 'approved' });
     if (body.decision === 'approve') return { status: 200, body: {} };
 
-    if (body.decision === 'approve_tab') {
-      const grant = grantView(grantTab(state, action, now));
+    if (body.decision === 'approve_tab' || body.decision === 'approve_tab_terminal') {
+      const made = grantTab(state, action, now, body.decision === 'approve_tab' ? 'send_input' : 'terminal');
+      // Widening revokes the narrow grant of that tab; screens hear it, as from the server (a same-tool
+      // re-grant is not announced: screens replace it by tab and tool on the `grant` event).
+      for (const g of made.revoked.filter((r) => r.tool !== made.grant.tool)) broadcast(state, { type: 'grant_revoked', user_id: USER_ID, conversation_id: action.conversation_id, grant_id: g.id });
+      const grant = grantView(made.grant);
       broadcast(state, { type: 'grant', user_id: USER_ID, conversation_id: action.conversation_id, grant });
       return { status: 200, body: { grant } };
     }
 
     // The server answers a project grant under its own key, `project_grant` (routes/m-chat.ts).
-    const projectGrant = projectGrantView(state, grantProject(state, action, now));
+    const projectGrant = projectGrantView(state, grantProject(state, action, grantedProjectId!, now, body.decision === 'approve_project_all' ? 'all' : 'board'));
     broadcast(state, { type: 'project_grant', user_id: USER_ID, conversation_id: action.conversation_id, grant: projectGrant });
     return { status: 200, body: { project_grant: projectGrant } };
   });

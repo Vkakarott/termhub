@@ -73,6 +73,25 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatProjectGrantsReposito
     expect((await repo.findActiveBySourceAction(conversationId, 'act1'))?.id).toBe(g.id);
   });
 
+  it('stores the scope, board by default, and a re-grant replaces the other scope', async () => {
+    // Its own user and conversation: `listActive` below asserts the whole conversation holds exactly
+    // one active grant, which the shared `conversationId` above cannot promise (other tests in this
+    // file leave their own active grants on it).
+    const scopeUserId = newId();
+    await db.user.create({ data: { id: scopeUserId, email: `${scopeUserId}@test.local`, name: 'scope' } });
+    const scopeConversationId = (await new ChatRepository(db).getOrCreateForUser(scopeUserId)).id;
+    try {
+      const a = await repo.grant({ conversation_id: scopeConversationId, project_id: 'p1', granted_by: scopeUserId });
+      expect(a.scope).toBe('board');
+      const b = await repo.grant({ conversation_id: scopeConversationId, project_id: 'p1', granted_by: scopeUserId, scope: 'all' });
+      expect(b.scope).toBe('all');
+      expect((await repo.findActive(scopeConversationId, 'p1'))?.id).toBe(b.id);
+      expect(await repo.listActive(scopeConversationId)).toHaveLength(1);
+    } finally {
+      await db.user.delete({ where: { id: scopeUserId } });
+    }
+  });
+
   it('listForUser splits active/ended, never shows another user, pages by (created_at, id)', async () => {
     // A fixed, old timestamp: rows other tests in this file left behind (revoked/expired "now") sort
     // before these on the (created_at desc) page order, so this walks every page instead of assuming

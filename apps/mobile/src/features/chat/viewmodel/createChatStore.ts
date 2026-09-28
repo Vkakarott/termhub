@@ -29,8 +29,10 @@ import { createThrottledStorage } from './throttled-storage';
 import type { ChatAction, ChatConversation, ChatEvent, ChatGrant, ChatHostState, ChatMessage, ChatProjectGrant, SubagentView, TabQuestion, TabSuggestion } from '../model/types';
 
 /** `approve_tab` approves the card *and* trusts its tab for send_input ("Permitir sempre nesta aba");
- * `approve_project` approves it *and* trusts its project's board ("Permitir sempre neste projeto"). */
-export type ChatDecision = 'approve' | 'deny' | 'approve_tab' | 'approve_project';
+ * `approve_project` approves it *and* trusts its project's board ("Permitir sempre neste projeto");
+ * `approve_tab_terminal` trusts the tab's keys and shell ("Liberar teclas e shell nesta aba") and
+ * `approve_project_all` everything in the project ("Liberar tudo neste projeto"). */
+export type ChatDecision = 'approve' | 'deny' | 'approve_tab' | 'approve_project' | 'approve_tab_terminal' | 'approve_project_all';
 
 /** What the chat store needs from the session store (read through a getter, so tests can inject
  * a session store built over the same mock transport). */
@@ -532,8 +534,7 @@ export function createChatStore(deps: ChatDeps) {
                 } else {
                   // The session store performs the call with the proof while its PIN sheet stays open:
                   // a wrong PIN is answered there, and this only resolves once the server accepted it.
-                  // The proof signs the decision word, so `approve_tab`/`approve_project` asks the PIN
-                  // for exactly that.
+                  // The proof signs the decision word, so every grant word asks the PIN for exactly that.
                   await withPin();
                 }
               }
@@ -543,7 +544,7 @@ export function createChatStore(deps: ChatDeps) {
               patchSlot(key, (slot) => ({ actions: settlePending(slot.actions, actionId, decision === 'deny' ? 'denied' : 'approved') }));
               // The `grant`/`project_grant` event brings the trusted tab or project; the re-read puts
               // it on screen even if the socket is down.
-              if (decision === 'approve_tab' || decision === 'approve_project') void reread(key);
+              if (decision !== 'approve' && decision !== 'deny') void reread(key);
             } catch (e) {
               if (gen !== generation || isCancelled(e)) return;
               if (isApiError(e) && e.status === 409) {

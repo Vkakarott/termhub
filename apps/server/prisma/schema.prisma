@@ -887,6 +887,8 @@ model ChatProjectGrant {
   conversationId String           @map("conversation_id")
   conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   projectId      String           @map("project_id")
+  /// 'board' (TER-111) or 'all' (TER-325: board + keys and shell on the project's tabs).
+  scope          String           @default("board")
   sourceActionId String?          @map("source_action_id")
   grantedBy      String           @map("granted_by")
   createdAt      DateTime         @default(now()) @map("created_at")

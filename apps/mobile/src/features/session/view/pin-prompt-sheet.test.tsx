@@ -84,6 +84,16 @@ describe('PinPromptSheet', () => {
     expect(screen.getByText('Autorizar esta ação')).toBeTruthy();
   });
 
+  it('titles the wider grants with their button labels (TER-325)', async () => {
+    useSessionStore.setState({ pinPrompt: { actionId: 'a1', decision: 'approve_tab_terminal' } });
+    await render(<PinPromptSheet />);
+    expect(screen.getByText('Liberar teclas e shell nesta aba')).toBeTruthy();
+    await act(async () => {
+      useSessionStore.setState({ pinPrompt: { actionId: 'a1', decision: 'approve_project_all' } });
+    });
+    expect(screen.getByText('Liberar tudo neste projeto')).toBeTruthy();
+  });
+
   it('counts the actions of a batch: "Autorizar 2 ações"', async () => {
     useSessionStore.setState({ pinPrompt: { actionId: 'a1', actionIds: ['a1', 'a2'], decision: 'approve' } });
     await render(<PinPromptSheet />);

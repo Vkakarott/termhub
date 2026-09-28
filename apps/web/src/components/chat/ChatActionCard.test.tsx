@@ -65,6 +65,59 @@ it('labels a call run under a project grant', () => {
   expect(screen.getByText(/quadro confiado/)).toBeInTheDocument();
 });
 
+it('a pending send_key card offers the terminal grants but not the narrow tab one', () => {
+  const onDecide = vi.fn();
+  render(<ChatActionCard action={card({ tool: 'send_key', args: { tab_id: 't1', key: 'Enter' } })} deciding={false} onDecide={onDecide} />);
+  expect(screen.queryByRole('button', { name: 'Permitir sempre nesta aba' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Liberar teclas e shell nesta aba' }));
+  expect(onDecide).toHaveBeenCalledWith('a1', 'approve_tab_terminal');
+  fireEvent.click(screen.getByRole('button', { name: 'Liberar tudo neste projeto' }));
+  expect(onDecide).toHaveBeenCalledWith('a1', 'approve_project_all');
+});
+it('a pending agent send_input card offers all three grants', () => {
+  render(<ChatActionCard action={base} deciding={false} onDecide={vi.fn()} />);
+  expect(screen.getByRole('button', { name: 'Permitir sempre nesta aba' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Liberar teclas e shell nesta aba' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Liberar tudo neste projeto' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Permitir sempre neste projeto' })).toBeNull();
+});
+it('a send_input answering a permission offers none of the grants', () => {
+  render(<ChatActionCard action={{ ...base, args: { tab_id: 't1', text: '1', answering_permission: true } }} deciding={false} onDecide={vi.fn()} />);
+  expect(screen.queryByRole('button', { name: 'Permitir sempre nesta aba' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Liberar teclas e shell nesta aba' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Liberar tudo neste projeto' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Permitir sempre neste projeto' })).toBeNull();
+});
+it('a create_task card offers "tudo" but not the terminal level', () => {
+  render(<ChatActionCard action={card({ tool: 'create_task', args: { title: 'x' } })} deciding={false} onDecide={vi.fn()} />);
+  expect(screen.getByRole('button', { name: 'Permitir sempre neste projeto' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Liberar tudo neste projeto' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Liberar teclas e shell nesta aba' })).toBeNull();
+});
+it('a run_command card offers no grant at all', () => {
+  render(<ChatActionCard action={card({ tool: 'run_command', args: { tab_id: 't1', command: 'ls' } })} deciding={false} onDecide={vi.fn()} />);
+  expect(screen.queryByRole('button', { name: 'Permitir sempre nesta aba' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Permitir sempre neste projeto' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Liberar teclas e shell nesta aba' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Liberar tudo neste projeto' })).toBeNull();
+});
+it('a terminal tab grant reads "teclas e shell liberados"', () => {
+  render(<ChatActionCard action={{ ...base, status: 'executed' }} deciding={false} onDecide={vi.fn()} grant={{ ...grant, tool: 'terminal' }} onRevoke={vi.fn()} />);
+  expect(screen.getByText(/^Teclas e shell liberados nesta aba até/)).toBeInTheDocument();
+});
+it('a project grant with scope "all" reads "tudo liberado"', () => {
+  render(
+    <ChatActionCard
+      action={card({ tool: 'move_task', status: 'executed' })}
+      projectGrant={{ id: 'pg1', project_id: 'p1', project_name: 'App', source_action_id: 'a1', created_at: 'x', expires_at: new Date(Date.now() + 3_600_000).toISOString(), scope: 'all' }}
+      deciding={false}
+      onDecide={vi.fn()}
+      onRevoke={vi.fn()}
+    />,
+  );
+  expect(screen.getByText(/^Tudo liberado neste projeto até/)).toBeInTheDocument();
+});
+
 it('names the subagent that proposed the action', () => {
   render(<ChatActionCard action={{ ...base, subagent: { id: 's1', description: 'Buscar CI' } }} deciding={false} onDecide={vi.fn()} />);
   expect(screen.getByText('Pedido pelo subagente «Buscar CI»')).toBeInTheDocument();

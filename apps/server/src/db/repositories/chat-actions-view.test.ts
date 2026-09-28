@@ -514,7 +514,7 @@ it('describeGrantList names the tab, its project and the origin conversation, wi
   expect(active).toEqual({
     kind: 'tab', id: 'g1', tab_id: tab.id, tool: 'send_input', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z',
     tab_name: tab.name, project_id: project.id, project_name: project.name, conversation_id: 'c1', conversation_project_name: project.name,
-    conversation_archived: false, state: 'active', ended_at: null,
+    conversation_archived: false, state: 'active', ended_at: null, scope: null,
   });
   expect(revoked).toMatchObject({ state: 'revoked', ended_at: '2026-09-25T11:00:00.000Z', conversation_project_name: null, conversation_archived: true });
   expect(expiredThenReset).toMatchObject({ state: 'expired', ended_at: '2026-09-25T09:00:00.000Z', tab_name: null, project_id: null, project_name: null });
@@ -537,6 +537,7 @@ const projectGrant = (over: Partial<ChatProjectGrant>): ChatProjectGrant => ({
   id: 'pg1',
   conversation_id: 'c1',
   project_id: 'p1',
+  scope: 'board',
   source_action_id: 'a1',
   granted_by: OWNER,
   created_at: '2026-09-25T10:00:00.000Z',
@@ -549,7 +550,12 @@ const projectGrant = (over: Partial<ChatProjectGrant>): ChatProjectGrant => ({
 it('describeProjectGrants names the grant\'s project, dropping every user id', async () => {
   const repos = fakeRepos();
   const [view] = await describeProjectGrants(repos, [projectGrant({ project_id: project.id })], OWNER);
-  expect(view).toEqual({ id: 'pg1', project_id: project.id, project_name: project.name, source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z' });
+  expect(view).toEqual({ id: 'pg1', project_id: project.id, project_name: project.name, source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z', scope: 'board' });
+});
+
+it('describeProjectGrants carries an "all" grant\'s scope (TER-325)', async () => {
+  const [view] = await describeProjectGrants(fakeRepos(), [projectGrant({ project_id: project.id, scope: 'all' })], OWNER);
+  expect(view.scope).toBe('all');
 });
 
 it('describeProjectGrants says the project does not exist for a gone or foreign project, never leaking its name', async () => {
@@ -587,13 +593,18 @@ it('describeProjectGrantList names the project and the origin conversation, with
   expect(active).toEqual({
     kind: 'project', id: 'pg1', tab_id: null, tool: null, tab_name: null, source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z',
     project_id: project.id, project_name: project.name, conversation_id: 'c1', conversation_project_name: project.name,
-    conversation_archived: false, state: 'active', ended_at: null,
+    conversation_archived: false, state: 'active', ended_at: null, scope: 'board',
   });
   expect(revoked).toMatchObject({ state: 'revoked', ended_at: '2026-09-25T11:00:00.000Z', conversation_project_name: null, conversation_archived: true, tab_id: null, tab_name: null, tool: null });
   // A gone or foreign project: project_name (and the derived conversation_project_name) never leak it —
   // exactly like describeGrantList above — while the state rule (expired before a later reset) still holds.
   expect(expiredThenReset).toMatchObject({ state: 'expired', ended_at: '2026-09-25T09:00:00.000Z', project_id: foreignProject.id, project_name: null });
   expect(JSON.stringify(expiredThenReset)).not.toContain(foreignProject.name);
+});
+
+it('describeProjectGrantList carries each grant\'s scope (TER-325)', async () => {
+  const [all] = await describeProjectGrantList(fakeRepos(), [listedProject({ id: 'pg1', project_id: project.id, scope: 'all' })], OWNER, NOW);
+  expect(all.scope).toBe('all');
 });
 
 it('describeProjectGrantList batches one lookup for both the grant\'s and the conversation\'s projects, owner-scoped, and none for an empty list', async () => {

@@ -58,6 +58,9 @@ export const chatProjectGrantSchema = z.object({
   source_action_id: z.string().nullable(),
   created_at: z.string(),
   expires_at: z.string(),
+  /** `board`: the four board tools; `all`: those plus send_key/send_input on the project's tabs
+   * (spec 2026-09-27 TER-325). Absent from older servers, whose project grants are all `board`. */
+  scope: z.enum(['board', 'all']).default('board'),
 });
 
 /** How a listed grant stands (server `ChatGrantState`). */
@@ -78,6 +81,8 @@ export const chatGrantListItemSchema = chatGrantSchema.extend({
   conversation_archived: z.boolean(),
   state: chatGrantState,
   ended_at: z.string().nullable(),
+  /** A project row's scope (`board` or `all`, TER-325); null on tab rows and from older servers. */
+  scope: z.enum(['board', 'all']).nullable().default(null),
 });
 
 export const chatGrantListResponse = z.object({ grants: z.array(chatGrantListItemSchema), next_cursor: z.string().nullable() });

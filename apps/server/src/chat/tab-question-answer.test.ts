@@ -17,7 +17,7 @@ vi.mock('../control/terminals.js', async (orig) => ({
 }));
 vi.mock('../control/screen.js', async (orig) => ({ ...(await orig<typeof import('../control/screen.js')>()), readScreen: (...a: unknown[]) => readScreen(a[0], a[1] as never, a[2] as never) }));
 
-const { answerTabQuestion, lastNonBlankLines, promptVisible, requirePinFor, tabQuestionScreen } = await import('./tab-question-answer.js');
+const { answerTabQuestion, DIALOG_FOOTER, lastNonBlankLines, permissionDialogVisible, promptVisible, requirePinFor, tabQuestionScreen } = await import('./tab-question-answer.js');
 
 const fx = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures/tab-questions', name), 'utf8');
 const screens = { choice: fx('screen-choice.txt'), permission: fx('screen-permission.txt') };
@@ -373,6 +373,16 @@ describe('promptVisible', () => {
     expect(promptVisible(far, permission())).toBe(false);
     const near = ['Do you want to proceed?', ...Array.from({ length: 23 }, (_, i) => `line ${i}`), PERMISSION_FOOTER].join('\n');
     expect(promptVisible(near, permission())).toBe(true);
+  });
+});
+
+describe('permissionDialogVisible', () => {
+  it('sees a permission dialog at the bottom of the screen', () => {
+    expect(permissionDialogVisible(`● Bash(rm x)\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n${DIALOG_FOOTER}`)).toBe(true);
+  });
+  it('ignores a dialog left in the scrollback and a plain prompt', () => {
+    expect(permissionDialogVisible(`Do you want to proceed?\n${DIALOG_FOOTER}\n\n> \n  ? for shortcuts`)).toBe(false);
+    expect(permissionDialogVisible('$ ls\nfile\n$ ')).toBe(false);
   });
 });
 

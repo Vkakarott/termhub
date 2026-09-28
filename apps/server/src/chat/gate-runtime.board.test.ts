@@ -24,17 +24,18 @@ function fakeActions() {
     claimApproved: vi.fn(async (id: string) => { const r = rows.find((x) => x.id === id && x.status === 'approved'); if (!r) return false; r.status = 'executed'; return true; }),
     expireApproved: vi.fn(async () => false),
     markExecuted: vi.fn(async (id: string, ok: boolean, code?: string | null) => { const r = rows.find((x) => x.id === id)!; r.status = ok ? 'executed' : 'failed'; r.error_code = code ?? null; }),
-    countForGrantSince: vi.fn(async (c: string, g: string, since: Date) => rows.filter((r) => r.conversation_id === c && r.grant_id === g && Date.parse(r.created_at) > since.getTime()).length),
+    countForGrantSince: vi.fn(async (c: string, g: string, since: Date, tools?: readonly string[]) =>
+      rows.filter((r) => r.conversation_id === c && r.grant_id === g && Date.parse(r.created_at) > since.getTime() && (!tools || tools.includes(r.tool))).length),
   };
 }
 
 let actions: ReturnType<typeof fakeActions>;
-let projectGrants: { id: string; conversation_id: string; project_id: string; expires_at: string; revoked_at: string | null }[];
+let projectGrants: { id: string; conversation_id: string; project_id: string; scope: 'board' | 'all'; expires_at: string; revoked_at: string | null }[];
 let ctx: ControlContext;
 const run = vi.fn(async () => ({ ok: 1 }));
 const call = (tool: string, args: Record<string, unknown>) => applyGate(ctx, { token: { gated: true, chat_conversation_id: C }, tool, args, run });
 const seedGrant = (projectId = 'p1', o: { minutes?: number; revoked?: boolean; id?: string } = {}) =>
-  projectGrants.push({ id: o.id ?? `pg${projectGrants.length + 1}`, conversation_id: C, project_id: projectId, expires_at: new Date(Date.now() + (o.minutes ?? 60) * 60_000).toISOString(), revoked_at: o.revoked ? new Date().toISOString() : null });
+  projectGrants.push({ id: o.id ?? `pg${projectGrants.length + 1}`, conversation_id: C, project_id: projectId, scope: 'board', expires_at: new Date(Date.now() + (o.minutes ?? 60) * 60_000).toISOString(), revoked_at: o.revoked ? new Date().toISOString() : null });
 
 beforeEach(() => {
   run.mockClear();
