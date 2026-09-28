@@ -11,10 +11,11 @@ import { AgentOfflineError } from '../agent/registry.js';
 import { AgentRpcError } from '../agent/connection.js';
 import { registerTerminalWs } from './ws.js';
 
-const { resolveUserMock, canAccessMock, createPtySessionMock } = vi.hoisted(() => ({
+const { resolveUserMock, canAccessMock, createPtySessionMock, awaitAgentMock } = vi.hoisted(() => ({
   resolveUserMock: vi.fn(),
   canAccessMock: vi.fn(),
   createPtySessionMock: vi.fn(),
+  awaitAgentMock: vi.fn(),
 }));
 
 // The router's cookie/permission plumbing isn't what this suite is about — stub it open,
@@ -27,6 +28,11 @@ vi.mock('../auth/index.js', () => ({
 // Real LocalPtySession pulls in the native node-pty addon; this suite is only about the
 // ws.ts <-> createPtySession wiring, so the whole module is replaced.
 vi.mock('./pty-session.js', () => ({ createPtySession: (...args: unknown[]) => createPtySessionMock(...args) }));
+// Only awaitAgent is exercised here; keep the module's real exports (AgentOfflineError) otherwise.
+vi.mock('../agent/registry.js', async (orig) => {
+  const mod = await orig<typeof import('../agent/registry.js')>();
+  return { ...mod, agents: { awaitAgent: (...a: unknown[]) => awaitAgentMock(...a) } };
+});
 
 const machine: Machine = {
   id: 'm1',
@@ -119,6 +125,21 @@ function waitClose(ws: WebSocket): Promise<{ code: number; reason: string }> {
   });
 }
 
+/** Connects a client to tab t1, collecting every JSON message and the eventual close. */
+async function connectClient(port: number): Promise<{ ws: WebSocket; messages: unknown[]; closed: Promise<{ code: number; reason: string }> }> {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/tabs/t1`);
+  const messages: unknown[] = [];
+  ws.on('message', (data) => messages.push(JSON.parse(data.toString())));
+  const closed = waitClose(ws);
+  await waitOpen(ws);
+  return { ws, messages, closed };
+}
+
+/** Polls `messages` until one of the given type shows up. */
+async function waitForMessage(messages: unknown[], type: string): Promise<void> {
+  await vi.waitFor(() => expect(messages.some((m) => (m as { type?: string }).type === type)).toBe(true));
+}
+
 describe('registerTerminalWs', () => {
   let server: http.Server;
   let wss: WebSocketServer;
@@ -128,6 +149,7 @@ describe('registerTerminalWs', () => {
     resolveUserMock.mockReset().mockResolvedValue({ id: 'u1' });
     canAccessMock.mockReset().mockResolvedValue(true);
     createPtySessionMock.mockReset();
+    awaitAgentMock.mockReset().mockResolvedValue(true);
     server = http.createServer();
     const router = createUpgradeRouter(server, { auth: {} as AuthContext });
     wss = registerTerminalWs(router, { repos: fakeRepos(), log: fakeLog() });
@@ -212,5 +234,79 @@ describe('registerTerminalWs', () => {
     // No spurious extra teardown: the normal ws.on('close', ...) path never gets to run
     // because clientGone short-circuits before it's registered.
     expect(kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes 1012 without an exit frame when the agent connection is lost', async () => {
+    let handlers!: { onLost?: () => void };
+    createPtySessionMock.mockImplementation(async (_m, _c, _t, _s, h) => {
+      handlers = h;
+      return { pid: null, write: vi.fn(), resize: vi.fn(), kill: vi.fn() };
+    });
+
+    const { messages, closed } = await connectClient(port);
+    await waitForMessage(messages, 'ready');
+
+    handlers.onLost!();
+    const { code, reason } = await closed;
+
+    expect(code).toBe(1012);
+    expect(reason).toBe('agent reconnecting');
+    expect(messages.some((m) => (m as { type?: string }).type === 'exit')).toBe(false);
+  });
+
+  it('real exit still sends exit + 1000', async () => {
+    let handlers!: { onExit: (code: number) => void };
+    createPtySessionMock.mockImplementation(async (_m, _c, _t, _s, h) => {
+      handlers = h;
+      return { pid: null, write: vi.fn(), resize: vi.fn(), kill: vi.fn() };
+    });
+
+    const { messages, closed } = await connectClient(port);
+    await waitForMessage(messages, 'ready');
+
+    handlers.onExit(0);
+    const { code } = await closed;
+
+    expect(code).toBe(1000);
+    expect(messages).toContainEqual({ type: 'exit', code: 0 });
+  });
+
+  it('waits for a moving agent before opening the pty', async () => {
+    let release!: (v: boolean) => void;
+    awaitAgentMock.mockReturnValue(new Promise<boolean>((r) => (release = r)));
+    createPtySessionMock.mockResolvedValue({ pid: null, write: vi.fn(), resize: vi.fn(), kill: vi.fn() });
+
+    const { ws, messages } = await connectClient(port);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(createPtySessionMock).not.toHaveBeenCalled();
+
+    release(true);
+    await waitForMessage(messages, 'ready');
+    expect(createPtySessionMock).toHaveBeenCalledOnce();
+    ws.close();
+  });
+
+  it('fails at once for a long-offline machine', async () => {
+    awaitAgentMock.mockResolvedValue(false);
+    createPtySessionMock.mockRejectedValue(new AgentOfflineError('agent offline: m1'));
+
+    const { messages, closed } = await connectClient(port);
+
+    expect((await closed).code).toBe(1011);
+    expect(messages).toContainEqual({ type: 'error', message: 'Agente desconectado' });
+  });
+
+  it('client gone during the wait: no pty is opened', async () => {
+    let release!: (v: boolean) => void;
+    awaitAgentMock.mockReturnValue(new Promise<boolean>((r) => (release = r)));
+
+    const { ws } = await connectClient(port);
+    ws.close();
+    await new Promise((r) => setTimeout(r, 50));
+
+    release(true);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(createPtySessionMock).not.toHaveBeenCalled();
   });
 });

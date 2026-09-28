@@ -126,4 +126,38 @@ describe('AgentPtySession', () => {
       AgentPtySession.open(registry, fakeMachine(), '/Users/x/proj', fakeTab({ kind: 'simulator', tmux_session: null }), { cols: 80, rows: 24 }, { onData: vi.fn(), onExit: vi.fn() }),
     ).rejects.toThrow('Tab não é um terminal');
   });
+
+  it('reports a lost agent connection as onLost, not as an exit', async () => {
+    const channel = fakeChannel();
+    const registry = fakeRegistry(channel);
+    const onExit = vi.fn();
+    const onLost = vi.fn();
+    await AgentPtySession.open(registry, fakeMachine(), '/tmp', fakeTab(), {}, { onData: vi.fn(), onExit, onLost });
+    const handlers = (registry.openPty as unknown as ReturnType<typeof vi.fn>).mock.calls[0][2] as PtyHandlers;
+    handlers.onExit(null);
+    expect(onLost).toHaveBeenCalledOnce();
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
+  it('still reports a real exit code as onExit', async () => {
+    const channel = fakeChannel();
+    const registry = fakeRegistry(channel);
+    const onExit = vi.fn();
+    const onLost = vi.fn();
+    await AgentPtySession.open(registry, fakeMachine(), '/tmp', fakeTab(), {}, { onData: vi.fn(), onExit, onLost });
+    const handlers = (registry.openPty as unknown as ReturnType<typeof vi.fn>).mock.calls[0][2] as PtyHandlers;
+    handlers.onExit(0);
+    expect(onExit).toHaveBeenCalledWith(0);
+    expect(onLost).not.toHaveBeenCalled();
+  });
+
+  it('falls back to onExit(1) for a lost connection when no onLost is given', async () => {
+    const channel = fakeChannel();
+    const registry = fakeRegistry(channel);
+    const onExit = vi.fn();
+    await AgentPtySession.open(registry, fakeMachine(), '/tmp', fakeTab(), {}, { onData: vi.fn(), onExit });
+    const handlers = (registry.openPty as unknown as ReturnType<typeof vi.fn>).mock.calls[0][2] as PtyHandlers;
+    handlers.onExit(null);
+    expect(onExit).toHaveBeenCalledWith(1);
+  });
 });

@@ -5,8 +5,9 @@ import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, Project, Tab } from '../db/repositories/types.js';
 import { rejectUpgrade, type createUpgradeRouter } from '../ws/router.js';
 import { Scoped } from '../auth/scope.js';
-import { AgentOfflineError } from '../agent/registry.js';
+import { AgentOfflineError, agents } from '../agent/registry.js';
 import { AgentRpcError } from '../agent/connection.js';
+import { RESTART_CLOSE } from '../ws/drain.js';
 import { createPtySession, type PtySession } from './pty-session.js';
 
 /** What the person sees when the terminal could not start: what to do when we know the cause. */
@@ -92,6 +93,14 @@ async function handleConnection(
   ws.once('close', onEarlyDisconnect);
   ws.once('error', onEarlyDisconnect);
 
+  // An agent that is moving between instances (a deploy) gets a few seconds to arrive instead of an error.
+  await agents.awaitAgent(ctx.machine);
+  if (clientGone) {
+    ws.off('close', onEarlyDisconnect);
+    ws.off('error', onEarlyDisconnect);
+    return;
+  }
+
   let session: PtySession;
   try {
     session = await createPtySession(
@@ -106,6 +115,11 @@ async function handleConnection(
         onExit: (code) => {
           send({ type: 'exit', code });
           ws.close(1000, 'pty exit');
+        },
+        onLost: () => {
+          // The machine's connection dropped, the tmux session did not: the browser reconnects right away.
+          log.info({ tabId: ctx.tab.id, machineId: ctx.machine.id }, 'agent connection lost');
+          ws.close(RESTART_CLOSE, 'agent reconnecting');
         },
       },
     );
