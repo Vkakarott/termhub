@@ -71,11 +71,26 @@ export function runInWorker(kind: DocumentKind, file: Buffer, zipBudget: number,
       if (m.ok) finish(() => resolve(m.extracted));
       else finish(() => reject(new ExtractError(m.code, m.message)));
     });
+    // An uncaught throw reaches the parent on Node's internal port and `ready` on the public one,
+    // with no order between them: under load `error` can overtake a `ready` the worker sent first
+    // (TER-314). Node drains the public port before it emits `exit`, so the error is only kept
+    // here and classified there, once `ready` is final. The worker is dying anyway after `error`.
+    let errored = false;
+    let thrown: unknown;
     worker.on('error', (err: unknown) => {
+      if (errored) return;
+      errored = true;
+      thrown = err;
+    });
+    worker.on('exit', () => {
+      if (!errored) {
+        finish(() => reject(new ExtractError('ATTACHMENT_INVALID', 'extraction worker exited')));
+        return;
+      }
       // A worker's uncaught throw reaches here as whatever value was thrown, not necessarily an
       // Error (`throw null` delivers `null`): never assume `.code`/`.name` exist.
-      const code = (err as { code?: string } | null | undefined)?.code;
-      const name = (err as { name?: string } | null | undefined)?.name;
+      const code = (thrown as { code?: string } | null | undefined)?.code;
+      const name = (thrown as { name?: string } | null | undefined)?.name;
       const failure =
         code === 'ERR_WORKER_OUT_OF_MEMORY'
           ? new ExtractError('ATTACHMENT_INVALID', 'extraction out of memory')
@@ -84,6 +99,5 @@ export function runInWorker(kind: DocumentKind, file: Buffer, zipBudget: number,
             : new ExtractError('ATTACHMENT_INVALID', name ?? 'extraction failed');
       finish(() => reject(failure));
     });
-    worker.on('exit', () => finish(() => reject(new ExtractError('ATTACHMENT_INVALID', 'extraction worker exited'))));
   });
 }
