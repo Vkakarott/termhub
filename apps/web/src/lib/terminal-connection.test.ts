@@ -88,4 +88,33 @@ describe('TerminalConnection', () => {
     expect(states[states.length - 1]).toEqual(['connected', 0]);
     expect(ws.sent).toContain(JSON.stringify({ type: 'resize', cols: 80, rows: 24 }));
   });
+
+  it('reconnects quickly on 1012 without spending an attempt', () => {
+    const { states } = start();
+    last().open();
+    last().message({ type: 'ready' });
+    last().serverClose(1012);
+    expect(states.at(-1)).toEqual(['reconnecting', 0]);
+    vi.advanceTimersByTime(760);
+    expect(FakeSocket.all).toHaveLength(2);
+  });
+
+  it('several 1012 in a row never reach offline', () => {
+    const { states } = start();
+    for (let i = 0; i < 12; i++) {
+      last().serverClose(1012);
+      vi.advanceTimersByTime(760);
+    }
+    expect(states.some(([s]) => s === 'offline')).toBe(false);
+  });
+
+  it('exit frame then 1012 stays closed', () => {
+    const { states } = start();
+    last().open();
+    last().message({ type: 'exit', code: 0 });
+    last().serverClose(1012);
+    expect(states.at(-1)?.[0]).toBe('closed');
+    vi.advanceTimersByTime(2000);
+    expect(FakeSocket.all).toHaveLength(1);
+  });
 });

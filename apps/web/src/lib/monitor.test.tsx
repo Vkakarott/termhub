@@ -13,17 +13,22 @@ vi.mock('./auth', () => ({ useAuth: () => ({ can: () => true }) }));
 import { MonitorProvider, useMonitor } from './monitor';
 
 class FakeSocket {
+  static all: FakeSocket[] = [];
   static last: FakeSocket | null = null;
   onopen: (() => void) | null = null;
   onmessage: ((ev: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((ev: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
   constructor() {
+    FakeSocket.all.push(this);
     FakeSocket.last = this;
   }
   close() {}
   push(frame: object) {
     this.onmessage?.({ data: JSON.stringify(frame) });
+  }
+  serverClose(code: number) {
+    this.onclose?.({ code });
   }
 }
 
@@ -43,6 +48,8 @@ function mount() {
 }
 
 beforeEach(() => {
+  FakeSocket.all = [];
+  FakeSocket.last = null;
   vi.stubGlobal('WebSocket', FakeSocket);
   api.tabs.mockResolvedValue({ items: [item(tab('t1', { state: 'working', state_at: '2026-09-23T10:00:00.000Z' }))] });
   api.openTabs.mockResolvedValue({ items: [item(tab('t1', { state: 'working', state_at: '2026-09-23T10:00:00.000Z' })), item(tab('t2'))] });
@@ -142,5 +149,40 @@ describe('MonitorProvider openTabsLoaded', () => {
     });
     expect(m().openTabsLoaded).toBe(true);
     expect(m().openTabsFailed).toBe(false);
+  });
+});
+
+describe('MonitorProvider reconnect timing', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('reopens the socket quickly after a 1012 close (server restarting)', async () => {
+    mount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(FakeSocket.all).toHaveLength(1);
+    act(() => FakeSocket.last!.serverClose(1012));
+    await act(async () => {
+      vi.advanceTimersByTime(760);
+    });
+    expect(FakeSocket.all).toHaveLength(2);
+  });
+
+  it('waits the full backoff after an ordinary close', async () => {
+    mount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(FakeSocket.all).toHaveLength(1);
+    act(() => FakeSocket.last!.serverClose(1006));
+    await act(async () => {
+      vi.advanceTimersByTime(760);
+    });
+    expect(FakeSocket.all).toHaveLength(1);
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(FakeSocket.all).toHaveLength(2);
   });
 });
