@@ -1,0 +1,6 @@
+● I wrote the plan to docs/plan.md. Would you like to proceed?
+────────────────────────────────────────────────────────────────────────────────
+❯ 1. corrige o teste
+────────────────────────────────────────────────────────────────────────────────
+  Opus 5.5 (1M context) | ctx 4% (43k/1000k)
+  ⏵⏵ auto mode on (shift+tab to cycle)

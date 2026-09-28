@@ -63,8 +63,15 @@ export const PERMISSION_MARKERS: readonly string[] = [
 ];
 const squashLower = (s: string) => squash(s).toLowerCase();
 const MARKERS = PERMISSION_MARKERS.map(squashLower);
-/** The selected option of a numbered menu: Claude Code draws `❯ 1. Yes`, Codex `› 1. Yes, proceed (y)`. */
-const SELECTED_OPTION = /^\s*[❯›>]\s*\d+\./;
+/** The selected option of a numbered menu: Claude Code draws `❯ 1. Yes`, Codex `› 1. Yes, proceed (y)`
+ * (`>` is Claude Code's ASCII fallback). The number is captured to find its sibling options. */
+const SELECTED_OPTION = /^\s*[❯›>]\s*(\d+)\./;
+/** An option that is not selected: a number and a dot, no cursor. */
+const PLAIN_OPTION = /^\s*(\d+)\./;
+/** A horizontal rule: Claude Code draws its input box between two of them. */
+const RULE = /^\s*[─━-]{10,}\s*$/;
+/** How many non-blank lines away a sibling option may be (a wrapped label or a description line). */
+const SIBLING_REACH = 3;
 
 /**
  * Option labels that exist only in an approval menu, never in a routine one (spec 2026-09-28 TER-374
@@ -81,6 +88,29 @@ export const APPROVAL_OPTIONS: readonly string[] = [
 const OPTIONS = APPROVAL_OPTIONS.map(squashLower);
 
 /**
+ * The index in `lines` of the selected option of a real menu, or -1 (spec 2026-09-28 TER-380). A menu
+ * has a plain sibling option (the cursor's number ± 1) within `SIBLING_REACH` lines and exactly one
+ * cursor; a cursor right under a rule is Claude Code's input box (`❯ 1. …` typed by the user or the
+ * concierge), a lone `› 1. …` is Codex's composer, and `> 1.` / `> 2.` is a quoted list — none of them a
+ * permission.
+ */
+function menuCursor(lines: string[]): number {
+  let cursor = -1;
+  for (let i = lines.length - 1; i >= 0; i--) if (SELECTED_OPTION.test(lines[i]!)) { cursor = i; break; }
+  if (cursor < 0) return -1;
+  if (cursor > 0 && RULE.test(lines[cursor - 1]!)) return -1;
+  const n = Number(SELECTED_OPTION.exec(lines[cursor]!)![1]);
+  let sibling = false;
+  for (let i = Math.max(0, cursor - SIBLING_REACH); i <= Math.min(lines.length - 1, cursor + SIBLING_REACH); i++) {
+    if (i === cursor) continue;
+    if (SELECTED_OPTION.test(lines[i]!)) return -1;
+    const m = PLAIN_OPTION.exec(lines[i]!);
+    if (m && Math.abs(Number(m[1]) - n) === 1) sibling = true;
+  }
+  return sibling ? cursor : -1;
+}
+
+/**
  * Whether the screen shows an agent's permission dialog right now. Used by the gate before a terminal
  * grant presses a key (TER-325), so it leans towards "yes": `promptVisible`'s rule for a permission row
  * (footer + "Do you want"), or — for dialogs worded otherwise or without that footer — a marker phrase
@@ -88,13 +118,13 @@ const OPTIONS = APPROVAL_OPTIONS.map(squashLower);
  * `PROMPT_MARKER_LINES` non-blank lines. The cursor keeps the model's own prose ("Would you like to
  * proceed?") from counting, and the approval-options half keeps a long command from pushing the
  * question itself out of the window (TER-374 fix round 1); a menu with no marker or approval option
- * (Claude Code's exit menu, `/resume`) is not a permission and stays free (TER-374).
+ * (Claude Code's exit menu, `/resume`) is not a permission and stays free (TER-374). `menuCursor` rejects
+ * a typed input box, a Codex composer line and a quoted list before either half runs (TER-380).
  */
 export function permissionDialogVisible(screen: string): boolean {
   if (promptVisible(screen, { kind: 'permission', payload: { tool_name: '' } })) return true;
   const lines = lastNonBlankLines(screen, PROMPT_MARKER_LINES).split('\n');
-  let cursor = -1;
-  for (let i = lines.length - 1; i >= 0; i--) if (SELECTED_OPTION.test(lines[i]!)) { cursor = i; break; }
+  const cursor = menuCursor(lines);
   if (cursor < 0) return false;
   const above = squashLower(lines.slice(0, cursor).join('\n'));
   if (MARKERS.some((m) => above.includes(m))) return true;

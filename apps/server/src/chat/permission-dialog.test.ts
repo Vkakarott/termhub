@@ -10,12 +10,12 @@ describe('permissionDialogVisible', () => {
   it.each([
     'claude-edit.txt', 'claude-webfetch.txt', 'claude-network.txt', 'claude-exit-plan.txt', 'claude-enter-plan.txt', 'claude-skill.txt',
     'claude-reads-outside.txt', 'claude-trust.txt', 'codex-command.txt', 'codex-edits.txt', 'codex-permissions.txt', 'codex-network.txt',
-    'codex-long-command.txt',
+    'codex-long-command.txt', 'claude-cursor-last-option.txt', 'claude-option-description.txt',
   ])('sees %s', (f) => expect(permissionDialogVisible(fx(f))).toBe(true));
-  it.each(['claude-prompt.txt', 'claude-exit-menu.txt', 'claude-prose-question.txt', 'claude-cursor-above-marker.txt', 'claude-resume-list.txt'])(
-    'ignores %s',
-    (f) => expect(permissionDialogVisible(fx(f))).toBe(false),
-  );
+  it.each([
+    'claude-prompt.txt', 'claude-exit-menu.txt', 'claude-prose-question.txt', 'claude-cursor-above-marker.txt', 'claude-resume-list.txt',
+    'claude-typed-numbered-prompt.txt', 'claude-typed-numbered-list.txt', 'claude-quoted-list.txt', 'codex-typed-numbered-prompt.txt',
+  ])('ignores %s', (f) => expect(permissionDialogVisible(fx(f))).toBe(false));
   it('ignores a dialog that scrolled away', () => {
     const filler = Array.from({ length: 30 }, (_, i) => `● line ${i}`).join('\n');
     expect(permissionDialogVisible(`${fx('claude-exit-plan.txt')}\n${filler}\n${fx('claude-prompt.txt')}`)).toBe(false);
