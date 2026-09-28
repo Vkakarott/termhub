@@ -71,6 +71,16 @@ describe('runInWorker', () => {
     expect(err.retryable).toBe(false);
   }, 20_000);
 
+  // TER-314: the uncaught error and the `ready` message travel on different ports, so with many
+  // workers at once the error sometimes lands first. It must still be the file's failure, never
+  // a retryable start failure. worker-runner.order.test.ts forces that order deterministically.
+  it('many uncaught throws at once are all extraction failures, never retryable start failures', async () => {
+    const jobs = Array.from({ length: 24 }, (_, i) => failure(runInWorker('pdf', Buffer.from('x'), 1, opts(fixture(i % 2 ? 'throw.ts' : 'throw-null.ts')))));
+    const errs = await Promise.all(jobs);
+    expect(errs.filter((e) => e.retryable).map((e) => e.message)).toEqual([]);
+    expect(errs.every((e) => e.code === 'ATTACHMENT_INVALID')).toBe(true);
+  }, 60_000);
+
   it('a worker that exits without answering is ATTACHMENT_INVALID', async () => {
     const err = await failure(runInWorker('pdf', Buffer.from('x'), 1, opts(fixture('exit.ts'))));
     expect(err.code).toBe('ATTACHMENT_INVALID');
