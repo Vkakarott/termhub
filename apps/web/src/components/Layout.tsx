@@ -78,8 +78,17 @@ function LayoutRow({ collapsed, setCollapsed, onLeaveSettings }: { collapsed: bo
   // `--app-height` is the height the on-screen keyboard leaves, tracked by ChatDock while a chat is
   // shown on a touch screen (lib/viewport); otherwise unset — on every desktop, and on a touch screen
   // without a chat — and the row is the full height it always was.
+  //
+  // `overflow-clip`: the row is the window (`html`, `body` and `#root` are 100% of it), and every
+  // page scrolls inside its own region, so the document itself must never scroll. Anything laid out
+  // past the row — a leak from a panel, a terminal, a banner — used to extend the document instead,
+  // and one wheel over a header (which has no scroller of its own) scrolled the whole app up: the
+  // sidebar, the terminal and the chat ended halfway down the page with empty background below
+  // (TER-385). `clip` cuts such a leak at the row's edge, which is the window's edge, and unlike
+  // `hidden` it makes no scroll container: nothing, not even a focus, can scroll the row. Fixed
+  // descendants (toasts, modals, the dock's hidden panels) are not clipped by it.
   return (
-    <div className="flex h-[var(--app-height,100%)]">
+    <div className="flex h-[var(--app-height,100%)] overflow-clip">
       <Chrome collapsed={collapsed} setCollapsed={setCollapsed} onLeaveSettings={onLeaveSettings} />
       <main className={`relative min-w-0 flex-1 ${maximized ? 'hidden' : ''}`}>
         <DeviceRequestBanner />

@@ -263,6 +263,14 @@ describe('Layout chat dock', () => {
     expect(screen.getByRole('main').parentElement!.className).toContain('h-[var(--app-height,100%)]');
   });
 
+  it('clips what leaks out of the row, so nothing inside can ever make the document taller or scrollable (TER-385)', () => {
+    // `html`, `body` and `#root` are the window; the row is 100% of it. Anything laid out past the
+    // row used to extend the document, and one wheel over a header (no scroller of its own) scrolled
+    // the whole app up, leaving the sidebar, the terminal and the chat ending halfway down the page.
+    mountLayout();
+    expect(screen.getByRole('main').parentElement!.className).toContain('overflow-clip');
+  });
+
   it('hides main (still mounted) while the shown chat is maximized', () => {
     dock.shownProjectId = 'p1';
     dock.maximized = true;
