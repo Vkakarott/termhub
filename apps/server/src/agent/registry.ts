@@ -9,8 +9,14 @@ import {
   type TcpOpenParams,
 } from '@termhub/agent-protocol';
 import type { AgentChannel, AgentConnection, AgentPtyChannel, ChannelHandlers, PtyHandlers } from './connection.js';
+import type { Machine } from '../db/repositories/types.js';
 
 export class AgentOfflineError extends Error {}
+
+/** An agent offline here but seen this recently is moving between instances (deploy, reconnect): worth a short wait. */
+export const MOVING_WINDOW_MS = 150_000;
+/** How long a caller waits for a moving agent before answering "offline". */
+export const MOVING_WAIT_MS = 15_000;
 
 export interface AgentInfo {
   agent_version: string;
@@ -26,6 +32,12 @@ export interface AgentInfo {
  */
 export class AgentRegistry extends EventEmitter {
   private readonly conns = new Map<string, AgentConnection>();
+
+  constructor() {
+    super();
+    // Many terminals may be waiting on the same or different machines during a deploy drain.
+    this.setMaxListeners(0);
+  }
 
   attach(machineId: string, conn: AgentConnection): void {
     const existing = this.conns.get(machineId);
@@ -114,6 +126,44 @@ export class AgentRegistry extends EventEmitter {
   /** Test-only: clears the map without closing connections. */
   reset(): void {
     this.conns.clear();
+  }
+
+  /** Resolves true once `machineId` is attached (at once if it already is), false after `timeoutMs`. */
+  waitOnline(machineId: string, timeoutMs: number): Promise<boolean> {
+    if (this.conns.has(machineId)) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const onOnline = (id: string) => {
+        if (id !== machineId) return;
+        clearTimeout(timer);
+        this.off('online', onOnline);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        this.off('online', onOnline);
+        resolve(false);
+      }, timeoutMs);
+      this.on('online', onOnline);
+    });
+  }
+
+  /**
+   * Whether the machine's agent can be used now, waiting a little for one that is moving: offline here but seen
+   * moments ago, which is what a blue/green switch or a quick reconnect looks like (spec 2026-09-27 §5.3). A machine
+   * long gone answers false at once. Non-agent machines have nothing to wait for.
+   */
+  async awaitAgent(machine: Pick<Machine, 'id' | 'type' | 'agent_last_seen_at'>, opts: { now?: number; timeoutMs?: number } = {}): Promise<boolean> {
+    if (machine.type !== 'agent') return true;
+    if (this.conns.has(machine.id)) return true;
+    const seen = machine.agent_last_seen_at ? Date.parse(machine.agent_last_seen_at) : NaN;
+    if (!Number.isFinite(seen) || (opts.now ?? Date.now()) - seen > MOVING_WINDOW_MS) return false;
+    return this.waitOnline(machine.id, opts.timeoutMs ?? MOVING_WAIT_MS);
+  }
+
+  /** Closes every agent connection (the drain on shutdown); returns how many there were. */
+  closeAll(code: number, reason: string): number {
+    const all = [...this.conns.values()];
+    for (const conn of all) conn.close(code, reason);
+    return all.length;
   }
 }
 

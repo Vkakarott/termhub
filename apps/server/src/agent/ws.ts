@@ -61,6 +61,11 @@ export function registerAgentWs(router: ReturnType<typeof createUpgradeRouter>, 
           let seen: ReturnType<typeof setInterval> | undefined;
           let beat: ReturnType<typeof setInterval> | undefined;
           const attachedAt = Date.now();
+          const touch = (extra: { version?: string; os?: string; capabilities?: string[] } = {}) =>
+            deps.repos.machines
+              .touchAgent(machine.id, { lastSeenAt: new Date(), ...extra })
+              .catch((err) => log.warn({ err, machineId: machine.id }, 'touchAgent failed'));
+
           conn.on('close', (code: number, reason: string) => {
             closed = true;
             if (seen) clearInterval(seen);
@@ -69,12 +74,10 @@ export function registerAgentWs(router: ReturnType<typeof createUpgradeRouter>, 
             // agent chose (1000/1001…) means it hung up on purpose. Together with `connectedMs`
             // this tells a crash-loop apart from an idle path that silently rotted.
             log.info({ machineId: machine.id, code, reason, connectedMs: Date.now() - attachedAt }, 'agent disconnected');
+            // When it left, not only when it was last polled: the other colour reads this to tell an agent that is
+            // moving over (a deploy) from one long gone (spec 2026-09-27 §5.3).
+            void touch();
           });
-
-          const touch = (extra: { version?: string; os?: string; capabilities?: string[] } = {}) =>
-            deps.repos.machines
-              .touchAgent(machine.id, { lastSeenAt: new Date(), ...extra })
-              .catch((err) => log.warn({ err, machineId: machine.id }, 'touchAgent failed'));
 
           await touch({ version: hello.agent_version, os: hello.os, capabilities: hello.tools });
           if (closed) return;
