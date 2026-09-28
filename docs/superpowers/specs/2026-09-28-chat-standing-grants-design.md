@@ -213,3 +213,30 @@ Kind labels (`STANDING_KIND_LABEL`, shared text in `grant-list-text.ts`): `open_
 - Granting from the list, a duration picker, per-kind budgets configurable from the UI.
 - Covering `run_command`, `delete_task`, ticket pushes, integrations or permission answers under any grant.
 - A standing grant for the general (project-less) chat's actions: every kind here resolves to a project.
+
+## 11. Adjustments found while implementing
+
+- `standingProjectOf` takes the `tool` too — `standingProjectOf(repos, ownerId, kind, tool, args)` — since the
+  `board` kind needs `boardProjectOf(tool, args)` and the terminal kind needs to know which tool it judges.
+- `conversation_id` is nullable on standing list items: the granting conversation may be deleted (FK
+  `ON DELETE SET NULL`) while the grant lives on. Such a row's origin reads **"Conversa apagada"** on the web
+  and in the app (`grantOriginLabel`), instead of "Chat geral".
+- The web panel applies a live `standing_grant` event by project (every one of them in the general chat), not
+  by conversation: a standing grant is not tied to the chat that granted it, so every open chat of the project
+  shows it at once.
+- The terminal note's wording is "send_key e send_input nas abas desse projeto" (the project is already
+  named earlier in the sentence).
+- The app's `features/chat-grants/model/labels.ts` re-exports the contract's `STANDING_KIND_LABEL` instead of
+  copying the table (the web keeps its own copy, since it has no workspace deps). The app's PIN sheet titles a
+  standing grant with the card's button label ("Liberar sem prazo: <ação> neste projeto"), passed as an
+  optional `title` on `requestPinProof`.
+- The system prompt line names its exceptions per kind: "delete_task, run_command, responder permissões,
+  texto com "!" ou caracteres de controle" always, plus ", fechar abas trabalhando" only when `close_tab` is
+  among the kinds.
+- Residual `close_tab` window: the tab's state is checked at the gate; a tab that turns `working` between the
+  gate and the execute is not re-checked (only `waiting_permission` is, and fails `WAITING_PERMISSION`). A
+  shell that never reported a state is covered, as §2 decided.
+- The active list is capped at 100 rows across its three sources (tab, project, standing grants); paging the
+  active list is deferred.
+- Migration renamed to `20260928233000_chat_standing_grants`: `main` added `20260928230000_api_token_tab`
+  with the same timestamp prefix, and ours must apply after it.
