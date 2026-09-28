@@ -207,9 +207,11 @@ Under the chat memory routes (`guarded('chat', …)`, mounted at `/api/chat` and
   `kind = 'doc'` rows (fix round 1, Task 4): a project link's `docs/lessons/*.md` items were otherwise
   never revisited once its link was gone, staying indexed forever.
 - **`indexProjectNote` loads the note's owner through the projects repository and skips a deleted
-  project**, and both the note route and `record_lesson` fire it `void` (best effort) after their
-  write — a crash between saving and indexing leaves the note stale until the memory sweeper's own
-  pass, never blocks or fails the save/record call itself.
+  project**. The note route fires it `void` (best effort) after the save; `record_lesson` **awaits**
+  it (not `void`, unlike §4 says), since it must look the fresh item up for the `ref` it returns —
+  `indexProjectNote` never throws (it logs `{ projectId, code }` and resolves with zero counts), so
+  awaiting it can delay the call but never fail it. Either way, a crash between saving and indexing
+  leaves the note stale until the memory sweeper's own pass, never blocks or fails the save/record.
 - **`record_lesson` returns `ref: null`, not a failure, when the just-written block is not yet
   indexed** (`control/lessons.ts`): the write to the note always succeeds and is reported as such; only
   the ref the caller could cite in the same turn is missing until the index catches up.
@@ -250,3 +252,38 @@ Under the chat memory routes (`guarded('chat', …)`, mounted at `/api/chat` and
   `search_memory` call agreed. `PUT /projects/:id/note` with content that dropped the block and a
   `base_updated_at` older than the block's `at` came back with the block re-appended under `## Lições`,
   exactly as D9 specifies.
+- **Verification and hiding key on the whole lesson source, not one chunk** (final review fix; revises
+  §3, which pinned `content_hash`): a README-format file lesson becomes several chunks, and a per-chunk
+  mark said `verified: false` for a hit on chunk 1 and kept "verificada" when only the Fix section
+  changed. For `kind = 'lesson'`, `setVerified`/`clearVerified`/`hideSource` update every row of the
+  `(kind, source_id)`, storing the source's `source_hash` (the file's sha256; `sha256(body)` for a note
+  block) into `verified_hash`/`hidden_hash`, and `verified`/"not hidden" compare against `source_hash`
+  (`markHash`, `db/repositories/memory-items.ts`). Every other kind keeps TER-95's `content_hash`.
+- **A fence whose `at` is not a real instant is the person's text** (final review fix): `OPEN`'s regex
+  accepted `at=2026-99-99T99:…`, which became an `Invalid Date` `source_at` and failed the whole note's
+  index on every pass. `splitNote` (and so `mergeNoteSave`) now requires `at` to round-trip through
+  `Date`, the same rule as a shape-invalid marker.
+- **`docs/lessons` has its own scan budget, and an old agent's scan never deletes lessons** (final
+  review fix): specs, plans and lessons shared `DOCS_MAX_FILES = 200`, so a repo with 200+ specs/plans
+  never listed a lesson and every indexed file lesson was then deleted as gone. The scan now counts
+  lessons against `LESSONS_MAX_FILES = 200` on their own (specs/plans unchanged), and `indexDocsForLink`
+  skips the "gone lessons" deletion for an agent below `DOCS_LESSONS_MIN_AGENT_VERSION`, whose scan
+  never walks `docs/lessons`.
+- **`NotesEditor` always sends a base** (final review fix): for a project with no note yet it sent no
+  `base_updated_at`, so its first save was a plain upsert that erased a lesson appended meanwhile. It now
+  sends the note's `updated_at` as returned — the epoch for a missing note — and only hides that date.
+- **A lesson's `at` is taken under the note row lock** (final review fix): `notes.appendBlock(projectId,
+  render)` renders the block after `lockOrCreate`, with `at` later than the locked row's `updated_at`,
+  and stamps the row with that `at`. Rendered before the lock, a person's save committing in between
+  left the row newer than the block, and a client basing its next save on it dropped the block.
+- **A file lesson's `pr` is kept only when it is an http(s) URL** (final review fix): the web list links
+  it and mobile hands it to `Linking.openURL`; anything else in the front matter becomes `null`.
+- **`record_lesson` logs through the MCP request's logger** (final review fix): `ControlContext` gained
+  an optional `log`, set by the MCP route, which `record_lesson` passes to `indexProjectNote`.
+- **Known limits** (not fixed in this delivery):
+  - A repository linked to the same project on two machines indexes each file lesson twice (one
+    `source_id` per link), so it can show twice in the list and in search.
+  - "Esquecer" on a note lesson while the notes editor is open elsewhere can bring the block back with
+    that editor's next save (its content still has the block and its base predates the removal).
+  - A copy-pasted block (duplicate id) is indexed once, and `removeLessonBlock` removes only the first
+    copy.
