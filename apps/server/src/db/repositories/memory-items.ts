@@ -44,7 +44,8 @@ export interface MemoryItem {
   source_hash: string | null;
   embed_model: string | null;
   meta: LessonMeta | null;
-  /** `verified_at != null && verified_hash === content_hash` (spec §3, D8): a changed text drops it. */
+  /** `verified_at != null && verified_hash === markHash(item)` (spec §3, D8, §12): a changed text drops
+   *  it — for a lesson the whole source's text (`source_hash`), for every other kind the chunk's own. */
   verified: boolean;
   verified_at: string | null;
   source_at: string;
@@ -119,6 +120,21 @@ const toVector = (v: number[]): string => `[${v.map((x) => (Number.isFinite(x) ?
 /** `sha256(title + '\n' + text)`: re-embed only when the chunk's content actually changed. */
 const contentHash = (title: string, text: string): string => createHash('sha256').update(`${title}\n${text}`).digest('hex');
 
+/**
+ * The hash "Verificar" and "Esquecer" pin (spec 2026-09-27 failure lessons D8, §12, final review fix):
+ * for a `lesson`, the **whole source's** `source_hash` (a file lesson's file sha256, a note lesson's
+ * `sha256(body)`), shared by every chunk of it — so a README-format file lesson split into several
+ * chunks is verified/hidden as one, a hit on any chunk says the same thing, and an edit to any section
+ * (even one that leaves chunk 0's own text alone) drops the mark on all of them. A lesson row written
+ * without a `source_hash` falls back to its `content_hash`. Every other kind keeps TER-95's per-chunk
+ * `content_hash`. `MARK_HASH_SQL` is the same rule for the `m` alias in SQL.
+ */
+const markHash = (r: { kind: string; content_hash: string; source_hash: string | null }): string =>
+  r.kind === 'lesson' ? (r.source_hash ?? r.content_hash) : r.content_hash;
+const MARK_HASH_SQL = Prisma.raw(`(CASE WHEN m."kind" = 'lesson' THEN COALESCE(m."source_hash", m."content_hash") ELSE m."content_hash" END)`);
+/** "Not hidden" (`hideSource`): no mark, or a mark for a text that has since changed. */
+const NOT_HIDDEN = Prisma.sql`(m.hidden_hash IS NULL OR m.hidden_hash <> ${MARK_HASH_SQL})`;
+
 const mapRaw = (r: RawItem): MemoryItem => ({
   id: r.id,
   owner_id: r.owner_id,
@@ -134,7 +150,7 @@ const mapRaw = (r: RawItem): MemoryItem => ({
   source_hash: r.source_hash,
   embed_model: r.embed_model,
   meta: r.meta,
-  verified: r.verified_at !== null && r.verified_hash === r.content_hash,
+  verified: r.verified_at !== null && r.verified_hash === markHash(r),
   verified_at: r.verified_at ? r.verified_at.toISOString() : null,
   source_at: r.source_at.toISOString(),
   created_at: r.created_at.toISOString(),
@@ -292,7 +308,7 @@ export class MemoryItemsRepository {
              1 - (m.embedding <=> ${v}::vector) AS similarity
       FROM "memory_items" m LEFT JOIN "projects" p ON p.id = m.project_id
       WHERE m.owner_id = ${filter.ownerId} AND m.embedding IS NOT NULL
-        AND (m.hidden_hash IS NULL OR m.hidden_hash <> m.content_hash)
+        AND ${NOT_HIDDEN}
         AND (${filter.projectId ?? null}::text IS NULL OR m.project_id = ${filter.projectId ?? null})
         AND (${filter.kinds ?? null}::text[] IS NULL OR m.kind = ANY(${filter.kinds ?? null}::text[]))
       ORDER BY m.embedding <=> ${v}::vector
@@ -309,7 +325,7 @@ export class MemoryItemsRepository {
       SELECT ${ITEM_COLUMNS}, p.name AS project_name
       FROM "memory_items" m CROSS JOIN q LEFT JOIN "projects" p ON p.id = m.project_id
       WHERE m.owner_id = ${filter.ownerId}
-        AND (m.hidden_hash IS NULL OR m.hidden_hash <> m.content_hash)
+        AND ${NOT_HIDDEN}
         AND (${filter.projectId ?? null}::text IS NULL OR m.project_id = ${filter.projectId ?? null})
         AND (${filter.kinds ?? null}::text[] IS NULL OR m.kind = ANY(${filter.kinds ?? null}::text[]))
         AND numnode(q.tsq) > 0
@@ -325,7 +341,7 @@ export class MemoryItemsRepository {
       SELECT ${ITEM_COLUMNS}, p.name AS project_name
       FROM "memory_items" m LEFT JOIN "projects" p ON p.id = m.project_id
       WHERE m.owner_id = ${ownerId} AND m.id IN (${Prisma.join(ids)})
-        AND (m.hidden_hash IS NULL OR m.hidden_hash <> m.content_hash)`;
+        AND ${NOT_HIDDEN}`;
     return rows.map(mapRaw);
   }
 
@@ -357,35 +373,41 @@ export class MemoryItemsRepository {
   }
 
   /**
-   * "Verificar" (spec §3, D8): stamps who and the current `content_hash`. Only this owner's `lesson`
-   * chunk 0 — never another owner's row, never a non-lesson row (verification only ever means anything
-   * for a lesson). False, nothing changed, when the id/owner/kind don't match.
+   * "Verificar" (spec §3, D8, §12): stamps who and the source's hash (`markHash`: `source_hash` for a
+   * lesson) on **every chunk** of the lesson's source — `id` may be any of its chunks — so a multi-chunk
+   * file lesson is verified as one and a later edit to any section drops the mark everywhere. Only this
+   * owner's `lesson` rows — never another owner's, never a non-lesson row (verification only ever means
+   * anything for a lesson). False, nothing changed, when the id/owner/kind don't match.
    */
   async setVerified(id: string, ownerId: string, byUserId: string): Promise<boolean> {
     const count = await this.db.$executeRaw`
-      UPDATE "memory_items" SET "verified_at" = now(), "verified_by" = ${byUserId}, "verified_hash" = "content_hash"
-      WHERE "id" = ${id} AND "owner_id" = ${ownerId} AND "kind" = 'lesson' AND "chunk_index" = 0`;
+      UPDATE "memory_items" m SET "verified_at" = now(), "verified_by" = ${byUserId}, "verified_hash" = ${MARK_HASH_SQL}
+      FROM (SELECT "source_id" FROM "memory_items" WHERE "id" = ${id} AND "owner_id" = ${ownerId} AND "kind" = 'lesson') t
+      WHERE m."owner_id" = ${ownerId} AND m."kind" = 'lesson' AND m."source_id" = t."source_id"`;
     return count > 0;
   }
 
-  /** "Desfazer verificação": the inverse of `setVerified`, same scope. */
+  /** "Desfazer verificação": the inverse of `setVerified`, same scope — every chunk of the source. */
   async clearVerified(id: string, ownerId: string): Promise<boolean> {
     const count = await this.db.$executeRaw`
-      UPDATE "memory_items" SET "verified_at" = NULL, "verified_by" = NULL, "verified_hash" = NULL
-      WHERE "id" = ${id} AND "owner_id" = ${ownerId} AND "kind" = 'lesson' AND "chunk_index" = 0`;
+      UPDATE "memory_items" m SET "verified_at" = NULL, "verified_by" = NULL, "verified_hash" = NULL
+      FROM (SELECT "source_id" FROM "memory_items" WHERE "id" = ${id} AND "owner_id" = ${ownerId} AND "kind" = 'lesson') t
+      WHERE m."owner_id" = ${ownerId} AND m."kind" = 'lesson' AND m."source_id" = t."source_id"`;
     return count > 0;
   }
 
   /**
-   * "Esquecer" a file lesson (spec §6): sets `hidden_hash` = `content_hash` on every chunk of the
+   * "Esquecer" a file lesson (spec §6, §12): sets `hidden_hash` = `markHash` (the source's
+   * `source_hash` for a lesson, the chunk's `content_hash` for any other kind) on every chunk of the
    * item's source (its `(kind, source_id)`), so `nearest`/`textSearch`/`listLessons`/`findManyForOwner`
    * skip it. Survives a re-index with the same content (the upsert never touches `hidden_hash`); a
-   * changed content (new `content_hash`) no longer matches the stored `hidden_hash` and comes back as
-   * a fresh, unverified lesson. False when `id` is not this owner's row.
+   * changed source (new hash — for a lesson, an edit to any of its sections) no longer matches the
+   * stored `hidden_hash` and comes back as a fresh, unverified lesson. False when `id` is not this
+   * owner's row.
    */
   async hideSource(id: string, ownerId: string): Promise<boolean> {
     const count = await this.db.$executeRaw`
-      UPDATE "memory_items" m SET "hidden_hash" = m."content_hash"
+      UPDATE "memory_items" m SET "hidden_hash" = ${MARK_HASH_SQL}
       FROM (SELECT "kind", "source_id" FROM "memory_items" WHERE "id" = ${id} AND "owner_id" = ${ownerId}) t
       WHERE m."owner_id" = ${ownerId} AND m."kind" = t."kind" AND m."source_id" = t."source_id"`;
     return count > 0;
@@ -403,7 +425,7 @@ export class MemoryItemsRepository {
       SELECT ${ITEM_COLUMNS}, p.name AS project_name
       FROM "memory_items" m LEFT JOIN "projects" p ON p.id = m.project_id
       WHERE m.owner_id = ${ownerId} AND m.kind = 'lesson' AND m.chunk_index = 0
-        AND (m.hidden_hash IS NULL OR m.hidden_hash <> m.content_hash)
+        AND ${NOT_HIDDEN}
         AND (${o.projectId ?? null}::text IS NULL OR m.project_id = ${o.projectId ?? null})
         AND (${like}::text IS NULL OR m.title ILIKE ${like} ESCAPE '\\' OR m.text ILIKE ${like} ESCAPE '\\')
         AND (${cur === null}::boolean OR (m.source_at, m.id) < (${cur?.createdAt ?? new Date(0)}, ${cur?.id ?? ''}))
@@ -422,7 +444,7 @@ export class MemoryItemsRepository {
       SELECT ${ITEM_COLUMNS}, p.name AS project_name
       FROM "memory_items" m LEFT JOIN "projects" p ON p.id = m.project_id
       WHERE m.id = ${id} AND m.owner_id = ${ownerId} AND m.kind = 'lesson' AND m.chunk_index = 0
-        AND (m.hidden_hash IS NULL OR m.hidden_hash <> m.content_hash)`;
+        AND ${NOT_HIDDEN}`;
     return rows[0] ? mapRaw(rows[0]) : null;
   }
 

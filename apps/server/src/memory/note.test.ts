@@ -45,7 +45,10 @@ describe('indexProjectNote', () => {
     for (const it of lessonItems) {
       expect(it).toMatchObject({ kind: 'lesson', trust: 'derived', chunk_index: 0, title: 'P3009 falha' });
       expect(it.meta).toMatchObject({ origin: 'note', path: null, tags: [], agent: null });
+      // The whole block's sha256: what "Verificar"/"Esquecer" pin for a lesson (markHash).
+      expect(it.source_hash).toMatch(/^[0-9a-f]{64}$/);
     }
+    expect(lessonItems[0]!.source_hash).not.toBe(lessonItems[1]!.source_hash);
     const l1 = lessonItems.find((it) => it.source_id === 'note:p1:l1')!;
     expect(l1.meta).toMatchObject({ tab_id: 'tab1', evidence: 'fixed', card: null, pr: null });
     const l2 = lessonItems.find((it) => it.source_id === 'note:p1:l2')!;

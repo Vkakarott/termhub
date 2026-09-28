@@ -49,8 +49,9 @@ function parseEvidenceLine(body: string): { evidence: LessonMeta['evidence']; ca
   return { evidence, card, pr };
 }
 
-/** Only to give a note lesson's row a non-null `source_hash` (mirroring a file lesson's sha256), so
- *  `listSourceHashes('lesson', 'note:<pid>:')` can enumerate the ones already indexed and this
+/** A note lesson's `source_hash`, `sha256(body)` (mirroring a file lesson's sha256): what "Verificar"
+ *  and "Esquecer" pin (`markHash` in the memory-items repository, so an edited block loses both), and
+ *  what lets `listSourceHashes('lesson', 'note:<pid>:')` enumerate the ones already indexed, so this
  *  function can tell which one a person removed since the last run — never used to skip a re-upsert
  *  (a note has too few lessons for that to matter, and always re-writing keeps this simple). */
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex');

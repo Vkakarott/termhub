@@ -341,7 +341,7 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('MemoryItemsRepository (Po
     expect(found!.verified).toBe(false);
   });
 
-  it('setVerified/clearVerified: verified true on match; hash change drops it; scoped to owner and kind lesson chunk 0', async () => {
+  it('setVerified/clearVerified: verified true on match; hash change drops it; scoped to owner and kind lesson', async () => {
     const sourceId = newId();
     const [lesson] = await repo.upsertMany([item({ kind: 'lesson', source_id: sourceId, title: 'Symptom', text: 'v1', meta: lessonMeta() })]);
     const id = lesson!.id;
@@ -443,5 +443,63 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('MemoryItemsRepository (Po
     expect(paged1.next_cursor).not.toBeNull();
     const paged2 = await repo.listLessons(userId, { limit: 1, cursor: paged1.next_cursor! });
     expect(paged2.items[0]!.id).not.toBe(paged1.items[0]!.id);
+  });
+
+  it('a multi-chunk file lesson: verify and hide key on the whole source (source_hash), not on one chunk', async () => {
+    const sourceId = `L-${newId()}:docs/lessons/multi.md`;
+    const marker = `multichunk${newId().replace(/[^a-z0-9]/g, '')}`;
+    const file = (fix: string, sourceHash: string) =>
+      ['Causa', 'Correção', 'Como conferir'].map((h, i) =>
+        item({ kind: 'lesson', source_id: sourceId, chunk_index: i, title: 'Multi', text: `${h} ${i === 1 ? fix : 'same'} ${marker}`, source_hash: sourceHash, meta: lessonMeta() }),
+      );
+    const rows = await repo.replaceSourceChunks('lesson', sourceId, file('fix v1', 'a'.repeat(64)));
+    const ids = rows.map((r) => r.id);
+    for (const id of ids) await repo.setEmbedding(id, vec(7), 'm');
+
+    expect(await repo.setVerified(ids[0]!, userId, userId)).toBe(true);
+    // A hit on chunk 1 (not the one the person clicked) is just as verified.
+    const hit1 = (await repo.textSearch({ ownerId: userId, kinds: ['lesson'] }, marker, 10)).find((h) => h.chunk_index === 1);
+    expect(hit1!.verified).toBe(true);
+    expect((await repo.nearest({ ownerId: userId, kinds: ['lesson'] }, vec(7), 10)).filter((h) => h.source_id === sourceId).every((h) => h.verified)).toBe(true);
+
+    // Only the Fix section (chunk 1) changes: chunk 0's own text is identical, but the file's hash is new.
+    await repo.replaceSourceChunks('lesson', sourceId, file('fix v2', 'b'.repeat(64)));
+    expect((await repo.findManyForOwner(ids, userId)).map((r) => r.verified)).toEqual([false, false, false]);
+    const listed = (await repo.listLessons(userId, { q: marker, limit: 10 })).items;
+    expect(listed.map((r) => [r.id, r.verified])).toEqual([[ids[0], false]]);
+
+    // Verify again, then clear from a non-zero chunk: every chunk drops it.
+    expect(await repo.setVerified(ids[2]!, userId, userId)).toBe(true);
+    expect((await repo.findManyForOwner(ids, userId)).every((r) => r.verified)).toBe(true);
+    expect(await repo.clearVerified(ids[1]!, userId)).toBe(true);
+    expect((await repo.findManyForOwner(ids, userId)).some((r) => r.verified)).toBe(false);
+
+    // Hide: every chunk is gone from nearest/textSearch/listLessons, even after an identical re-index.
+    for (const id of ids) await repo.setEmbedding(id, vec(7), 'm');
+    expect(await repo.hideSource(ids[0]!, userId)).toBe(true);
+    const visible = async () => ({
+      near: (await repo.nearest({ ownerId: userId, kinds: ['lesson'] }, vec(7), 50)).filter((h) => h.source_id === sourceId).length,
+      text: (await repo.textSearch({ ownerId: userId, kinds: ['lesson'] }, marker, 50)).length,
+      list: (await repo.listLessons(userId, { q: marker, limit: 10 })).items.length,
+    });
+    expect(await visible()).toEqual({ near: 0, text: 0, list: 0 });
+    await repo.replaceSourceChunks('lesson', sourceId, file('fix v2', 'b'.repeat(64)));
+    expect(await visible()).toEqual({ near: 0, text: 0, list: 0 });
+
+    // A changed file (only chunk 1's text, new source_hash) comes back — every chunk of it.
+    await repo.replaceSourceChunks('lesson', sourceId, file('fix v3', 'c'.repeat(64)));
+    for (const id of ids) await repo.setEmbedding(id, vec(7), 'm');
+    expect(await visible()).toEqual({ near: 3, text: 3, list: 1 });
+  });
+
+  it('a non-lesson kind keeps hiding on content_hash (TER-95 unchanged)', async () => {
+    const sourceId = newId();
+    const marker = `dochide${newId().replace(/[^a-z0-9]/g, '')}`;
+    const [doc] = await repo.upsertMany([item({ kind: 'doc', source_id: sourceId, text: `v1 ${marker}`, source_hash: 'd'.repeat(64) })]);
+    expect(await repo.hideSource(doc!.id, userId)).toBe(true);
+    expect(await repo.textSearch({ ownerId: userId }, marker, 10)).toEqual([]);
+    // Same source_hash, different chunk text: a doc comes back on its content hash.
+    await repo.upsertMany([item({ kind: 'doc', source_id: sourceId, text: `v2 ${marker}`, source_hash: 'd'.repeat(64) })]);
+    expect((await repo.textSearch({ ownerId: userId }, marker, 10)).map((r) => r.id)).toEqual([doc!.id]);
   });
 });
