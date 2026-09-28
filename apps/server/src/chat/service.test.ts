@@ -2442,6 +2442,25 @@ describe('resume (spec 2026-09-26 panel §3)', () => {
     expect(liveRunsStore.get('c1')?.released_at).not.toBeNull();
   });
 
+  it('a second suspendAll writes nothing: a row another instance claimed meanwhile stays its own', async () => {
+    const { service, lr, liveRunsStore } = streamed();
+    const started = await service.start(user, 'um');
+    const run = await runAt(lr, 0);
+    run.push(replayOf(run.input.text.trim()));
+    run.push(delta('parcial'));
+    await service.suspendAll();
+    expect(liveRunsStore.get('c1')?.released_at).toEqual(expect.any(String));
+
+    // The other colour's sweep claims the released row before this process closes (drain, then preClose).
+    const claimed = { ...liveRunsStore.get('c1')!, instance_id: 'other-instance', released_at: null };
+    liveRunsStore.set('c1', claimed);
+    await service.suspendAll();
+    expect(liveRunsStore.get('c1')).toEqual(claimed);
+    run.end();
+    await expect(started.done).rejects.toMatchObject({ code: 'SERVER_RESTARTING' });
+    expect(liveRunsStore.get('c1')).toEqual(claimed);
+  });
+
   it('suspendAll keeps a queued message, and nothing is launched for it on this instance', async () => {
     const { service, lr, liveRunsStore, messages } = streamed();
     const first = await service.start(user, 'um');

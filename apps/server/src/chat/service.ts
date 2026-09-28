@@ -1281,9 +1281,17 @@ export class ChatService {
    * messages queued for one — is released with its open turns, for another instance to resume at once
    * instead of after the heartbeat goes stale. Their running subagents are marked interrupted (the
    * process dies with this instance), and the runs' own ends leave the turns open from now on. Never
-   * throws: a shutdown must go on.
+   * throws: a shutdown must go on. Runs once: the SIGTERM drain calls it and `preClose` calls it again,
+   * and by then another instance may have claimed a released row — writing it again would take it back.
    */
-  async suspendAll(): Promise<void> {
+  suspendAll(): Promise<void> {
+    this.suspended ??= this.suspendOnce();
+    return this.suspended;
+  }
+
+  private suspended: Promise<void> | undefined;
+
+  private async suspendOnce(): Promise<void> {
     this.suspending = true;
     try {
       // A message already past the `suspending` check lands in a process or a queue first.

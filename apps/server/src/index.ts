@@ -1,7 +1,7 @@
 import { config } from './config.js';
 import { buildApp } from './app.js';
 
-const { fastify } = await buildApp();
+const { fastify, drain } = await buildApp();
 
 try {
   await fastify.listen({ port: config.port, host: config.host });
@@ -11,8 +11,13 @@ try {
   process.exit(1);
 }
 
+let shuttingDown = false;
 const shutdown = async (signal: string) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
   fastify.log.info(`${signal} recebido, encerrando...`);
+  // Hand the sockets over first (spec 2026-09-27 §5.2): upgraded sockets would otherwise keep close() waiting until the kill.
+  await drain();
   await fastify.close();
   process.exit(0);
 };
