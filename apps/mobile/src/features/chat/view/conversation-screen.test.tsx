@@ -85,7 +85,7 @@ function serveChat(patch: (res: TChatResponse) => Partial<Pick<TChatResponse, 'a
 }
 
 const GRANT: TChatGrant = { id: 'g1', tab_id: 't-api', tool: 'send_input', source_action_id: 'a-termhub-1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z', tab_name: 'api' };
-const PROJECT_GRANT: TChatProjectGrant = { id: 'pg1', project_id: 'p-termhub', project_name: 'termhub', source_action_id: 'a-termhub-2', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z' };
+const PROJECT_GRANT: TChatProjectGrant = { id: 'pg1', project_id: 'p-termhub', project_name: 'termhub', source_action_id: 'a-termhub-2', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z', scope: 'board' };
 const SUBAGENT: TSubagentView = { id: 'sub1', description: 'Buscar CI', subagent_type: null, status: 'running', started_at: '2026-09-27T00:00:00.000Z', ended_at: null };
 const withAction = (res: TChatResponse, patch: Partial<TChatAction>): TChatAction[] => res.actions.map((a) => (a.id === 'a-termhub-1' ? { ...a, ...patch } : a));
 

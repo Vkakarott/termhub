@@ -10,6 +10,8 @@ const PIN_LENGTH = 6;
 function titleOf(prompt: SessionState['pinPrompt']): string {
   if (prompt?.decision === 'approve_tab') return 'Permitir sempre nesta aba';
   if (prompt?.decision === 'approve_project') return 'Permitir sempre neste projeto';
+  if (prompt?.decision === 'approve_tab_terminal') return 'Liberar teclas e shell nesta aba';
+  if (prompt?.decision === 'approve_project_all') return 'Liberar tudo neste projeto';
   const n = prompt?.actionIds?.length ?? 1;
   return n > 1 ? `Autorizar ${n} ações` : 'Autorizar esta ação';
 }

@@ -1,7 +1,7 @@
 // `MockControls` — the "Aguardando aprovação" screen's simulation buttons and the test-only
 // escape hatches for expiry, lock and revoke (design spec §4.2).
 import { ACTIVATE_TTL_MS } from './handlers/devices';
-import { PIN_LOCK_MS, revokeDevice, requestStatus, type MockState } from './state';
+import { PIN_LOCK_MS, revokeDevice, requestStatus, type MockAction, type MockState } from './state';
 
 export interface MockControls {
   approve(requestId: string): void;
@@ -11,6 +11,9 @@ export interface MockControls {
   revokeNow(): void;
   dropSocket(): void;
   pendingRequestIds(): string[];
+  /** Test-only: puts a pending action in the chat (e.g. a `send_key` or `run_command` card the
+   * fixtures do not have), as if the concierge had proposed it. */
+  seedAction(action: MockAction): void;
 }
 
 export function createMockControls(state: MockState, now: () => number): MockControls {
@@ -56,6 +59,10 @@ export function createMockControls(state: MockState, now: () => number): MockCon
     pendingRequestIds() {
       const nowMs = now();
       return [...state.requests.values()].filter((req) => requestStatus(req, nowMs) === 'pending').map((req) => req.id);
+    },
+
+    seedAction(action) {
+      state.actions.set(action.id, action);
     },
   };
 }

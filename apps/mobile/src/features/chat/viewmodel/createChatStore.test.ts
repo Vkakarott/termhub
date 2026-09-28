@@ -428,10 +428,32 @@ it("decide(id, 'approve_project') asks the PIN for approve_project and, once res
   expect(slot(chat, 'p-termhub').projectGrants).toEqual([expect.objectContaining({ project_id: 'p-termhub', source_action_id: 'a-termhub-2' })]);
 });
 
+it("decide(id, 'approve_tab_terminal') asks the PIN for that word and, once resolved, the tab's keys and shell are granted", async () => {
+  const { chat, store } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  const deciding = chat.getState().decide('a-termhub-1', 'approve_tab_terminal');
+  expect(store.getState().pinPrompt).toEqual({ actionId: 'a-termhub-1', decision: 'approve_tab_terminal' });
+  await store.getState().resolvePinPrompt(PIN);
+  await deciding;
+  expect(slot(chat, 'p-termhub').actions[0]!.status).toBe('approved');
+  expect(slot(chat, 'p-termhub').grants).toEqual([expect.objectContaining({ tab_id: 't-api', tool: 'terminal', source_action_id: 'a-termhub-1' })]);
+});
+
+it("decide(id, 'approve_project_all') asks the PIN for that word and, once resolved, the whole project is granted", async () => {
+  const { chat, store } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  const deciding = chat.getState().decide('a-termhub-1', 'approve_project_all');
+  expect(store.getState().pinPrompt).toEqual({ actionId: 'a-termhub-1', decision: 'approve_project_all' });
+  await store.getState().resolvePinPrompt(PIN);
+  await deciding;
+  expect(slot(chat, 'p-termhub').actions[0]!.status).toBe('approved');
+  expect(slot(chat, 'p-termhub').projectGrants).toEqual([expect.objectContaining({ project_id: 'p-termhub', scope: 'all', source_action_id: 'a-termhub-1' })]);
+});
+
 it('project_grant / project_grant_revoked events update the slot', async () => {
   const { chat, handlers } = await setup();
   await openAndConnect(chat, 'p-termhub');
-  const pg = { id: 'pg1', project_id: 'p-termhub', project_name: 'termhub', source_action_id: 'a-termhub-2', created_at: new Date().toISOString(), expires_at: '2099-01-01T00:00:00.000Z' };
+  const pg = { id: 'pg1', project_id: 'p-termhub', project_name: 'termhub', source_action_id: 'a-termhub-2', created_at: new Date().toISOString(), expires_at: '2099-01-01T00:00:00.000Z', scope: 'board' as const };
   handlers().onEvent({ type: 'project_grant', user_id: 'u1', conversation_id: 'c-termhub', grant: pg });
   expect(slot(chat, 'p-termhub').projectGrants).toEqual([pg]);
   handlers().onEvent({ type: 'project_grant_revoked', user_id: 'u1', conversation_id: 'c-termhub', grant_id: pg.id });

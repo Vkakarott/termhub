@@ -16,6 +16,14 @@ it('grantTitleLabel names a tab row by its tab, and a project row by its project
   expect(grantTitleLabel({ kind: 'project', tab_name: null, project_name: null })).toBe('Projeto que não existe mais');
   expect(grantTitleLabel({ kind: 'tab', tab_name: 'api', project_name: 'App' })).toBe('Aba api');
 });
+it('grantTitleLabel names the wider grants (TER-325): "Aba X · teclas e shell" and "Tudo no projeto X"', () => {
+  expect(grantTitleLabel({ kind: 'tab', tab_name: 'api', project_name: 'App', tool: 'terminal', scope: null })).toBe('Aba api · teclas e shell');
+  expect(grantTitleLabel({ kind: 'tab', tab_name: 'api', project_name: 'App', tool: 'send_input', scope: null })).toBe('Aba api');
+  expect(grantTitleLabel({ kind: 'tab', tab_name: null, project_name: null, tool: 'terminal', scope: null })).toBe('Aba que não existe mais · teclas e shell');
+  expect(grantTitleLabel({ kind: 'project', tab_name: null, project_name: 'App', tool: null, scope: 'all' })).toBe('Tudo no projeto App');
+  expect(grantTitleLabel({ kind: 'project', tab_name: null, project_name: 'App', tool: null, scope: 'board' })).toBe('Quadro do projeto App');
+  expect(grantTitleLabel({ kind: 'project', tab_name: null, project_name: null, tool: null, scope: 'all' })).toBe('Projeto que não existe mais');
+});
 it('formats when it ended as dd/mm/aaaa hh:mm in local time', () => {
   const d = new Date(2026, 8, 5, 7, 3);
   expect(endedAtLabel(d.toISOString())).toBe('05/09/2026 07:03');

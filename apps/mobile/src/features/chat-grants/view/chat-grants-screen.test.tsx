@@ -27,6 +27,7 @@ const ACTIVE = {
   conversation_archived: false,
   state: 'active' as const,
   ended_at: null,
+  scope: null,
 };
 
 beforeAll(async () => {
@@ -63,6 +64,7 @@ describe('Permissões do chat', () => {
       conversation_archived: false,
       state: 'active' as const,
       ended_at: null,
+      scope: 'board' as const,
     };
     jest.spyOn(stores.api, 'listGrants').mockImplementation(async (_a, q) => (q.state === 'active' ? { grants: [projectRow, ACTIVE], next_cursor: null } : { grants: [], next_cursor: null }));
     await render(<ChatGrantsScreen />);
