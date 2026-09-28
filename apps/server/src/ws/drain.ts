@@ -5,6 +5,8 @@ import { WebSocket, type WebSocketServer } from 'ws';
 export const RESTART_CLOSE = 1012;
 const DRAIN_BUDGET_MS = 15_000;
 const SOCKET_BUDGET_MS = 3_000;
+/** `suspend` gets its own share of the drain budget, so the agents and sockets are handed over even if it hangs. */
+const SUSPEND_BUDGET_MS = 8_000;
 /** After `terminate()` the socket is destroyed; its `close` follows within a tick or two. Bounded anyway. */
 const TERMINATE_GRACE_MS = 1_000;
 
@@ -26,7 +28,7 @@ export function createLifecycle(): Lifecycle {
 }
 
 /** Resolves when `work` settles or after `ms`, whichever comes first; true when `work` won. */
-async function within(work: Promise<unknown>, ms: number, onTimeout?: () => void): Promise<boolean> {
+export async function within(work: Promise<unknown>, ms: number, onTimeout?: () => void): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<false>((r) => {
     timer = setTimeout(() => {
@@ -71,11 +73,13 @@ export async function drain(deps: {
   servers: WebSocketServer[];
   log: Pick<FastifyBaseLogger, 'info' | 'warn'>;
   budgetMs?: number;
+  suspendBudgetMs?: number;
 }): Promise<void> {
   const started = Date.now();
   deps.lifecycle.startDraining();
   const steps = (async () => {
-    await deps.suspend().catch((err: unknown) => deps.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'drain: suspend failed'));
+    const suspended = deps.suspend().catch((err: unknown) => deps.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'drain: suspend failed'));
+    await within(suspended, deps.suspendBudgetMs ?? SUSPEND_BUDGET_MS, () => deps.log.warn({}, 'drain: suspend budget exceeded'));
     let agentsClosed = 0;
     try {
       agentsClosed = deps.closeAgents();

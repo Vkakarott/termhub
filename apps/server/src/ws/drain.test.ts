@@ -123,6 +123,27 @@ describe('drain', () => {
     await expect(a.closed).resolves.toMatchObject({ code: RESTART_CLOSE });
   });
 
+  it('a suspend that never settles still lets the agents and sockets close, within its own budget', async () => {
+    const a = await serverWithClient();
+    cleanups.push(() => a.server.close());
+    const closeAgents = vi.fn(() => 2);
+    const warn = vi.fn();
+    const started = Date.now();
+    await drain({
+      lifecycle: createLifecycle(),
+      suspend: () => new Promise(() => {}),
+      closeAgents,
+      servers: [a.wss],
+      log: { info: vi.fn(), warn } as never,
+      suspendBudgetMs: 100,
+    });
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(closeAgents).toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith({}, 'drain: suspend budget exceeded');
+    expect(warn).not.toHaveBeenCalledWith({}, 'drain: budget exceeded');
+    await expect(a.closed).resolves.toMatchObject({ code: RESTART_CLOSE });
+  });
+
   it('gives up after its budget when a step hangs', async () => {
     const warn = vi.fn();
     const lifecycle = createLifecycle();

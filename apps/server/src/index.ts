@@ -16,10 +16,17 @@ const shutdown = async (signal: string) => {
   if (shuttingDown) return;
   shuttingDown = true;
   fastify.log.info(`${signal} recebido, encerrando...`);
-  // Hand the sockets over first (spec 2026-09-27 §5.2): upgraded sockets would otherwise keep close() waiting until the kill.
-  await drain();
-  await fastify.close();
-  process.exit(0);
+  // Backstop: whatever hangs below, the process still exits before the orchestrator's kill (unref'd, so it never keeps it alive).
+  setTimeout(() => process.exit(0), 25_000).unref();
+  try {
+    // Hand the sockets over first (spec 2026-09-27 §5.2): upgraded sockets would otherwise keep close() waiting until the kill.
+    await drain();
+    await fastify.close();
+  } catch (err) {
+    fastify.log.error({ err: err instanceof Error ? err.message : String(err) }, 'shutdown failed');
+  } finally {
+    process.exit(0);
+  }
 };
 process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
