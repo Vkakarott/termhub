@@ -245,6 +245,7 @@ function build(opts: { gated: boolean; conversationId?: string }) {
     chatActions: actions,
     chatGrants: grants,
     chatProjectGrants: { findActive: vi.fn(async () => undefined) },
+    chatStandingGrants: { findActive: vi.fn(async () => undefined) },
     chatSubagents: { listByIds: vi.fn(async (ids: string[]) => [SUBAGENT, OTHER_CONVERSATION_SUBAGENT].filter((s) => ids.includes(s.id))) },
     users: { findById: vi.fn(async () => ({ id: 'u1', role_id: 'r' })) },
     machines: {

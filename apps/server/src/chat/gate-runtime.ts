@@ -14,9 +14,10 @@ import type { Tab } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { chatBus } from './bus.js';
 import { boardProjectOf } from './board-project.js';
-import { actionClass, BOARD_GRANT_BUDGET, BOARD_GRANT_TOOLS, boardGrantable, gateDecision, grantable, GRANTABLE_TOOL, idempotencyKeyFor, TAB_TERMINAL_GRANT, TERMINAL_GRANT_BUDGET, TERMINAL_GRANT_TOOLS, terminalGrantable } from './gate.js';
+import { actionClass, BOARD_GRANT_BUDGET, BOARD_GRANT_TOOLS, boardGrantable, gateDecision, grantable, GRANTABLE_TOOL, idempotencyKeyFor, STANDING_BUDGET_WINDOW_MS, STANDING_GRANT_BUDGETS, standingKindOf, TAB_TERMINAL_GRANT, TERMINAL_GRANT_BUDGET, TERMINAL_GRANT_TOOLS, terminalGrantable } from './gate.js';
 import { permissionDialogVisible } from './permission-dialog.js';
 import { ACTION_TTL_MS } from './service.js';
+import { standingProjectOf } from './standing-project.js';
 import { subagentOrigins } from './subagent-origin.js';
 
 /** What the gate did: the tool's own value, or a pt-BR error for the caller to answer with. The
@@ -146,11 +147,12 @@ const TAB_WAITING_PERMISSION = (tabId: string) => ({
 });
 
 /** A call a grant ran into a tab that started asking for a permission after the gate let it through
- * (spec 2026-09-27 TER-325 §2 "Lock at execution time"). Unlike a clicked `send_key`, a granted key
- * never answers a permission: the user has to see that dialog. */
+ * (spec 2026-09-27 TER-325 §2 "Lock at execution time"). Unlike a clicked `send_key`, a granted call
+ * never acts on a tab asking a permission — a key would answer it, a standing `close_tab` (TER-386)
+ * would kill it: the user has to see that dialog. */
 const GRANTED_KEY_ON_PERMISSION = (tabId: string) => ({
   code: 'WAITING_PERMISSION',
-  message: `A aba ${tabId} passou a pedir uma permissão antes desta tecla: responder permissões nunca é liberado sem o usuário. Nada foi executado. Proponha a ação de novo e o usuário confirma no chat.`,
+  message: `A aba ${tabId} passou a pedir uma permissão antes desta ação: responder permissões nunca é liberado sem o usuário. Nada foi executado. Proponha a ação de novo e o usuário confirma no chat.`,
 });
 
 const TAB_PROMPT_CHANGED = (tabId: string) => ({
@@ -459,6 +461,29 @@ async function terminalGrantCovering(ctx: ControlContext, conversationId: string
   return (await permissionOnScreen(ctx, tabId)) ? null : grantId;
 }
 
+/**
+ * The standing grant ("Liberar sem prazo", spec 2026-09-28 TER-386) that covers this call, if any: the
+ * call's kind, its project resolved owner-scoped (an unresolved one is never covered), the per-kind guards
+ * — a close only of a tab that is not working nor asking a permission; terminal calls under TER-325's
+ * rules — an active grant of this user for that project and kind, and budget left this hour, counted
+ * across conversations. Like the other budgets, not atomic with the insert.
+ */
+async function standingGrantCovering(ctx: ControlContext, call: GatedCall): Promise<string | null> {
+  const kind = standingKindOf(call.tool, call.args);
+  if (!kind) return null;
+  if (kind === 'terminal' && textOutsideGrant(call.args)) return null;
+  const target = await standingProjectOf(ctx.repos, ctx.scope.user.id, kind, call.tool, call.args);
+  if (!target) return null;
+  if (kind === 'close_tab' && (target.tab?.state === 'working' || target.tab?.state === 'waiting_permission')) return null;
+  if (kind === 'terminal' && target.tab?.state === 'waiting_permission') return null;
+  const grant = await ctx.repos.chatStandingGrants.findActive(ctx.scope.user.id, target.projectId, kind);
+  if (!grant) return null;
+  const used = await ctx.repos.chatActions.countByGrantSince(grant.id, new Date(Date.now() - STANDING_BUDGET_WINDOW_MS));
+  if (used >= STANDING_GRANT_BUDGETS[kind]) return null;
+  if (kind === 'terminal' && (await permissionOnScreen(ctx, target.tab!.id))) return null;
+  return grant.id;
+}
+
 /** The gate itself: run the call, or answer why it did not run. */
 export async function applyGate(ctx: ControlContext, call: GatedCall): Promise<GateOutcome> {
   const cls = actionClass(call.tool, call.args);
@@ -500,6 +525,11 @@ export async function applyGate(ctx: ControlContext, call: GatedCall): Promise<G
     }
     if (!row && boardGrantable(call.tool)) {
       const grantId = await projectGrantCovering(ctx, conversationId, call);
+      if (grantId) return executeGranted(ctx, call, conversationId, key, cls, grantId);
+    }
+    // Last, the standing grants (TER-386): after every conversation-bound one, so their budgets are spent first.
+    if (!row) {
+      const grantId = await standingGrantCovering(ctx, call);
       if (grantId) return executeGranted(ctx, call, conversationId, key, cls, grantId);
     }
     return ask(ctx, call, conversationId, key, cls);

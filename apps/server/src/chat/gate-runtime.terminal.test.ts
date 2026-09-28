@@ -83,6 +83,8 @@ beforeEach(() => {
     chatActions: actions,
     chatGrants: { findActive: vi.fn(async (c: string, t: string, tool: string) => tabGrants.find((g) => g.conversation_id === c && g.tab_id === t && g.tool === tool && active(g))) },
     chatProjectGrants: { findActive: vi.fn(async (c: string, p: string) => projectGrants.find((g) => g.conversation_id === c && g.project_id === p && active(g))) },
+    // No standing grant (TER-386): these tests are about the conversation-bound ones.
+    chatStandingGrants: { findActive: vi.fn(async () => undefined) },
     projects: { findByIdsForOwner: vi.fn(async (ids: string[], o: string) => (o === 'u1' ? ids.filter((i) => i === 'p1' || i === 'p2').map((id) => ({ id, name: id })) : [])) },
     tasks: { findByIdsForOwner: vi.fn(async () => []) },
     tabs: { findByIdsForOwner: tabsFind },
