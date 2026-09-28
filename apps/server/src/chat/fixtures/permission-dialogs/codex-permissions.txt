@@ -1,0 +1,5 @@
+  Would you like to grant these permissions?
+  write: /home/dev/project/dist
+› 1. Yes, grant these permissions for this turn
+  2. Yes, grant these permissions for this session
+  3. No, continue without running it
