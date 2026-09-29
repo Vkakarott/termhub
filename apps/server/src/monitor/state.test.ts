@@ -159,8 +159,11 @@ describe('interpretHookEvent — cursor', () => {
   // shapes captured from cursor-agent 2026.09.18 (ids shortened, personal fields dropped)
   const base = { conversation_id: 'c1', generation_id: 'g1', cursor_version: '2026.09.18', user_email: 'someone@example.com', workspace_roots: ['/w'] };
 
-  it('marks the tab busy on session start and on each prompt, without keeping the prompt', () => {
-    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'sessionStart', is_background_agent: false })).toEqual({ kind: 'working', text: null, meta: { event: 'sessionStart' } });
+  it('marks the tab idle on session start and busy on each prompt, without keeping the prompt', () => {
+    // A session nobody prompted is not busy: nothing of Cursor's would ever take it out of working
+    // (it has no idle notification), and a busy tab holds `wait_for_state` and the agent's update.
+    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'sessionStart', is_background_agent: false })).toEqual({ kind: 'idle', text: null, meta: { event: 'sessionStart' } });
+    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'beforeSubmitPrompt' })).toMatchObject({ kind: 'working', meta: { event: 'beforeSubmitPrompt' } });
     expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'beforeSubmitPrompt', prompt: 'secret plans', attachments: [] })).toEqual({
       kind: 'working',
       text: null,
