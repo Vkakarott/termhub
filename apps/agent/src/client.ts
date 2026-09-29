@@ -37,6 +37,12 @@ export interface ClientOptions {
   onConnect?(): void;
   /** Liveness ping period (default 20 s); a ping left unanswered by the next tick terminates the socket. Tests shorten it. */
   pingIntervalMs?: number;
+  /**
+   * How long the opening handshake may take (default 15 s). `ws` sets no limit of its own, and the
+   * liveness ping only starts once the socket is open: an upgrade request that never gets an answer
+   * would leave `connectOnce()` pending and `runForever()` stuck on it. Tests shorten it.
+   */
+  handshakeTimeoutMs?: number;
 }
 
 export interface AgentSocket {
@@ -76,6 +82,7 @@ export class UpgradeRejectedError extends Error {
 
 const DEFAULT_BACKOFF = { minMs: 1_000, maxMs: 30_000 };
 const DEFAULT_PING_INTERVAL_MS = 20_000;
+const DEFAULT_HANDSHAKE_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_UNAUTHORIZED = 3;
 /** A session shorter than this (and with no server message) doesn't count as "successful" for backoff/unauthorized resets. */
 const SESSION_OK_MS = 5_000;
@@ -99,7 +106,7 @@ function toBuffer(data: RawData): Buffer {
 /**
  * Connects once; resolves with the socket after the WebSocket opens and the hello frame is
  * sent. Rejects if the handshake itself fails (bad-status upgrade response — surfaced as
- * `UpgradeRejectedError` — or a network error) — once open, later outcomes (including a
+ * `UpgradeRejectedError` — a network error, or an upgrade left unanswered for `handshakeTimeoutMs`) — once open, later outcomes (including a
  * 4401/4409 close) are reported via `closed`, not by rejecting this promise.
  *
  * `signal`, if given, tears the connection down immediately (graceful close if already open,
@@ -117,7 +124,12 @@ export function connectOnce(
     }
 
     const wsUrl = deriveWsUrl(opts.url);
-    const ws = new WebSocket(wsUrl, { headers: { Authorization: `Bearer ${opts.token}` } });
+    // `handshakeTimeout` makes `ws` abort with the error "Opening handshake has timed out", which the
+    // 'error' handler below turns into a rejection, so runForever() backs off and tries again.
+    const ws = new WebSocket(wsUrl, {
+      headers: { Authorization: `Bearer ${opts.token}` },
+      handshakeTimeout: opts.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS,
+    });
     let opened = false;
     let socket: AgentSocket | undefined;
 

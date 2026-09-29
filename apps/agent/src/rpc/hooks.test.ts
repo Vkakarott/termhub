@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdtemp, mkdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { HOOK_SCRIPT } from '@termhub/machine-ops';
@@ -88,6 +88,69 @@ describe('hooks.install', () => {
     expect(await read('.claude/settings.json')).toBe('{not json');
     await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
+
+  it('refuses a Codex config it cannot read, naming the file, and writes nothing', async () => {
+    // a directory in the file's place: EISDIR on read, and it behaves the same as root
+    await mkdir(path.join(home, '.codex/config.toml'), { recursive: true });
+    await expect(install(params, home)).rejects.toMatchObject({
+      code: 'failed',
+      path: '.codex/config.toml',
+      message: expect.stringContaining('não foi possível ler ~/.codex/config.toml'),
+    });
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('refuses a Cursor hooks.json it cannot read, naming the file, and writes nothing', async () => {
+    await mkdir(path.join(home, '.cursor/hooks.json'), { recursive: true });
+    await expect(install(params, home)).rejects.toMatchObject({
+      code: 'failed',
+      path: '.cursor/hooks.json',
+      message: expect.stringContaining('não foi possível ler ~/.cursor/hooks.json'),
+    });
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('refuses a Claude settings.json it cannot read, naming the file, and writes nothing', async () => {
+    await mkdir(path.join(home, '.claude/settings.json'), { recursive: true });
+    await expect(install(params, home)).rejects.toMatchObject({
+      code: 'failed',
+      path: '.claude/settings.json',
+      message: expect.stringContaining('não foi possível ler ~/.claude/settings.json'),
+    });
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('refuses a hooks.json that is a symlink to nothing, and leaves the link as it was', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await symlink(path.join(home, 'dotfiles/cursor-hooks.json'), path.join(home, '.cursor/hooks.json'));
+
+    await expect(install(params, home)).rejects.toMatchObject({
+      code: 'failed',
+      path: '.cursor/hooks.json',
+      message: 'não foi possível ler ~/.cursor/hooks.json: link simbólico quebrado',
+    });
+
+    expect((await lstat(path.join(home, '.cursor/hooks.json'))).isSymbolicLink()).toBe(true);
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it.skipIf(process.getuid?.() === 0)('names a settings.json it has no permission to read, and leaves it as it was', async () => {
+    await mkdir(path.join(home, '.claude'), { recursive: true });
+    const file = path.join(home, '.claude/settings.json');
+    await writeFile(file, JSON.stringify({ model: 'opus' }));
+    await chmod(file, 0o000);
+    try {
+      await expect(install(params, home)).rejects.toMatchObject({
+        code: 'failed',
+        path: '.claude/settings.json',
+        message: 'sem permissão para ler ~/.claude/settings.json',
+      });
+    } finally {
+      await chmod(file, 0o644);
+    }
+    expect(JSON.parse(await read('.claude/settings.json'))).toEqual({ model: 'opus' });
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
 });
 
 describe('hooks.install — a settings.json we must not clobber', () => {
@@ -151,6 +214,22 @@ describe('hooks.install — Cursor CLI', () => {
     await uninstall({}, home);
     expect(JSON.parse(await read('.cursor/hooks.json'))).toEqual({ version: 1, hooks: { stop: [{ command: 'say done' }] } });
   });
+
+  it('uninstall deletes a hooks.json that termhub created, and keeps ~/.cursor', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await install(params, home);
+    await uninstall({}, home);
+    await expect(stat(path.join(home, '.cursor/hooks.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await stat(path.join(home, '.cursor'))).isDirectory()).toBe(true);
+  });
+
+  it('uninstall keeps a hooks.json that still holds a key of the person', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await writeFile(path.join(home, '.cursor/hooks.json'), JSON.stringify({ version: 1, telemetry: false }));
+    await install(params, home);
+    await uninstall({}, home);
+    expect(JSON.parse(await read('.cursor/hooks.json'))).toEqual({ version: 1, telemetry: false });
+  });
 });
 
 describe('hooks.uninstall', () => {
@@ -173,6 +252,30 @@ describe('hooks.uninstall', () => {
     await writeFile(path.join(home, '.claude/settings.json'), '{not json');
     await expect(uninstall({}, home)).resolves.toEqual({ removed: true });
     expect(await read('.claude/settings.json')).toBe('{not json');
+  });
+
+  it('names a file it cannot read and removes nothing', async () => {
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    await install(params, home);
+    await rm(path.join(home, '.codex/config.toml'), { force: true });
+    await mkdir(path.join(home, '.codex/config.toml'), { recursive: true });
+
+    await expect(uninstall({}, home)).rejects.toMatchObject({
+      code: 'failed',
+      path: '.codex/config.toml',
+      message: expect.stringContaining('não foi possível ler ~/.codex/config.toml'),
+    });
+    expect(await read('.termhub/bin/termhub-hook')).toBe(HOOK_SCRIPT);
+  });
+
+  it('skips the Cursor CLI when ~/.cursor is not a directory', async () => {
+    await install(params, home);
+    await writeFile(path.join(home, '.cursor'), 'not a directory');
+
+    await expect(uninstall({}, home)).resolves.toEqual({ removed: true });
+
+    await expect(stat(path.join(home, '.termhub/bin/termhub-hook'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await read('.cursor')).toBe('not a directory');
   });
 });
 
@@ -333,5 +436,21 @@ describe('heal', () => {
 
     expect((await stat(script)).mtimeMs).toBe(stamp.getTime());
     expect(await read('.termhub/bin/termhub-hook')).toBe(HOOK_SCRIPT);
+  });
+
+  it('leaves a settings.json that is a symlink to nothing alone, and still repairs the dir after it', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await install(params, home);
+    await mkdir(path.join(home, '.claude-a'), { recursive: true });
+    await writeFile(path.join(home, '.claude-a/projects'), '');
+    await symlink(path.join(home, 'dotfiles/claude-settings.json'), path.join(home, '.claude-a/settings.json'));
+    await mkdir(path.join(home, '.claude-b'), { recursive: true });
+    await writeFile(path.join(home, '.claude-b/settings.json'), '{}\n');
+
+    await expect(heal(home)).resolves.toEqual(['~/.claude-b']);
+
+    expect((await lstat(path.join(home, '.claude-a/settings.json'))).isSymbolicLink()).toBe(true);
+    expect(err.mock.calls.some((c) => String(c[0]).includes('monitor hooks heal skipped') && String(c[0]).includes('EDANGLING'))).toBe(true);
+    err.mockRestore();
   });
 });

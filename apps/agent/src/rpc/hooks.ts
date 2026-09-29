@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { RpcParams, RpcResult } from '@termhub/agent-protocol';
@@ -11,6 +11,7 @@ import {
   claudeConfigDirs,
   expandHome,
   hookEnvFile,
+  isBareCursorHooks,
   mergeClaudeSettings,
   mergeCodexConfig,
   mergeCursorHooks,
@@ -36,12 +37,27 @@ const CURSOR_HOOKS_REL = '.cursor/hooks.json';
 
 const isEnoent = (err: unknown) => (err as NodeJS.ErrnoException)?.code === 'ENOENT';
 
+/** A symlink whose target is gone: `readFile` answers ENOENT for it, exactly as for a path with nothing there. */
+async function isDanglingLink(file: string): Promise<boolean> {
+  try {
+    return (await lstat(file)).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The file's content, or '' when nothing is there. A dangling symlink is not "nothing": writing to
+ * that path would replace the link (one a dotfiles tool manages, say) by a plain file, so it is
+ * reported as a failure, the same way the ssh/local probe answers `unreadable` for it.
+ */
 async function readOrEmpty(file: string): Promise<string> {
   try {
     return await readFile(file, 'utf8');
   } catch (err) {
-    if (isEnoent(err)) return '';
-    throw err;
+    if (!isEnoent(err)) throw err;
+    if (await isDanglingLink(file)) throw Object.assign(new Error('link simbólico quebrado'), { code: 'EDANGLING' });
+    return '';
   }
 }
 
@@ -71,6 +87,26 @@ function fsFailure(err: unknown, shown: string): RpcFailure {
   return new RpcFailure('failed', `não foi possível escrever ${shown}: ${err instanceof Error ? err.message : String(err)}`, relPath(shown));
 }
 
+/**
+ * The read side of `fsFailure`: a file that is there but cannot be read, named so the person knows
+ * which one. Always `failed`, the code whose message the server shows as it is: `eperm` is answered
+ * with one fixed sentence about the folder, which would drop the name again.
+ */
+function readFailure(err: unknown, shown: string): RpcFailure {
+  const code = (err as NodeJS.ErrnoException)?.code;
+  if (code === 'EACCES' || code === 'EPERM') return new RpcFailure('failed', `sem permissão para ler ${shown}`, relPath(shown));
+  return new RpcFailure('failed', `não foi possível ler ${shown}: ${err instanceof Error ? err.message : String(err)}`, relPath(shown));
+}
+
+/** `readOrEmpty` for install and uninstall: a missing file is empty, any other failure names the file. */
+async function readNamed(file: string, shown: string): Promise<string> {
+  try {
+    return await readOrEmpty(file);
+  } catch (err) {
+    throw readFailure(err, shown);
+  }
+}
+
 /** A Claude config dir to hook: how it is shown ("~/.claude") and its settings.json here. */
 interface ClaudeTarget {
   dir: string;
@@ -96,8 +132,9 @@ async function claudeTargets(dirs: string[] | undefined, home: string): Promise<
 /** Our entries merged into ~/.cursor/hooks.json, or null when the Cursor CLI is not here. Refuses a file it cannot parse, before anything is written. */
 async function mergedCursorHooks(home: string, scriptPath: string): Promise<string | null> {
   if (!(await isDir(path.join(home, CURSOR_DIR_REL)))) return null;
+  const current = await readNamed(path.join(home, CURSOR_HOOKS_REL), `~/${CURSOR_HOOKS_REL}`);
   try {
-    return mergeCursorHooks(await readOrEmpty(path.join(home, CURSOR_HOOKS_REL)), scriptPath, `~/${CURSOR_HOOKS_REL}`);
+    return mergeCursorHooks(current, scriptPath, `~/${CURSOR_HOOKS_REL}`);
   } catch (err) {
     const message = err instanceof SyntaxError || (err instanceof Error && err.message.includes('não é um objeto JSON')) ? `~/${CURSOR_HOOKS_REL} não é JSON válido` : err instanceof Error ? err.message : String(err);
     throw new RpcFailure('failed', message, CURSOR_HOOKS_REL);
@@ -112,8 +149,9 @@ export async function install(params: RpcParams<'hooks.install'>, home = os.home
   const targets = await claudeTargets(params.claude_dirs, home);
   const merged: { target: ClaudeTarget; body: string }[] = [];
   for (const target of targets) {
+    const current = await readNamed(target.file, target.shown);
     try {
-      merged.push({ target, body: mergeClaudeSettings(await readOrEmpty(target.file), scriptPath, target.shown) });
+      merged.push({ target, body: mergeClaudeSettings(current, scriptPath, target.shown) });
     } catch (err) {
       // Not a JSON object (or not JSON at all): refuse rather than clobber what the user has there.
       const message = err instanceof SyntaxError || (err instanceof Error && err.message.includes('não é um objeto JSON')) ? `${target.shown} não é JSON válido` : err instanceof Error ? err.message : String(err);
@@ -121,7 +159,7 @@ export async function install(params: RpcParams<'hooks.install'>, home = os.home
     }
   }
   const hasCodex = await isDir(path.join(home, CODEX_DIR_REL));
-  const mergedCodex = hasCodex ? mergeCodexConfig(await readOrEmpty(codexFile), scriptPath) : null;
+  const mergedCodex = hasCodex ? mergeCodexConfig(await readNamed(codexFile, `~/${CODEX_CONFIG_REL}`), scriptPath) : null;
   const mergedCursor = await mergedCursorHooks(home, scriptPath);
 
   let current = `~/${HOOK_SCRIPT_REL}`;
@@ -272,7 +310,7 @@ export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.
 
   const stripped: { target: ClaudeTarget; body: string }[] = [];
   for (const target of await claudeTargets(params.claude_dirs, home)) {
-    const current = await readOrEmpty(target.file);
+    const current = await readNamed(target.file, target.shown);
     try {
       const body = current.trim() ? stripClaudeSettings(current) : current;
       if (body !== current) stripped.push({ target, body });
@@ -280,9 +318,9 @@ export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.
       // unreadable JSON: leave the file alone
     }
   }
-  const codexConfig = (await isDir(path.join(home, CODEX_DIR_REL))) ? await readOrEmpty(codexFile) : '';
+  const codexConfig = (await isDir(path.join(home, CODEX_DIR_REL))) ? await readNamed(codexFile, `~/${CODEX_CONFIG_REL}`) : '';
   const cursorFile = path.join(home, CURSOR_HOOKS_REL);
-  const cursorHooks = await readOrEmpty(cursorFile);
+  const cursorHooks = (await isDir(path.join(home, CURSOR_DIR_REL))) ? await readNamed(cursorFile, `~/${CURSOR_HOOKS_REL}`) : '';
   let strippedCursor: string | null = null;
   try {
     strippedCursor = cursorHooks.includes(HOOK_MARK) ? stripCursorHooks(cursorHooks) : null;
@@ -305,7 +343,9 @@ export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.
     }
     if (strippedCursor !== null) {
       current = `~/${CURSOR_HOOKS_REL}`;
-      await writeAtomic(cursorFile, strippedCursor, 0o644);
+      // nothing of the person is left in it: the file only exists because we created it
+      if (isBareCursorHooks(strippedCursor)) await rm(cursorFile, { force: true });
+      else await writeAtomic(cursorFile, strippedCursor, 0o644);
     }
   } catch (err) {
     throw fsFailure(err, current);

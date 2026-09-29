@@ -149,6 +149,8 @@ describe('runAgent — terminal errors (exit 78)', () => {
   });
 
   afterEach(() => {
+    healMock.mockReset();
+    healMock.mockImplementation(async () => [] as string[]);
     vi.restoreAllMocks();
   });
 
@@ -178,6 +180,45 @@ describe('runAgent — terminal errors (exit 78)', () => {
     });
     await runAgent(config, { log: () => {} });
     expect(healMock.mock.calls.length).toBe(2);
+  });
+
+  it('logs a heal that keeps failing once, not on every reconnect', async () => {
+    healMock.mockReset();
+    healMock.mockRejectedValue(new Error('EACCES: permission denied'));
+    const logs: string[] = [];
+    runForeverMock.mockImplementation(async (opts: { onConnect?: () => void }) => {
+      for (let i = 0; i < 3; i += 1) {
+        opts.onConnect?.();
+        await new Promise((r) => setImmediate(r));
+      }
+    });
+
+    await runAgent(config, { log: (msg: string) => logs.push(msg) });
+    await new Promise((r) => setImmediate(r));
+
+    expect(healMock.mock.calls.length).toBe(4);
+    expect(logs.filter((m) => m === 'monitor hooks could not be repaired')).toHaveLength(1);
+  });
+
+  it('logs a heal failure again once a heal has worked in between', async () => {
+    healMock.mockReset();
+    healMock
+      .mockRejectedValueOnce(new Error('EACCES: permission denied'))
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error('EACCES: permission denied'));
+    const logs: string[] = [];
+    runForeverMock.mockImplementation(async (opts: { onConnect?: () => void }) => {
+      for (let i = 0; i < 2; i += 1) {
+        await new Promise((r) => setImmediate(r));
+        opts.onConnect?.();
+      }
+      await new Promise((r) => setImmediate(r));
+    });
+
+    await runAgent(config, { log: (msg: string) => logs.push(msg) });
+    await new Promise((r) => setImmediate(r));
+
+    expect(logs.filter((m) => m === 'monitor hooks could not be repaired')).toHaveLength(2);
   });
 
   it('rethrows any other error without touching the service or exiting', async () => {

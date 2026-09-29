@@ -1,5 +1,5 @@
 import http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import net, { type AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, WebSocket, type RawData } from 'ws';
 import { CLOSE, CONTROL_CHANNEL, HEADER_BYTES, MAX_FRAME, PROTOCOL_VERSION, decodeFrame, encodeFrame, helloMessage } from '@termhub/agent-protocol';
@@ -89,6 +89,33 @@ function startServer(opts: {
 
 function base(srv: TestServer): string {
   return `http://127.0.0.1:${srv.port}`;
+}
+
+/**
+ * Accepts the TCP connection and never answers the upgrade: what a dead path behind a proxy looks
+ * like to the agent (TLS up, request sent, no response).
+ */
+function startSilentServer(onConnection?: () => void): Promise<TestServer> {
+  return new Promise((resolve) => {
+    const sockets = new Set<net.Socket>();
+    const server = net.createServer((socket) => {
+      sockets.add(socket);
+      socket.on('close', () => sockets.delete(socket));
+      socket.on('error', () => {});
+      socket.resume(); // swallow the upgrade request, answer nothing
+      onConnection?.();
+    });
+    server.listen(0, '127.0.0.1', () => {
+      resolve({
+        port: (server.address() as AddressInfo).port,
+        stop: () =>
+          new Promise((res) => {
+            for (const s of sockets) s.destroy();
+            server.close(() => res());
+          }),
+      });
+    });
+  });
 }
 
 describe('connectOnce', () => {
@@ -234,6 +261,25 @@ describe('connectOnce', () => {
     } finally {
       await srv.stop();
     }
+  });
+
+  it('rejects when the upgrade is never answered, instead of waiting forever', async () => {
+    srv = await startSilentServer();
+    const startedAt = Date.now();
+
+    await expect(
+      connectOnce({
+        url: base(srv),
+        token: TOKEN,
+        hello: baseHello,
+        onServerMessage: () => {},
+        onStream: () => {},
+        log: noopLog(),
+        handshakeTimeoutMs: 100,
+      }),
+    ).rejects.toThrow(/handshake has timed out/i);
+
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
   });
 });
 
@@ -471,6 +517,35 @@ describe('runForever', () => {
     await expect(done).resolves.toBeUndefined();
     expect(Date.now() - abortedAt).toBeLessThan(500);
     await expect(serverSawClose).resolves.toEqual(expect.any(Number));
+  });
+
+  it('retries after a handshake that never completes', async () => {
+    let attempts = 0;
+    srv = await startSilentServer(() => {
+      attempts += 1;
+    });
+    const logs: string[] = [];
+    const controller = new AbortController();
+
+    const done = runForever(
+      {
+        url: base(srv),
+        token: TOKEN,
+        hello: baseHello,
+        onServerMessage: () => {},
+        onStream: () => {},
+        log: (msg) => logs.push(msg),
+        backoff: { minMs: 5, maxMs: 10 },
+        handshakeTimeoutMs: 50,
+      },
+      controller.signal,
+    );
+
+    await vi.waitFor(() => expect(attempts).toBeGreaterThanOrEqual(3), { timeout: 3_000 });
+    controller.abort();
+
+    await expect(done).resolves.toBeUndefined();
+    expect(logs.filter((m) => m === 'agent connect failed').length).toBeGreaterThanOrEqual(2);
   });
 });
 

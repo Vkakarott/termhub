@@ -154,12 +154,21 @@ export async function runAgent(config: AgentConfig, opts: RunAgentOptions): Prom
    * on startup and on every session keeps that from needing a visit to the machine. It reuses what
    * is already installed here, so it does nothing on a machine that has no hooks.
    */
+  let lastHealError: string | null = null;
   const healHooks = () => {
     heal()
       .then((dirs) => {
+        lastHealError = null;
         if (dirs.length) opts.log('monitor hooks repaired', { dirs: dirs.length });
       })
-      .catch((err: unknown) => opts.log('monitor hooks could not be repaired', { error: err instanceof Error ? err.message : String(err) }));
+      .catch((err: unknown) => {
+        const error = err instanceof Error ? err.message : String(err);
+        // heal runs on every reconnect (backoff of 1 s at the least): say it once, and again only
+        // when the failure changes or comes back after a heal that worked
+        if (error === lastHealError) return;
+        lastHealError = error;
+        opts.log('monitor hooks could not be repaired', { error });
+      });
   };
   healHooks();
 

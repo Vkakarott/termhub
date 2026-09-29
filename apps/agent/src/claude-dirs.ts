@@ -36,11 +36,18 @@ async function fileNames(dir: string): Promise<string[]> {
   }
 }
 
-/** The `.claude*` dirs of the home; the cheap name filter keeps us from listing the whole home. */
+/**
+ * The `.claude*` dirs of the home, in name order; the cheap name filter keeps us from listing the
+ * whole home. `readdir` answers in whatever order the filesystem keeps, so without the sort the dirs
+ * would be hooked and repaired in an order that changes from one machine to the next.
+ */
 async function candidateNames(home: string): Promise<string[]> {
   try {
     const list = await readdir(home, { withFileTypes: true });
-    return list.filter((d) => d.isDirectory() && d.name.startsWith('.claude')).map((d) => d.name);
+    return list
+      .filter((d) => d.isDirectory() && d.name.startsWith('.claude'))
+      .map((d) => d.name)
+      .sort();
   } catch {
     return [];
   }

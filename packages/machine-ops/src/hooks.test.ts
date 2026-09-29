@@ -6,6 +6,7 @@ import {
   claudeConfigDirs,
   expandHome,
   hookEnvFile,
+  isBareCursorHooks,
   mergeClaudeSettings,
   mergeCodexConfig,
   mergeCursorHooks,
@@ -143,6 +144,17 @@ describe('cursor hooks.json', () => {
     expect(JSON.parse(stripCursorHooks(mergeCursorHooks('', script)))).toEqual({ version: 1 });
     expect(stripCursorHooks('[1]')).toBe('[1]');
     expect(stripCursorHooks('')).toBe('');
+  });
+
+  it('tells a hooks.json with nothing but `version` from one that holds something of the person', () => {
+    expect(isBareCursorHooks(stripCursorHooks(mergeCursorHooks('', script)))).toBe(true);
+    expect(isBareCursorHooks('{"version":1}')).toBe(true);
+    expect(isBareCursorHooks('{}')).toBe(true);
+    expect(isBareCursorHooks('{"version":1,"hooks":{"stop":[{"command":"say done"}]}}')).toBe(false);
+    expect(isBareCursorHooks('{"version":1,"telemetry":false}')).toBe(false);
+    expect(isBareCursorHooks('')).toBe(false);
+    expect(isBareCursorHooks('[1]')).toBe(false);
+    expect(isBareCursorHooks('{nope')).toBe(false);
   });
 });
 

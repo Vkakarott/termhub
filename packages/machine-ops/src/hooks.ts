@@ -304,3 +304,21 @@ export function stripCursorHooks(current: string): string {
   }
   return `${JSON.stringify(file, null, 2)}\n`;
 }
+
+/**
+ * True when a hooks.json holds nothing but Cursor's own `version`: what `stripCursorHooks` leaves of
+ * a file termhub created itself. Uninstall deletes such a file instead of writing it back. Anything
+ * the person has in it (another key, a hook of their own) makes this false, and so does a file that
+ * is empty or that we cannot parse: those are never ours to delete.
+ */
+export function isBareCursorHooks(body: string): boolean {
+  if (!body.trim()) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return false;
+  }
+  const file = asObject(parsed);
+  return file !== null && Object.keys(file).every((key) => key === 'version');
+}
