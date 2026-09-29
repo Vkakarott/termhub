@@ -88,6 +88,37 @@ describe('hooks.install', () => {
     expect(await read('.claude/settings.json')).toBe('{not json');
     await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
+
+  it('refuses a Codex config it cannot read, naming the file, and writes nothing', async () => {
+    // a directory in the file's place: EISDIR on read, and it behaves the same as root
+    await mkdir(path.join(home, '.codex/config.toml'), { recursive: true });
+    await expect(install(params, home)).rejects.toMatchObject({
+      code: 'failed',
+      path: '.codex/config.toml',
+      message: expect.stringContaining('não foi possível ler ~/.codex/config.toml'),
+    });
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('refuses a Cursor hooks.json it cannot read, naming the file, and writes nothing', async () => {
+    await mkdir(path.join(home, '.cursor/hooks.json'), { recursive: true });
+    await expect(install(params, home)).rejects.toMatchObject({
+      code: 'failed',
+      path: '.cursor/hooks.json',
+      message: expect.stringContaining('não foi possível ler ~/.cursor/hooks.json'),
+    });
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('refuses a Claude settings.json it cannot read, naming the file, and writes nothing', async () => {
+    await mkdir(path.join(home, '.claude/settings.json'), { recursive: true });
+    await expect(install(params, home)).rejects.toMatchObject({
+      code: 'failed',
+      path: '.claude/settings.json',
+      message: expect.stringContaining('não foi possível ler ~/.claude/settings.json'),
+    });
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
 });
 
 describe('hooks.install — a settings.json we must not clobber', () => {
@@ -189,6 +220,20 @@ describe('hooks.uninstall', () => {
     await writeFile(path.join(home, '.claude/settings.json'), '{not json');
     await expect(uninstall({}, home)).resolves.toEqual({ removed: true });
     expect(await read('.claude/settings.json')).toBe('{not json');
+  });
+
+  it('names a file it cannot read and removes nothing', async () => {
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    await install(params, home);
+    await rm(path.join(home, '.codex/config.toml'), { force: true });
+    await mkdir(path.join(home, '.codex/config.toml'), { recursive: true });
+
+    await expect(uninstall({}, home)).rejects.toMatchObject({
+      code: 'failed',
+      path: '.codex/config.toml',
+      message: expect.stringContaining('não foi possível ler ~/.codex/config.toml'),
+    });
+    expect(await read('.termhub/bin/termhub-hook')).toBe(HOOK_SCRIPT);
   });
 });
 
