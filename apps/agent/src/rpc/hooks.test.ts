@@ -151,6 +151,22 @@ describe('hooks.install — Cursor CLI', () => {
     await uninstall({}, home);
     expect(JSON.parse(await read('.cursor/hooks.json'))).toEqual({ version: 1, hooks: { stop: [{ command: 'say done' }] } });
   });
+
+  it('uninstall deletes a hooks.json that termhub created, and keeps ~/.cursor', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await install(params, home);
+    await uninstall({}, home);
+    await expect(stat(path.join(home, '.cursor/hooks.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await stat(path.join(home, '.cursor'))).isDirectory()).toBe(true);
+  });
+
+  it('uninstall keeps a hooks.json that still holds a key of the person', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await writeFile(path.join(home, '.cursor/hooks.json'), JSON.stringify({ version: 1, telemetry: false }));
+    await install(params, home);
+    await uninstall({}, home);
+    expect(JSON.parse(await read('.cursor/hooks.json'))).toEqual({ version: 1, telemetry: false });
+  });
 });
 
 describe('hooks.uninstall', () => {
