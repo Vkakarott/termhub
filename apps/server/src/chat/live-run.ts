@@ -167,6 +167,12 @@ export class LiveRun {
     return [...(cur?.turn ? [cur.turn] : []), ...(cur?.merged ?? []), ...this.waiting].map((t) => ({ question_id: t.question?.id ?? null, answer_id: t.answer.id, text: t.text }));
   }
 
+  /** The answer rows this process still owes: the one being written (a turn of the person's or one
+   *  the CLI started on its own), then the waiting ones. A merged turn has no row of its own. */
+  openAnswerIds(): string[] {
+    return [...(this.current ? [this.current.answer.id] : []), ...this.waiting.map((t) => t.answer.id)];
+  }
+
   /** The first input of a process: every note not yet replayed, then every turn not yet answered, one line each. */
   initialText(): string {
     const notes = [...this.notes].map(([uuid, text]) => `${streamUserMessageLine(text, uuid)}\n`);

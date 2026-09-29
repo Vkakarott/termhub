@@ -308,6 +308,8 @@ export class ChatService {
   private live = new Map<string, LiveRun>();
   /** Messages typed while a process could not take them, answered by the next one. */
   private queued = new Map<string, QueuedTurn[]>();
+  /** The answer row of a one-shot run, while it runs: what `openAnswerIds` lists for it. */
+  private oneShot = new Map<string, string>();
   /** Conversations whose lock `reset` holds: a message there is not queued (it would land in the thread
    *  being archived), it is refused as before. */
   private resetting = new Set<string>();
@@ -433,6 +435,31 @@ export class ChatService {
    *  opens in the middle of one. */
   isCompacting(conversationId: string): boolean {
     return this.compacting.has(conversationId);
+  }
+
+  /**
+   * The answer rows of a conversation that are still to be answered, for `GET /api/chat`. The union of
+   * what this instance holds (the live process's open turns, the row of a one-shot run, the queued
+   * turns) and the turns of the conversation's row in `chat_live_runs` when another instance released
+   * it or left it stale: that row is resumed or closed here, and both are published here. A row alive
+   * in another instance is left out on purpose: the bus is in-process, so its end would never reach a
+   * screen connected to this one.
+   *
+   * A closed row is closed for good: nothing may write into a row that already had its final
+   * `message` or was removed, or screens would never show it.
+   */
+  async openAnswerIds(conversationId: string): Promise<string[]> {
+    const ids = new Set<string>(this.live.get(conversationId)?.openAnswerIds() ?? []);
+    const oneShot = this.oneShot.get(conversationId);
+    if (oneShot !== undefined) ids.add(oneShot);
+    for (const q of this.queued.get(conversationId) ?? []) ids.add(q.answer.id);
+    try {
+      const row = await this.deps.repos.chatLiveRuns.findResumable(conversationId, this.instanceId, new Date(Date.now() - STALE_MS));
+      for (const t of row?.turns ?? []) if (t.answer_id !== null) ids.add(t.answer_id);
+    } catch (err) {
+      console.error('chat: the open turns of another instance could not be read', { conversation_id: conversationId, error: failureLabel(err) });
+    }
+    return [...ids];
   }
 
   /**
@@ -1053,6 +1080,7 @@ export class ChatService {
     appendSystemPrompt: string | null,
   ): Promise<ChatMessage> {
     try {
+      this.oneShot.set(conversation.id, answer.id);
       chatBus.publish({ type: 'run_started', user_id: user.id, conversation_id: conversation.id, message_id: answer.id });
       let collected = '';
       let usage: unknown = null;
@@ -1188,6 +1216,8 @@ export class ChatService {
       chatBus.publish({ type: 'run_finished', user_id: user.id, conversation_id: conversation.id, message_id: final.id, ok: errorCode === null, error_code: errorCode });
       return final;
     } finally {
+      // Before the release: it may start the next queued run, which sets its own row.
+      this.oneShot.delete(conversation.id);
       this.releaseLock(user, conversation.id);
     }
   }

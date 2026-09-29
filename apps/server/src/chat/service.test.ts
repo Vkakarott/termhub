@@ -3125,3 +3125,95 @@ describe('context fill and "Compactar" (TER-315)', () => {
     expect(messages.map((m) => m.text)).toEqual(['e agora?', 'Seguindo.']);
   });
 });
+
+describe('openAnswerIds (spec 2026-09-29 §4)', () => {
+  /** A streamed host whose processes are driven by hand. */
+  function streamed() {
+    const built = build([], { streaming: true });
+    const lr = liveRunner();
+    vi.mocked(built.runner.run).mockImplementation(lr.run);
+    return { ...built, lr };
+  }
+  /** A row another instance keeps for `c1`, with one open turn. */
+  const otherRow = { conversation_id: 'c1', user_id: 'u1', instance_id: 'other', turns: [{ question_id: 'q', answer_id: 'a-open', text: 'x' }] };
+
+  it('lists the row of a one-shot run while it runs, and nothing after', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const { service } = build(() => (async function* () { await gate; yield delta('ok'); yield done(); })());
+    const started = await service.start(user, 'oi');
+    expect(await service.openAnswerIds('c1')).toEqual([started.assistant_message_id]);
+    release();
+    await started.done;
+    expect(await service.openAnswerIds('c1')).toEqual([]);
+  });
+
+  it('lists the rows of a streamed process, and nothing once only subagents keep it alive', async () => {
+    const { service, lr } = streamed();
+    const started = await service.start(user, 'dispara');
+    const run = await runAt(lr, 0);
+    expect(await service.openAnswerIds('c1')).toEqual([started.assistant_message_id]);
+    run.push(replayOf(run.input.text.trim()));
+    run.push(backgroundTasks(['t1']));
+    run.push(delta('Disparei.'));
+    run.push(done());
+    await started.done;
+    await settled();
+    // The process is alive for the subagent, and owes no answer.
+    expect(run.written).not.toContain('{"type":"termhub_end_input"}');
+    expect(await service.openAnswerIds('c1')).toEqual([]);
+    run.push(backgroundTasks([]));
+    run.end();
+    await settled();
+  });
+
+  it('lists a message queued behind a process that ended its input', async () => {
+    const { service, lr } = streamed();
+    const first = await service.start(user, 'um');
+    const run = await runAt(lr, 0);
+    run.push(replayOf(run.input.text.trim()));
+    run.push(delta('ok'));
+    run.push(done());
+    await first.done;
+    await settled();
+    const late = await service.start(user, 'dois');
+    expect(await service.openAnswerIds('c1')).toEqual([late.assistant_message_id]);
+    run.end();
+    const next = await runAt(lr, 1);
+    next.push(replayOf(next.input.text.trim()));
+    next.push(delta('r'));
+    next.push(done());
+    await late.done;
+    next.end();
+    await settled();
+    expect(await service.openAnswerIds('c1')).toEqual([]);
+  });
+
+  it('lists the open turns of a row another instance released', async () => {
+    const { service, chatLiveRuns } = build([]);
+    await chatLiveRuns.save(otherRow);
+    await chatLiveRuns.release('other');
+    expect(await service.openAnswerIds('c1')).toEqual(['a-open']);
+  });
+
+  it('leaves out a row that is alive in another instance', async () => {
+    const { service, chatLiveRuns } = build([]);
+    await chatLiveRuns.save(otherRow);
+    expect(await service.openAnswerIds('c1')).toEqual([]);
+  });
+
+  it('a failed read of the table costs only that part', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const { service, chatLiveRuns } = build(() => (async function* () { await gate; yield delta('ok'); yield done(); })());
+    const started = await service.start(user, 'oi');
+    expect(await service.openAnswerIds('c1')).toEqual([started.assistant_message_id]);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    chatLiveRuns.findResumable.mockRejectedValueOnce(new Error('down'));
+    await expect(service.openAnswerIds('c1')).resolves.toEqual([started.assistant_message_id]);
+    expect(error).toHaveBeenCalledWith('chat: the open turns of another instance could not be read', { conversation_id: 'c1', error: 'Error' });
+    error.mockRestore();
+    release();
+    await started.done;
+  });
+});

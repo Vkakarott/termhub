@@ -47,6 +47,7 @@ function build(opts: {
   viewAsOwner?: string;
   subagentsFor?: ReturnType<typeof vi.fn>;
   cancelSubagent?: ReturnType<typeof vi.fn>;
+  openAnswerIds?: ReturnType<typeof vi.fn>;
 } = {}) {
   const send = opts.send ?? vi.fn(async () => ({ id: 'm2', role: 'assistant', text: 'Nada rodando.' }));
   const resumeAfterDecision = opts.resumeAfterDecision ?? vi.fn(async () => ({ id: 'm3', role: 'assistant', text: 'Feito.' }));
@@ -70,6 +71,7 @@ function build(opts: {
     subagentsFor: opts.subagentsFor ?? vi.fn(async () => []),
     cancelSubagent: opts.cancelSubagent ?? vi.fn(async () => ({ id: 'sub1', description: 'Escrever testes', subagent_type: null, status: 'stopping', started_at: '2026-09-26T12:00:00.000Z', ended_at: null })),
     isCompacting: vi.fn(() => false),
+    openAnswerIds: opts.openAnswerIds ?? vi.fn(async () => []),
     compact: vi.fn(async () => ({ conversation_id: 'c1', done: Promise.resolve() })),
   };
   const tabs = opts.tabs ?? [];
@@ -163,6 +165,24 @@ it('returns the host state on the same read as the history, so the screen can sa
   const res = await app.inject({ method: 'GET', url: '/chat' });
   // The state, not a sentence: Task 6 renders it, and it carries what that rendering needs.
   expect(res.json().host).toEqual({ kind: 'offline', machine: { id: 'm2', name: 'macbook' } });
+});
+
+it('GET / lists the answers still to come, only among the empty rows it returns', async () => {
+  const { app, repos } = build({ openAnswerIds: vi.fn(async () => ['m-open', 'm-done', 'm-gone']) });
+  repos.chat.listMessages = vi.fn(async () => [
+    { id: 'm-q', role: 'user', text: 'oi', error_code: null },
+    { id: 'm-done', role: 'assistant', text: 'pronto', error_code: null },
+    { id: 'm-open', role: 'assistant', text: '', error_code: null },
+    { id: 'm-dead', role: 'assistant', text: '', error_code: null },
+  ]) as never;
+  const res = await app.inject({ method: 'GET', url: '/chat' });
+  expect(res.statusCode).toBe(200);
+  expect(res.json().open_answer_ids).toEqual(['m-open']);
+});
+
+it('GET / answers an empty list when nothing is being answered', async () => {
+  const { app } = build();
+  expect((await app.inject({ method: 'GET', url: '/chat' })).json().open_answer_ids).toEqual([]);
 });
 
 it('sets the host and answers with the conversation and the resolved state', async () => {
