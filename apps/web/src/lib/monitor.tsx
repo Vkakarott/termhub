@@ -181,6 +181,8 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
         const current = itemsRef.current.find((i) => i.tab.id === tabId)?.tab;
         const seenAt = optimisticSeenAt({ state_at: current?.state_at ?? null });
         setItems((list) => list.map((i) => (i.tab.id === tabId ? { ...i, tab: { ...i.tab, state_seen_at: seenAt } } : i)));
+        // the sidebar's per-agent dot reads the open-tab list, not the state items
+        setOpenTabs((list) => (list.some((t) => t.id === tabId) ? list.map((t) => (t.id === tabId ? { ...t, state_seen_at: seenAt } : t)) : list));
         try {
           await api.tabs.seen(tabId);
         } catch {
