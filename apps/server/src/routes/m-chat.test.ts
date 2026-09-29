@@ -75,6 +75,7 @@ function build(opts: {
   viewAsOwner?: string;
   subagentsFor?: ReturnType<typeof vi.fn>;
   cancelSubagent?: ReturnType<typeof vi.fn>;
+  openAnswerIds?: ReturnType<typeof vi.fn>;
 } = {}) {
   const extraProjects = opts.extraProjects ?? [];
   const decide = opts.decide ?? vi.fn(async (_id: string, _userId: string, status: string) => ({ ...pendingAction, status }));
@@ -92,6 +93,7 @@ function build(opts: {
     projectStatuses: vi.fn(async () => opts.projectStatuses ?? [{ project_id: 'p1', busy: true, pending_confirmations: 2 }]),
     subagentsFor: opts.subagentsFor ?? vi.fn(async () => []),
     cancelSubagent: opts.cancelSubagent ?? vi.fn(async () => ({ id: 'sub1', description: 'Escrever testes', subagent_type: null, status: 'stopping', started_at: '2026-09-26T12:00:00.000Z', ended_at: null })),
+    openAnswerIds: opts.openAnswerIds ?? vi.fn(async () => []),
   };
   const session = {
     checkPin: opts.checkPin ?? vi.fn(async () => ({ ok: true })),
@@ -211,6 +213,24 @@ describe('GET /chat', () => {
     expect(service.conversationFor).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), null);
     expect(repos.chat.listMessages).toHaveBeenCalledWith('c1');
     expect(repos.chatActions.listByConversation).toHaveBeenCalledWith('c1');
+  });
+
+  it('lists the answers still to come, only among the empty rows it returns', async () => {
+    const { app, repos } = build({ openAnswerIds: vi.fn(async () => ['m-open', 'm-done', 'm-gone']) });
+    repos.chat.listMessages = vi.fn(async () => [
+      { id: 'm-q', role: 'user', text: 'oi', error_code: null },
+      { id: 'm-done', role: 'assistant', text: 'pronto', error_code: null },
+      { id: 'm-open', role: 'assistant', text: '', error_code: null },
+      { id: 'm-dead', role: 'assistant', text: '', error_code: null },
+    ]) as never;
+    const res = await app.inject({ method: 'GET', url: '/chat' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().open_answer_ids).toEqual(['m-open']);
+  });
+
+  it('answers an empty list when nothing is being answered', async () => {
+    const { app } = build();
+    expect((await app.inject({ method: 'GET', url: '/chat' })).json().open_answer_ids).toEqual([]);
   });
 
   it('returns the tab questions too', async () => {

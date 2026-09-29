@@ -17,6 +17,7 @@ import type { HostAgents } from '../chat/host.js';
 import { failureLabel, type ChatService } from '../chat/service.js';
 import { defaultEmbedder } from '../chat/embeddings.js';
 import { chatBus } from '../chat/bus.js';
+import { openAnswersIn } from '../chat/open-answers.js';
 import { decideMany, pendingBatch } from '../chat/decisions.js';
 import {
   activeGrants,
@@ -108,7 +109,7 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
     const projectId = project ?? null;
     const user = request.scope.user;
     const conversation = await deps.chat.conversationFor(user, projectId);
-    const [messages, rows, host, grants, project_grants, standing_grants, questionRows, subagents] = await Promise.all([
+    const [messages, rows, host, grants, project_grants, standing_grants, questionRows, subagents, open] = await Promise.all([
       repos.chat.listMessages(conversation.id),
       repos.chatActions.listByConversation(conversation.id),
       deps.chat.hostFor(user, projectId),
@@ -120,10 +121,24 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
       repos.tabQuestions.listByConversation(conversation.id),
       // The subagents panel (spec 2026-09-26 §4), same as the web's GET /api/chat.
       deps.chat.subagentsFor(conversation.id),
+      deps.chat.openAnswerIds(conversation.id),
     ]);
     const actions = await describeActions(repos, rows, user.id);
     const { tab_questions, tab_suggestions } = splitTabRows(await describeTabQuestions(repos, questionRows, user.id));
-    return { conversation, messages, actions, host, grants, project_grants, standing_grants, tab_questions, tab_suggestions, subagents };
+    return {
+      conversation,
+      messages,
+      actions,
+      host,
+      grants,
+      project_grants,
+      standing_grants,
+      tab_questions,
+      tab_suggestions,
+      subagents,
+      // The rows a screen opened in the middle of a run shows as being answered (spec 2026-09-29).
+      open_answer_ids: openAnswersIn(messages, open),
+    };
   });
 
   /** The user's projects, with their chat's status; a project with no conversation yet is idle. */

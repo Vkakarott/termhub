@@ -13,6 +13,7 @@ import { dismissTabSuggestion, sendTabSuggestion } from '../chat/tab-suggestion-
 import { failureLabel, type ChatService } from '../chat/service.js';
 import { defaultEmbedder } from '../chat/embeddings.js';
 import { chatBus } from '../chat/bus.js';
+import { openAnswersIn } from '../chat/open-answers.js';
 import {
   activeGrants,
   activeProjectGrants,
@@ -89,7 +90,7 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     // The trail comes from here, not from live events (which only update what is already on
     // screen): a reload must see every pending/decided action exactly as the server has it,
     // including an old denied row sitting beside a newer pending one for the same proposal.
-    const [messages, rows, host, grants, project_grants, standing_grants, questionRows, subagents] = await Promise.all([
+    const [messages, rows, host, grants, project_grants, standing_grants, questionRows, subagents, open] = await Promise.all([
       repos.chat.listMessages(conversation.id),
       repos.chatActions.listByConversation(conversation.id),
       // The state, not a rendered sentence: which machine will run the next message, or which of the
@@ -105,12 +106,27 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
       repos.tabQuestions.listByConversation(conversation.id),
       // The subagents panel (spec 2026-09-26 §4): every one still open, plus any that ended recently.
       deps.service.subagentsFor(conversation.id),
+      deps.service.openAnswerIds(conversation.id),
     ]);
     // Scoped to this request's own user: a card must never resolve a name this user cannot see.
     const actions = await describeActions(repos, rows, request.scope.user.id);
     const { tab_questions, tab_suggestions } = splitTabRows(await describeTabQuestions(repos, questionRows, request.scope.user.id));
     // `compacting`: a screen opened in the middle of "Compactar" (TER-315) shows it as under way.
-    return { conversation, messages, actions, host, grants, project_grants, standing_grants, tab_questions, tab_suggestions, subagents, compacting: deps.service.isCompacting(conversation.id) };
+    return {
+      conversation,
+      messages,
+      actions,
+      host,
+      grants,
+      project_grants,
+      standing_grants,
+      tab_questions,
+      tab_suggestions,
+      subagents,
+      compacting: deps.service.isCompacting(conversation.id),
+      // The rows a screen opened in the middle of a run shows as being answered (spec 2026-09-29).
+      open_answer_ids: openAnswersIn(messages, open),
+    };
   });
 
   /**

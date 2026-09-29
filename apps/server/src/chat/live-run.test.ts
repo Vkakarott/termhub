@@ -897,3 +897,29 @@ it('a row restart could not remove strands nobody: the waiting turns wait again 
   expect(h.events.slice(before).some((e) => e.type === 'message_removed')).toBe(false);
   expect(h.rows.some((r) => r.id === own.id)).toBe(true);
 });
+
+it('lists the answers it still owes: the one being written, then the waiting ones', async () => {
+  expect(h.live.openAnswerIds()).toEqual([]);
+  const a = await h.turn(U1, 'a');
+  const b = await h.turn(U2, 'b');
+  h.live.add(a.t);
+  h.live.add(b.t);
+  expect(h.live.openAnswerIds()).toEqual([a.t.answer.id, b.t.answer.id]);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1));
+  s.push(delta('resposta'));
+  s.push(result());
+  await settle();
+  expect(h.live.openAnswerIds()).toEqual([b.t.answer.id]);
+  s.push(replay(U2));
+  s.push(delta('outra'));
+  s.push(result());
+  await settle();
+  expect(h.live.openAnswerIds()).toEqual([]);
+  s.push(delta('por conta própria'));
+  await settle();
+  expect(h.live.openAnswerIds()).toHaveLength(1);
+  s.end();
+  await consumed;
+});
