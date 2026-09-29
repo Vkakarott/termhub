@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Project, Task, TaskColumn } from '../lib/types';
 
@@ -41,6 +41,17 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+/**
+ * Every change reloads the block: the component calls the API, then lists the columns again and sets
+ * its state. A test that ends on the API call leaves that reload for after `cleanup()`, and one that
+ * goes on to the next action races it. `calls` is how many times the list has been asked for by then:
+ * one for the first render, one more for each action.
+ */
+const reloaded = async (calls = 2) => {
+  await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(calls));
+  await act(async () => {}); // the reload's own setState lands inside act
+};
+
 describe('BoardColumnsSettings', () => {
   it('lists the columns in order and locks the last column of each category', async () => {
     render(<BoardColumnsSettings project={project} />);
@@ -53,16 +64,38 @@ describe('BoardColumnsSettings', () => {
     expect(screen.getByRole('button', { name: 'Descer Feito' })).toBeDisabled();
   });
 
-  it('renames on blur, changes a category and moves a column', async () => {
+  it('renames on blur', async () => {
     render(<BoardColumnsSettings project={project} />);
     const qa = await screen.findByDisplayValue('QA');
     fireEvent.change(qa, { target: { value: 'Em revisão' } });
     fireEvent.blur(qa);
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith('c4', { name: 'Em revisão' }));
+    await reloaded();
+  });
+
+  it('does not rename when the name did not change', async () => {
+    render(<BoardColumnsSettings project={project} />);
+    const qa = await screen.findByDisplayValue('QA');
+    fireEvent.blur(qa);
+    await act(async () => {});
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+  });
+
+  it('changes a category', async () => {
+    render(<BoardColumnsSettings project={project} />);
+    await screen.findByDisplayValue('QA');
     fireEvent.change(screen.getByLabelText('Tipo da coluna Fazendo'), { target: { value: 'todo' } });
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith('c2', { category: 'todo' }));
+    await reloaded();
+  });
+
+  it('moves a column', async () => {
+    render(<BoardColumnsSettings project={project} />);
+    await screen.findByDisplayValue('QA');
     fireEvent.click(screen.getByRole('button', { name: 'Subir QA' }));
     await waitFor(() => expect(mocks.move).toHaveBeenCalledWith('c4', 1));
+    await reloaded();
   });
 
   it('says how many cards move and where before deleting', async () => {
@@ -72,6 +105,7 @@ describe('BoardColumnsSettings', () => {
     expect(screen.getByText(/2 cards vão para "Fazendo"/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
     await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith('c4'));
+    await reloaded();
   });
 
   it('adds a column and sets the agent column', async () => {
@@ -81,12 +115,14 @@ describe('BoardColumnsSettings', () => {
     fireEvent.change(screen.getByLabelText('Tipo da nova coluna'), { target: { value: 'doing' } });
     fireEvent.click(screen.getByRole('button', { name: '+ coluna' }));
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith('p1', { name: 'Bloqueado', category: 'doing' }));
+    await reloaded();
     const agent = screen.getByLabelText('Coluna do agente') as HTMLSelectElement;
     expect(agent.options[0].textContent).toBe('Automática (primeira Fazendo)');
     // only doing columns are offered
     expect(Array.from(agent.options).map((o) => o.textContent)).toEqual(['Automática (primeira Fazendo)', 'Fazendo', 'QA']);
     fireEvent.change(agent, { target: { value: 'c4' } });
     await waitFor(() => expect(mocks.setAgent).toHaveBeenCalledWith('p1', 'c4'));
+    await reloaded(3);
   });
 
   it('shows the server refusal', async () => {
@@ -96,5 +132,6 @@ describe('BoardColumnsSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Excluir QA' }));
     fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
     expect(await screen.findByText('O board precisa de ao menos uma coluna de cada tipo')).toBeInTheDocument();
+    await reloaded();
   });
 });
