@@ -5,7 +5,7 @@ import { APP_URL, Chevron, REPO_URL, Site, SiteFooter, SiteHeader, trackCta } fr
 import { useReveal } from './useReveal';
 import { WaitlistForm } from './WaitlistForm';
 
-const FEATURE_ICONS = ['▮_', '⌂', '✦', '▦', '◔', '◫'];
+const FEATURE_ICONS = ['▮_', '⌂', '✦', '◉', '⌘', '▯', '▦', '◔', '◫'];
 
 /** Tiles fade up in sequence, capped so the last one never feels late. */
 const revealDelay = (index: number) => ({ transitionDelay: `${Math.min(index * 60, 300)}ms` });
@@ -93,7 +93,7 @@ function Compare() {
           container: without it they escape to the document, which then gets as wide as the
           table and iOS Safari zooms the whole page out to fit it. */}
       <div ref={ref} className="reveal relative mt-10 overflow-x-auto rounded-card border border-border-2 bg-surface">
-        <table className="w-full min-w-[760px] border-collapse text-body-sm">
+        <table className="w-full min-w-[880px] border-collapse text-body-sm">
           <thead>
             <tr className="border-b border-border-2">
               <th scope="col" className="p-4 text-left font-normal text-muted" />
@@ -199,11 +199,12 @@ function Page() {
             </h1>
             <p className="mt-5 max-w-xl text-subheading text-frost">{t.hero.lead}</p>
             <div className="mt-7 flex flex-wrap gap-3">
-              <a href={APP_URL} className="btn-primary" onClick={trackCta('app', 'hero')}>{t.hero.cta}</a>
+              <a href="#cloud" className="btn-primary" onClick={trackCta('waitlist', 'hero')}>{t.hero.cta}</a>
               <a href={REPO_URL} className="btn-ghost" onClick={trackCta('github', 'hero')}>
                 {t.hero.repo} <Chevron />
               </a>
             </div>
+            <p className="mt-3 text-caption text-muted">{t.hero.cta_hint}</p>
             <p className="mt-6 text-caption text-muted">
               <span className="kbd">⌘T</span> {t.hero.keys.tab} · <span className="kbd">⌘1..9</span> {t.hero.keys.switch} · <span className="kbd">⌘V</span> {t.hero.keys.paste}
             </p>
