@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const rpc = vi.fn();
-const isOnline = vi.fn();
+const awaitAgent = vi.fn();
 const info = vi.fn();
 vi.mock('../agent/registry.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../agent/registry.js')>()),
-  agents: { rpc: (...a: unknown[]) => rpc(...a), isOnline: (id: string) => isOnline(id), info: (id: string) => info(id) },
+  agents: { rpc: (...a: unknown[]) => rpc(...a), awaitAgent: (m: unknown) => awaitAgent(m), info: (id: string) => info(id) },
 }));
 
 import { AgentClosedError, AgentRpcError, AgentTimeoutError } from '../agent/connection.js';
@@ -27,7 +27,7 @@ async function failure(p: Promise<unknown>): Promise<{ code?: string; message: s
 
 beforeEach(() => {
   rpc.mockReset();
-  isOnline.mockReset().mockReturnValue(true);
+  awaitAgent.mockReset().mockResolvedValue(true);
   info.mockReset().mockReturnValue({ agent_version: '0.9.0', os: 'linux', tools: [], connected_at: '' });
 });
 
@@ -45,8 +45,24 @@ describe('readMachineSecret', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
+  it('waits for an agent moving between instances (a deploy) before asking it', async () => {
+    const order: string[] = [];
+    awaitAgent.mockImplementation(async () => {
+      order.push('awaitAgent');
+      return true;
+    });
+    rpc.mockImplementation(async () => {
+      order.push('rpc');
+      return { value: TOKEN };
+    });
+    const m = machine();
+    await expect(readMachineSecret(m, 'gh_auth_token')).resolves.toBe(TOKEN);
+    expect(awaitAgent).toHaveBeenCalledWith(m);
+    expect(order).toEqual(['awaitAgent', 'rpc']);
+  });
+
   it('answers MACHINE_OFFLINE for a disconnected agent, before any RPC', async () => {
-    isOnline.mockReturnValue(false);
+    awaitAgent.mockResolvedValue(false);
     expect((await failure(readMachineSecret(machine(), 'gh_auth_token'))).code).toBe('MACHINE_OFFLINE');
     expect(rpc).not.toHaveBeenCalled();
   });

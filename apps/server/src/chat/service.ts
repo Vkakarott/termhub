@@ -367,18 +367,19 @@ export class ChatService {
    *  conversation's (spec 2026-09-23 §3); a project chat additionally needs an agent that forwards its
    *  prompt, so the same machine can be ready for one scope and too old for the other. */
   async hostFor(user: User, projectId: string | null = null): Promise<HostChoice> {
-    if (projectId === null) return this.hostForConversation(user, null);
-    return this.hostForConversation(user, await this.conversationFor(user, projectId));
+    if (projectId === null) return this.hostForConversation(user, null, { wait: 'handover' });
+    return this.hostForConversation(user, await this.conversationFor(user, projectId), { wait: 'handover' });
   }
 
   /** The host as seen by one run conversation: the account-wide row's machine and account, the extra
    * capability a project chat needs, and whether *this* conversation's session is at stake (spec §4.2 —
    * the conversation that owns the host is taken separately from the one being run). `null` is the
    * account-wide conversation, whose session `resolveHost` reads itself. `wait` is for a caller about
-   * to send or run now: it gives a host moving between instances (a deploy) a few seconds to attach. */
-  private hostForConversation(user: User, conversation: ChatConversation | null, opts: { wait?: boolean } = {}): Promise<HostChoice> {
+   * to send or run now: it gives a host moving between instances (a deploy) a few seconds to attach;
+   * `'handover'` is the screen's share of that wait, for an agent this instance has never held. */
+  private hostForConversation(user: User, conversation: ChatConversation | null, opts: { wait?: boolean | 'handover' } = {}): Promise<HostChoice> {
     const ctx = { repos: this.deps.repos, agents: this.deps.agents };
-    const wait = opts.wait === true;
+    const wait = opts.wait ?? false;
     if (conversation === null || conversation.project_id === null) return resolveHost(ctx, user, conversation === null ? { wait } : { runSessionId: conversation.cli_session_id, wait });
     return resolveHost(ctx, user, { requires: CAPABILITY_CLAUDE_SYSTEM_PROMPT, runSessionId: conversation.cli_session_id, wait });
   }

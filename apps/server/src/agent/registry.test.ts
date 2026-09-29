@@ -107,6 +107,29 @@ describe('AgentRegistry.waitOnline / awaitAgent', () => {
     await expect(r.awaitAgent(agentMachine('2026-09-28T00:08:00Z'), { now })).resolves.toBe(true);
     expect(spy).toHaveBeenCalledWith('m1', MOVING_WAIT_MS);
   });
+  it('awaitHandover: waits for an agent this process never held and that was seen moments ago', async () => {
+    const now = Date.parse('2026-09-28T00:10:00Z');
+    const r = new AgentRegistry(); const spy = vi.spyOn(r, 'waitOnline').mockResolvedValue(true);
+    await expect(r.awaitHandover(agentMachine('2026-09-28T00:09:30Z'), { now })).resolves.toBe(true);
+    expect(spy).toHaveBeenCalledWith('m1', MOVING_WAIT_MS);
+  });
+  it('awaitHandover: answers at once for an agent that was here and left', async () => {
+    const now = Date.parse('2026-09-28T00:10:00Z');
+    const r = new AgentRegistry(); const c = fakeConn('m1'); r.attach('m1', c); c.close(1006);
+    const spy = vi.spyOn(r, 'waitOnline');
+    await expect(r.awaitHandover(agentMachine('2026-09-28T00:09:59Z'), { now })).resolves.toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+  });
+  it('awaitHandover: answers at once when online, stale, or not an agent machine', async () => {
+    const now = Date.parse('2026-09-28T00:10:00Z');
+    const r = new AgentRegistry(); const spy = vi.spyOn(r, 'waitOnline');
+    await expect(r.awaitHandover(agentMachine('2026-09-28T00:00:00Z'), { now })).resolves.toBe(false);
+    await expect(r.awaitHandover(agentMachine(null), { now })).resolves.toBe(false);
+    await expect(r.awaitHandover({ id: 'm2', type: 'ssh', agent_last_seen_at: null } as never, { now })).resolves.toBe(true);
+    r.attach('m1', fakeConn('m1'));
+    await expect(r.awaitHandover(agentMachine('2026-09-28T00:00:00Z'), { now })).resolves.toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+  });
   it('closeAll closes every connection with the given code', () => {
     const r = new AgentRegistry(); const a = fakeConn('m1'); const b = fakeConn('m2');
     r.attach('m1', a); r.attach('m2', b);

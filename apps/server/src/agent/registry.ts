@@ -32,6 +32,8 @@ export interface AgentInfo {
  */
 export class AgentRegistry extends EventEmitter {
   private readonly conns = new Map<string, AgentConnection>();
+  /** Machines whose agent this process has held at some point: when one of them is offline here, it left from here. */
+  private readonly held = new Set<string>();
 
   constructor() {
     super();
@@ -45,6 +47,7 @@ export class AgentRegistry extends EventEmitter {
       existing.close(CLOSE.CONFLICT, 'replaced');
     }
     this.conns.set(machineId, conn);
+    this.held.add(machineId);
     conn.on('close', () => {
       if (this.conns.get(machineId) === conn) {
         this.conns.delete(machineId);
@@ -126,6 +129,7 @@ export class AgentRegistry extends EventEmitter {
   /** Test-only: clears the map without closing connections. */
   reset(): void {
     this.conns.clear();
+    this.held.clear();
   }
 
   /** Resolves true once `machineId` is attached (at once if it already is), false after `timeoutMs`. */
@@ -157,6 +161,19 @@ export class AgentRegistry extends EventEmitter {
     const seen = machine.agent_last_seen_at ? Date.parse(machine.agent_last_seen_at) : NaN;
     if (!Number.isFinite(seen) || (opts.now ?? Date.now()) - seen > MOVING_WINDOW_MS) return false;
     return this.waitOnline(machine.id, opts.timeoutMs ?? MOVING_WAIT_MS);
+  }
+
+  /**
+   * `awaitAgent` for a read (a status, the chat's host, an inventory): waits only for an agent this process has never
+   * held. That is a colour that just started: the agents seen moments ago are still on the other colour, or on their
+   * way from it, and the browsers get here first (they reconnect in under a second, an agent in about two), so
+   * answering "offline" would be wrong and would stay on screen until the next read. An agent that was here and
+   * left is answered at once, so a read never stalls on a laptop that went to sleep.
+   */
+  async awaitHandover(machine: Pick<Machine, 'id' | 'type' | 'agent_last_seen_at'>, opts: { now?: number; timeoutMs?: number } = {}): Promise<boolean> {
+    if (machine.type !== 'agent') return true;
+    if (this.held.has(machine.id)) return this.conns.has(machine.id);
+    return this.awaitAgent(machine, opts);
   }
 
   /** Closes every agent connection (the drain on shutdown); returns how many there were. */

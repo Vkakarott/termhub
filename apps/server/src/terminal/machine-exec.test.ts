@@ -58,6 +58,13 @@ describe('probeTmuxSessions', () => {
     expect(execFile).not.toHaveBeenCalled();
   });
 
+  it('waits for an agent on its way from the other colour (a deploy) before calling it unreachable', async () => {
+    const moving = { ...machine('agent', 'moving-agent'), agent_last_seen_at: new Date().toISOString() } as Machine;
+    const pending = probeTmuxSessions(moving);
+    setTimeout(() => attachFakeConn('moving-agent', () => ({ sessions: ['th-a'] })), 20);
+    expect(await pending).toEqual({ reachable: true, sessions: new Set(['th-a']) });
+  });
+
   it('reports a failed agent RPC as unreachable', async () => {
     attachFakeConn('m1', () => {
       throw new AgentRpcError({ code: 'failed', message: 'tmux exploded' });

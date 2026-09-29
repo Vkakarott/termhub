@@ -56,7 +56,7 @@ let unsubscribe: () => void;
 beforeEach(() => {
   vi.clearAllMocks();
   captureStyledScreen.mockResolvedValue({ text: screens.suggestion, styled: true });
-  vi.spyOn(agents, 'isOnline').mockReturnValue(true);
+  vi.spyOn(agents, 'awaitAgent').mockResolvedValue(true);
   events = [];
   unsubscribe = chatBus.subscribe((e) => events.push(e));
 });
@@ -155,7 +155,8 @@ describe('sendTabSuggestion', () => {
   });
 
   it('an offline agent is 409 MACHINE_OFFLINE, nothing claimed', async () => {
-    vi.mocked(agents.isOnline).mockReturnValue(false);
+    // asked through the wait of a machine moving between instances (a deploy), not the bare registry
+    vi.mocked(agents.awaitAgent).mockResolvedValue(false);
     const { ctx, tabQuestions } = ctxFor(row());
     await rejects(sendTabSuggestion(ctx, 's1', { text: 'commit it' }, { log: log() }), 409, 'MACHINE_OFFLINE');
     expect(tabQuestions.claimSuggestion).not.toHaveBeenCalled();
