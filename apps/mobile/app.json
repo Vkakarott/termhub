@@ -4,14 +4,14 @@
     "slug": "termhub",
     "owner": "pedrogoiania",
     "scheme": "termhub",
-    "version": "0.3.1",
+    "version": "0.3.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#0B0F19",
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "202609290230",
+      "buildNumber": "202609290338",
       "bundleIdentifier": "dev.termhub.app",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
@@ -24,7 +24,7 @@
     },
     "android": {
       "package": "dev.termhub.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#0B0F19",
