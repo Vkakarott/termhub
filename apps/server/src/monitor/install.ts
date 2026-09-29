@@ -56,24 +56,43 @@ const SEP = '__TERMHUB_SEP__';
 /** A dir as a shell word: "~/x" stays relative to the machine's $HOME, "/abs" is quoted as is. */
 const shDir = (d: string) => (d.startsWith('~/') ? `"$HOME"/${shellQuote(d.slice(2))}` : shellQuote(d));
 
+/** `absent`: nothing there. `present`: a regular file we can read. `unreadable`: there, but not ours to read (no permission, a directory in its place, a dangling link). */
+type FileStatus = 'absent' | 'present' | 'unreadable';
+
 interface MachineConfigs {
   home: string;
   /** each Claude dir to hook, with whether it exists there and its current settings.json */
-  claude: { dir: string; exists: boolean; settings: string }[];
+  claude: { dir: string; exists: boolean; status: FileStatus; settings: string }[];
   codexConfig: string;
+  codexStatus: FileStatus;
   hasCodex: boolean;
   cursorHooks: string;
+  cursorStatus: FileStatus;
   hasCursor: boolean;
 }
 
-/** $HOME, the settings.json of each Claude dir, the Codex config and the Cursor hooks.json (empty when absent), in one round trip. */
+/**
+ * One status word for a file, then its content. `cat … 2>/dev/null` alone answers the same empty
+ * chunk for a file that is not there and for one we cannot read, and an install that takes the
+ * second for the first writes a fresh file over what the person had. `file` is already a shell word.
+ */
+const probeFile = (file: string) =>
+  `printf '${SEP}\\n'; if [ ! -e ${file} ] && [ ! -L ${file} ]; then echo absent; elif [ -f ${file} ] && [ -r ${file} ]; then echo present; else echo unreadable; fi; printf '${SEP}\\n'; cat ${file} 2>/dev/null`;
+
+/** A word we do not know is read as `unreadable`: refusing is the side that loses nothing. */
+const fileStatus = (chunk: string | undefined): FileStatus => {
+  const word = (chunk ?? '').trim();
+  return word === 'absent' || word === 'present' ? word : 'unreadable';
+};
+
+/** $HOME, the settings.json of each Claude dir, the Codex config and the Cursor hooks.json (each with whether it is absent, present or unreadable), in one round trip. */
 async function readMachineConfigs(machine: Machine, claudeDirs: string[]): Promise<MachineConfigs> {
   const parts = [`printf '%s\\n' "$HOME"`];
   for (const d of claudeDirs) {
-    parts.push(`printf '${SEP}\\n'; [ -d ${shDir(d)} ] && echo yes || echo no; printf '${SEP}\\n'; cat ${shDir(d)}/settings.json 2>/dev/null; printf '\\n'`);
+    parts.push(`printf '${SEP}\\n'; [ -d ${shDir(d)} ] && echo yes || echo no; ${probeFile(`${shDir(d)}/settings.json`)}; printf '\\n'`);
   }
-  parts.push(`printf '${SEP}\\n'; [ -d "$HOME/.codex" ] && echo yes || echo no; printf '${SEP}\\n'; cat "$HOME/.codex/config.toml" 2>/dev/null`);
-  parts.push(`printf '${SEP}\\n'; [ -d "$HOME/.cursor" ] && echo yes || echo no; printf '${SEP}\\n'; cat "$HOME/.cursor/hooks.json" 2>/dev/null`);
+  parts.push(`printf '${SEP}\\n'; [ -d "$HOME/.codex" ] && echo yes || echo no; ${probeFile('"$HOME/.codex/config.toml"')}`);
+  parts.push(`printf '${SEP}\\n'; [ -d "$HOME/.cursor" ] && echo yes || echo no; ${probeFile('"$HOME/.cursor/hooks.json"')}`);
   // a missing file is part of the answer, not a failure: the last `cat` must not set the exit code
   const script = `${parts.join('; ')}; true`;
   const r = await runOnMachine(machine, { file: 'sh', args: ['-c', script] }, script);
@@ -81,20 +100,35 @@ async function readMachineConfigs(machine: Machine, claudeDirs: string[]): Promi
   const chunks = r.stdout.split(`${SEP}\n`);
   const home = (chunks[0] ?? '').trim();
   if (!home.startsWith('/')) throw new Error('Não foi possível descobrir o $HOME da máquina');
+  // three chunks per file: whether its dir is there, the status of the file, its content
   const claude = claudeDirs.map((dir, i) => ({
     dir,
-    exists: (chunks[1 + i * 2] ?? '').trim() === 'yes',
-    settings: (chunks[2 + i * 2] ?? '').replace(/\n$/, ''),
+    exists: (chunks[1 + i * 3] ?? '').trim() === 'yes',
+    status: fileStatus(chunks[2 + i * 3]),
+    settings: (chunks[3 + i * 3] ?? '').replace(/\n$/, ''),
   }));
-  const base = 1 + claudeDirs.length * 2;
+  const base = 1 + claudeDirs.length * 3;
   return {
     home,
     claude,
     hasCodex: (chunks[base] ?? '').trim() === 'yes',
-    codexConfig: chunks[base + 1] ?? '',
-    hasCursor: (chunks[base + 2] ?? '').trim() === 'yes',
-    cursorHooks: chunks[base + 3] ?? '',
+    codexStatus: fileStatus(chunks[base + 1]),
+    codexConfig: chunks[base + 2] ?? '',
+    hasCursor: (chunks[base + 3] ?? '').trim() === 'yes',
+    cursorStatus: fileStatus(chunks[base + 4]),
+    cursorHooks: chunks[base + 5] ?? '',
   };
+}
+
+/** The files install would write over that are there but could not be read: writing would lose what the person has in them. */
+function unreadableTargets(configs: MachineConfigs): string[] {
+  const out: string[] = [];
+  for (const c of configs.claude) {
+    if ((c.dir === CLAUDE_DEFAULT_DIR || c.exists) && c.status === 'unreadable') out.push(`${c.dir}/settings.json`);
+  }
+  if (configs.hasCodex && configs.codexStatus === 'unreadable') out.push('~/.codex/config.toml');
+  if (configs.hasCursor && configs.cursorStatus === 'unreadable') out.push('~/.cursor/hooks.json');
+  return out;
 }
 
 /** Quoted heredoc: the body is taken literally; the delimiter never appears in what we write. */
@@ -181,6 +215,8 @@ export async function installHooks(machine: Machine, token: string, hooksUrl: st
     return { home: r.home, claude: r.claude, codex: r.codex, cursor: r.cursor ?? 'agent_outdated', claude_dirs: r.claude_dirs ?? [CLAUDE_DEFAULT_DIR], hooks_url: hooksUrl };
   }
   const configs = await readMachineConfigs(machine, claudeConfigDirs([...accountDirs, ...(await discoverOnMachine(machine))]));
+  const unreadable = unreadableTargets(configs);
+  if (unreadable.length) throw new Error(`Não foi possível ler ${unreadable.join(', ')} na máquina; nada foi alterado`);
   const { home, claude, codexConfig, hasCodex } = configs;
   const scriptPath = `${home}/${HOOK_SCRIPT_REL}`;
   // ~/.claude is created when missing; an account's dir only when it is already there

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -114,6 +114,55 @@ describe('installHooks on a local/ssh machine', () => {
 
     await uninstallHooks(machine);
     expect(JSON.parse(await read('.claude-work/settings.json'))).toEqual({});
+  });
+
+  it('refuses a ~/.cursor/hooks.json that is there but cannot be read, instead of replacing it', async () => {
+    // a directory in the file's place: there, not readable as a file, and it behaves the same as root
+    await mkdir(path.join(home, '.cursor/hooks.json'), { recursive: true });
+
+    await expect(installHooks(machine, 'thb_hk_abc', url)).rejects.toThrow('Não foi possível ler ~/.cursor/hooks.json');
+
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await stat(path.join(home, '.cursor/hooks.json'))).isDirectory()).toBe(true);
+  });
+
+  it('refuses a Codex config that is there but cannot be read', async () => {
+    await mkdir(path.join(home, '.codex/config.toml'), { recursive: true });
+
+    await expect(installHooks(machine, 'thb_hk_abc', url)).rejects.toThrow('Não foi possível ler ~/.codex/config.toml');
+
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('names every file it could not read', async () => {
+    await mkdir(path.join(home, '.claude/settings.json'), { recursive: true });
+    await mkdir(path.join(home, '.cursor/hooks.json'), { recursive: true });
+
+    await expect(installHooks(machine, 'thb_hk_abc', url)).rejects.toThrow('Não foi possível ler ~/.claude/settings.json, ~/.cursor/hooks.json');
+  });
+
+  it.skipIf(process.getuid?.() === 0)('refuses a settings.json it has no permission to read, and leaves it as it was', async () => {
+    await mkdir(path.join(home, '.claude'), { recursive: true });
+    const file = path.join(home, '.claude/settings.json');
+    await writeFile(file, JSON.stringify({ model: 'opus' }));
+    await chmod(file, 0o000);
+
+    try {
+      await expect(installHooks(machine, 'thb_hk_abc', url)).rejects.toThrow('Não foi possível ler ~/.claude/settings.json');
+    } finally {
+      await chmod(file, 0o644); // never leave a mode 000 file behind for the cleanup
+    }
+    expect(JSON.parse(await read('.claude/settings.json'))).toEqual({ model: 'opus' });
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('still creates hooks.json in a ~/.cursor that has none', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+
+    const r = await installHooks(machine, 'thb_hk_abc', url);
+
+    expect(r.cursor).toBe('installed');
+    expect(JSON.parse(await read('.cursor/hooks.json'))).toMatchObject({ version: 1 });
   });
 });
 
