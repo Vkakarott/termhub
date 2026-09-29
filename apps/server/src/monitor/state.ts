@@ -218,12 +218,17 @@ function interpretCodex(ev: Record<string, unknown>): Interpreted | null {
  * `beforeSubmitPrompt` → `afterAgentResponse` (the whole answer, once, at the end) → `stop`
  * (`completed`); an Esc sends `stop` with `error` and `aborted` and no answer. Cursor has no hook
  * for "waiting for your approval": the `before*` hooks fire for every command, approved or not,
- * so a permission prompt cannot be told apart and is left out.
+ * so a permission prompt cannot be told apart and is left out. A session starts idle: only
+ * `beforeSubmitPrompt` says a turn is running.
  */
 function interpretCursor(ev: Record<string, unknown>): Interpreted | null {
   const name = str(ev.hook_event_name);
   switch (name) {
     case 'sessionStart':
+      // Not busy yet: a session nobody prompted would otherwise read as working for ever (Cursor has
+      // no idle notification to take it out), holding `wait_for_state` and the agent's own update.
+      // One that arrives after its own prompt is dropped by recordEvent (monitor/wait-decision.ts).
+      return { kind: 'idle', text: null, meta: { event: name } };
     case 'beforeSubmitPrompt':
       // the prompt is the user's content: only the fact that it is busy is kept
       return { kind: 'working', text: null, meta: { event: name } };
