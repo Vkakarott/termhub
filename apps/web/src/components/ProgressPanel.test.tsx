@@ -57,6 +57,14 @@ describe('ProgressPanel', () => {
     expect(screen.getByRole('link', { name: /spec.*trabalhando/ })).toHaveAttribute('href', '/projects/p1?tab=t1');
   });
 
+  it('scrolls inside its own region, since the layout row clips anything that leaks past it (TER-385)', async () => {
+    mount();
+    const heading = await screen.findByRole('heading', { name: 'Progresso' });
+    const root = heading.parentElement!.parentElement!;
+    expect(root.className).toContain('h-full');
+    expect(root.className).toContain('overflow-y-auto');
+  });
+
   it('shows PR badges, the epic CI line and a sync error', async () => {
     const withPr = response();
     withPr.epics[0]!.ci = { open: 1, failed: 1, running: 0, deployed: 0 };

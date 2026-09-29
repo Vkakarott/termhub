@@ -180,8 +180,9 @@ export function ProgressPanel({ projectId }: { projectId: string }) {
   }));
   const waiting = needsYouAgents(epics);
 
+  // Own scroller like the other project tabs: the layout row clips anything that leaks past it (TER-385).
   return (
-    <div className="space-y-4 p-4">
+    <div className="h-full space-y-4 overflow-y-auto p-4">
       <div className="flex items-center gap-2">
         <h1 className="text-lg font-semibold">Progresso</h1>
         <div className="ml-auto flex gap-1">
