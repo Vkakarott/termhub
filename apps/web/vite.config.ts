@@ -24,7 +24,9 @@ export default defineConfig({
     },
   },
   build: { outDir: 'dist', sourcemap: false },
-  // Tests: the environment stays per file (`// @vitest-environment jsdom` on the screen tests);
-  // the setup only widens testing-library's waitFor/findBy timeout (see src/test-setup.ts).
-  test: { setupFiles: ['./src/test-setup.ts'] },
+  // Tests: the environment stays per file (`// @vitest-environment jsdom` on the screen tests).
+  // `testTimeout` is explicit because it has to stay above testing-library's `asyncUtilTimeout`
+  // (src/test-setup.ts): with the two equal, a wait that was only slow ended the whole test with
+  // "Test timed out", and the message that says which wait and what the screen held was lost.
+  test: { setupFiles: ['./src/test-setup.ts'], testTimeout: 15_000 },
 });
