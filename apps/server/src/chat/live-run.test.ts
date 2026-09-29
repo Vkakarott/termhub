@@ -755,3 +755,145 @@ it('a note replayed while a person\'s turn has said nothing yet leaves the reply
   expect(h.rows.filter((r) => r.role === 'assistant').map((r) => r.id)).toEqual([a.t.answer.id]);
   expect(h.events.filter((e) => e.type === 'run_finished')).toHaveLength(1);
 });
+
+const typesOf = (events: ChatEvent[], id: string) =>
+  events.filter((e) => ('message_id' in e && e.message_id === id) || (e.type === 'message' && e.message.id === id)).map((e) => e.type);
+
+it('announces a turn it accepted with run_started, and says nothing for one it refused', async () => {
+  const a = await h.turn(U1, 'a');
+  expect(h.live.add(a.t)).toBe(true);
+  expect(h.events.filter((e) => e.type === 'run_started')).toEqual([{ type: 'run_started', user_id: 'u1', conversation_id: 'c1', message_id: a.t.answer.id }]);
+
+  h.live.endInput();
+  const b = await h.turn(U2, 'b');
+  expect(h.live.add(b.t)).toBe(false);
+  expect(h.events.filter((e) => e.type === 'run_started')).toHaveLength(1);
+});
+
+it('a turn the CLI starts on its own publishes its message and then run_started', async () => {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1));
+  s.push(delta('primeira'));
+  s.push(result());
+  await settle();
+  const before = h.events.length;
+  s.push(delta('por conta própria'));
+  await settle();
+  const own = h.events.slice(before);
+  expect(own.map((e) => e.type)).toEqual(['message', 'run_started', 'delta']);
+  expect((own[1] as { message_id: string }).message_id).toBe((own[0] as { message: ChatMessage }).message.id);
+  s.end();
+  await consumed;
+});
+
+it('a turn merged into the next one has its empty row removed, and says so', async () => {
+  const a = await h.turn(U1, 'a');
+  const b = await h.turn(U2, 'b');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1));
+  await settle();
+  h.live.add(b.t);
+  s.push(replay(U2));
+  await settle();
+  expect(h.events.filter((e) => e.type === 'message_removed')).toEqual([{ type: 'message_removed', user_id: 'u1', conversation_id: 'c1', message_id: a.t.answer.id }]);
+  s.push(delta('as duas'));
+  s.push(result());
+  s.end();
+  await consumed;
+});
+
+it('a turn the CLI started that said nothing has its row removed, and says so', async () => {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1));
+  s.push(delta('resposta'));
+  s.push(result());
+  await settle();
+  s.push(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tu9', name: 'Read', input: {} }] } }));
+  await settle();
+  s.push(result());
+  await settle();
+  const removed = h.events.filter((e) => e.type === 'message_removed');
+  expect(removed).toHaveLength(1);
+  expect(h.rows.some((r) => r.id === (removed[0] as { message_id: string }).message_id)).toBe(false);
+  s.end();
+  await consumed;
+});
+
+it('abandon removes every open answer and says so for each', async () => {
+  const a = await h.turn(U1, 'a');
+  const b = await h.turn(U2, 'b');
+  a.done.catch(() => {});
+  b.done.catch(() => {});
+  h.live.add(a.t);
+  h.live.add(b.t);
+  await h.live.abandon(new Error('setup'));
+  expect(h.events.filter((e) => e.type === 'message_removed').map((e) => (e as { message_id: string }).message_id)).toEqual([a.t.answer.id, b.t.answer.id]);
+});
+
+it('restart announces every waiting turn again, after its reset', async () => {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1));
+  s.push(delta('meia'));
+  await settle();
+  s.end();
+  await consumed;
+  const before = h.events.length;
+  await h.live.restart();
+  expect(typesOf(h.events.slice(before), a.t.answer.id)).toEqual(['reset', 'run_started']);
+});
+
+/** A process that died while writing a turn the CLI started on its own, with a turn of the person's
+ *  waiting (written before the first turn's result, so the input was still open). */
+async function diedOnItsOwnTurn() {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1));
+  s.push(delta('resposta'));
+  await settle();
+  const b = await h.turn(U2, 'b');
+  expect(h.live.add(b.t)).toBe(true);
+  s.push(result());
+  s.push(delta('por conta própria'));
+  await settle();
+  const own = h.rows.find((r) => r.role === 'assistant' && r.id !== a.t.answer.id && r.id !== b.t.answer.id)!;
+  expect(own).toBeDefined();
+  s.end();
+  await consumed;
+  return { b, own };
+}
+
+it('restart removes the row of a turn the CLI started, after the waiting turns were announced', async () => {
+  const { b, own } = await diedOnItsOwnTurn();
+  const before = h.events.length;
+  await h.live.restart();
+  const after = h.events.slice(before);
+  expect(h.rows.some((r) => r.id === own.id)).toBe(false);
+  expect(h.live.storedTurns().map((t) => t.answer_id)).toEqual([b.t.answer.id]);
+  const removedAt = after.findIndex((e) => e.type === 'message_removed' && e.message_id === own.id);
+  const announcedAt = after.findIndex((e) => e.type === 'run_started' && e.message_id === b.t.answer.id);
+  expect(announcedAt).toBeGreaterThanOrEqual(0);
+  expect(removedAt).toBeGreaterThan(announcedAt);
+});
+
+it('a row restart could not remove strands nobody: the waiting turns wait again and nothing is announced as removed', async () => {
+  const { b, own } = await diedOnItsOwnTurn();
+  h.chat.deleteMessage.mockRejectedValueOnce(new Error('database down'));
+  const before = h.events.length;
+  await expect(h.live.restart()).resolves.toBeUndefined();
+  expect(h.live.storedTurns().map((t) => t.answer_id)).toEqual([b.t.answer.id]);
+  expect(h.events.slice(before).some((e) => e.type === 'message_removed')).toBe(false);
+  expect(h.rows.some((r) => r.id === own.id)).toBe(true);
+});

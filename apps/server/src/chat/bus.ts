@@ -68,6 +68,12 @@ export type ChatEvent =
    * assistant row already deleted. `error_code` is the stored answer's code, or `SETUP_FAILED`.
    * Metadata only: never the answer's text. Browsers ignore it; the push service listens for it. */
   | { type: 'run_finished'; user_id: string; conversation_id: string; message_id: string | null; ok: boolean; error_code: string | null }
+  /** An answer row is open: a process has its turn, or the queue holds it for the next one. Published
+   * after the row's own `message` event, and again when a queued row is taken by a process: screens
+   * keep a set. Metadata only. */
+  | { type: 'run_started'; user_id: string; conversation_id: string; message_id: string }
+  /** An answer row was deleted: nothing will ever be written into it. Screens drop the row. */
+  | { type: 'message_removed'; user_id: string; conversation_id: string; message_id: string }
   /** A call the concierge made under a tab grant, already executed or failed: the trail's row for
    * it (spec 2026-09-25 §5). Nobody was asked, so without this the trail would only show it on reload. */
   | { type: 'granted_action'; user_id: string; conversation_id: string; action: ChatActionCard }

@@ -888,6 +888,8 @@ export class ChatService {
       if (this.live.get(conversation.id) === now && now.add({ uuid: randomUUID(), text: runText, question, answer, settle: d.settle })) return started;
     }
     this.enqueue(conversation.id, { userId: user.id, text, runText, attachments: attachable.rows, question, answer, settle: d.settle });
+    // Announced here, before the queue may run: `launchQueued` can close this turn at once.
+    chatBus.publish({ type: 'run_started', user_id: user.id, conversation_id: conversation.id, message_id: answer.id });
     // The process may already be gone, with the lock released during the awaits above.
     if (!this.running.has(conversation.id)) void this.launchQueued(user, conversation.id);
     return started;
@@ -1051,6 +1053,7 @@ export class ChatService {
     appendSystemPrompt: string | null,
   ): Promise<ChatMessage> {
     try {
+      chatBus.publish({ type: 'run_started', user_id: user.id, conversation_id: conversation.id, message_id: answer.id });
       let collected = '';
       let usage: unknown = null;
       /** Whether a `done` frame was seen for the run currently being consumed. A stream that ends
@@ -1139,8 +1142,8 @@ export class ChatService {
             // Nothing ran and nothing will: drop the empty assistant row instead of leaving a
             // bubble that would say "pensando…" for ever, and let the status reach the browser.
             await this.deps.repos.chat.deleteMessage(answer.id);
-            // Re-publishing the question makes every open tab re-read the conversation, which is
-            // how they learn the assistant row is gone (the bus has no "removed" event).
+            chatBus.publish({ type: 'message_removed', user_id: user.id, conversation_id: conversation.id, message_id: answer.id });
+            // The question is still re-published: screens that predate `message_removed` re-read on it.
             chatBus.publish({ type: 'message', user_id: user.id, conversation_id: conversation.id, message: question });
             this.publishSetupFailure(user, conversation.id);
             throw e;
@@ -1170,6 +1173,7 @@ export class ChatService {
           } catch (e) {
             if (isSetupFailure(e)) {
               await this.deps.repos.chat.deleteMessage(answer.id);
+              chatBus.publish({ type: 'message_removed', user_id: user.id, conversation_id: conversation.id, message_id: answer.id });
               chatBus.publish({ type: 'message', user_id: user.id, conversation_id: conversation.id, message: question });
               this.publishSetupFailure(user, conversation.id);
               throw e;

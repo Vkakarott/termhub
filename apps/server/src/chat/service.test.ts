@@ -2009,6 +2009,95 @@ describe('a chat that never blocks', () => {
     expect((await started.done).text).toBe('novo');
     lr.runs[1].end();
   });
+
+  /** Every event of the bus while `work` runs. */
+  async function recorded<T>(work: () => Promise<T>): Promise<{ events: ChatEvent[]; result: PromiseSettledResult<T> }> {
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    try {
+      const [result] = await Promise.allSettled([work()]);
+      return { events, result };
+    } finally {
+      off();
+    }
+  }
+  const eventsOf = (events: ChatEvent[], id: string) =>
+    events.filter((e) => ('message_id' in e && e.message_id === id) || (e.type === 'message' && e.message.id === id));
+  /** The empty answer row a run stored, read from its own `message` event. */
+  const answerIdIn = (events: ChatEvent[]) => (events.find((e) => e.type === 'message' && e.message.role === 'assistant') as { message: { id: string } }).message.id;
+
+  it('a one-shot run announces its row before anything streams', async () => {
+    const { service } = build([delta('oi'), done()]);
+    const { events, result } = await recorded(() => service.send(user, 'oi'));
+    expect(result.status).toBe('fulfilled');
+    expect(eventsOf(events, answerIdIn(events)).map((e) => e.type)).toEqual(['message', 'run_started', 'delta', 'message', 'run_finished']);
+  });
+
+  it('a message queued behind a process that takes no input is announced once', async () => {
+    const { service, runner } = build([], { streaming: true });
+    const lr = liveRunner();
+    vi.mocked(runner.run).mockImplementation(lr.run);
+    const first = await service.start(user, 'um');
+    const run = await runAt(lr, 0);
+    run.push(replayOf(run.input.text.trim()));
+    run.push(delta('ok'));
+    run.push(done()); // nothing in the background: the input ends here
+    await first.done;
+    await settled();
+
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    const late = await service.start(user, 'segunda'); // the process has not exited: queued
+    await settled();
+    off();
+    expect(lr.runs).toHaveLength(1);
+    expect(events.filter((e) => e.type === 'run_started')).toEqual([{ type: 'run_started', user_id: 'u1', conversation_id: 'c1', message_id: late.assistant_message_id }]);
+
+    run.end();
+    const next = await runAt(lr, 1);
+    next.push(replayOf(next.input.text.trim()));
+    next.push(delta('segunda resposta'));
+    next.push(done());
+    expect((await late.done).text).toBe('segunda resposta');
+    next.end();
+  });
+
+  it('a one-shot run that could not be attempted says its row was removed', async () => {
+    const { service, runner, messages } = build([]);
+    vi.mocked(runner.run).mockImplementationOnce(() => {
+      throw new HttpError(503, 'O chat não está configurado neste servidor', 'CONCIERGE_DISABLED');
+    });
+    const { events, result } = await recorded(() => service.send(user, 'oi'));
+    expect(result).toMatchObject({ status: 'rejected', reason: { statusCode: 503, code: 'CONCIERGE_DISABLED' } });
+    const id = answerIdIn(events);
+    const removedAt = events.findIndex((e) => e.type === 'message_removed' && e.message_id === id);
+    const finishedAt = events.findIndex((e) => e.type === 'run_finished');
+    expect(removedAt).toBeGreaterThanOrEqual(0);
+    expect(events[removedAt]).toEqual({ type: 'message_removed', user_id: 'u1', conversation_id: 'c1', message_id: id });
+    expect(finishedAt).toBeGreaterThan(removedAt);
+    expect(events[finishedAt]).toMatchObject({ message_id: null, ok: false, error_code: 'SETUP_FAILED' });
+    expect(messages.map((m) => m.role)).toEqual(['user']);
+  });
+
+  it('a one-shot retry on a fresh session that could not be attempted says its row was removed', async () => {
+    const { service, runner, conversation, messages } = build([]);
+    conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+    vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield errorFrame('missing_session'); })());
+    vi.mocked(runner.run).mockImplementationOnce(() => {
+      throw new HttpError(503, 'O chat não está configurado neste servidor', 'CONCIERGE_DISABLED');
+    });
+    const { events, result } = await recorded(() => service.send(user, 'oi'));
+    expect(result).toMatchObject({ status: 'rejected', reason: { statusCode: 503, code: 'CONCIERGE_DISABLED' } });
+    expect(vi.mocked(runner.run)).toHaveBeenCalledTimes(2);
+    const id = answerIdIn(events);
+    // The retry keeps the row's owner: announced once, then reset, removed and finished with no id.
+    expect(eventsOf(events, id).map((e) => e.type)).toEqual(['message', 'run_started', 'reset', 'message_removed']);
+    const removedAt = events.findIndex((e) => e.type === 'message_removed');
+    const finishedAt = events.findIndex((e) => e.type === 'run_finished');
+    expect(finishedAt).toBeGreaterThan(removedAt);
+    expect(events[finishedAt]).toMatchObject({ message_id: null, ok: false, error_code: 'SETUP_FAILED' });
+    expect(messages.map((m) => m.role)).toEqual(['user']);
+  });
 });
 
 describe('attachments on a message (spec 2026-09-26 §5.5)', () => {
