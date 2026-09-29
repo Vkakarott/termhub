@@ -149,6 +149,8 @@ describe('runAgent — terminal errors (exit 78)', () => {
   });
 
   afterEach(() => {
+    healMock.mockReset();
+    healMock.mockImplementation(async () => [] as string[]);
     vi.restoreAllMocks();
   });
 
@@ -196,9 +198,6 @@ describe('runAgent — terminal errors (exit 78)', () => {
 
     expect(healMock.mock.calls.length).toBe(4);
     expect(logs.filter((m) => m === 'monitor hooks could not be repaired')).toHaveLength(1);
-
-    healMock.mockReset();
-    healMock.mockImplementation(async () => [] as string[]);
   });
 
   it('logs a heal failure again once a heal has worked in between', async () => {
@@ -220,9 +219,6 @@ describe('runAgent — terminal errors (exit 78)', () => {
     await new Promise((r) => setImmediate(r));
 
     expect(logs.filter((m) => m === 'monitor hooks could not be repaired')).toHaveLength(2);
-
-    healMock.mockReset();
-    healMock.mockImplementation(async () => [] as string[]);
   });
 
   it('rethrows any other error without touching the service or exiting', async () => {
