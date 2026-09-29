@@ -22,9 +22,13 @@ async function renderComposer() {
   return screen.getByLabelText('Mensagem');
 }
 
+/** The input laid out at `height`: what the platform reports once the text it sized itself to changed. */
+const laidOut = (input: ReturnType<typeof screen.getByLabelText>, height: number) =>
+  fireEvent(input, 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 300, height } } });
+
 async function wrapTo(input: ReturnType<typeof screen.getByLabelText>, height: number) {
   await fireEvent.changeText(input, 'uma linha que já não cabe ao lado dos botões');
-  await fireEvent(input, 'contentSizeChange', { nativeEvent: { contentSize: { width: 300, height } } });
+  await laidOut(input, height);
 }
 
 /** Moves the fake clock, running the animation frames it covers. */
@@ -57,7 +61,7 @@ describe('Composer motion', () => {
     expect(frame()).toMatchObject({ marginLeft: 8, marginBottom: 40, height: 50 });
 
     // Each new line glides too.
-    await fireEvent(input, 'contentSizeChange', { nativeEvent: { contentSize: { width: 300, height: 66 } } });
+    await laidOut(input, 66);
     await elapse(80);
     expect(frame().height).toBeGreaterThan(50);
     expect(frame().height).toBeLessThan(72);
@@ -71,6 +75,14 @@ describe('Composer motion', () => {
     expect(frame()).toMatchObject({ marginLeft: 40, marginBottom: 0, height: 36 });
     // The same input all along: never remounted, so the keyboard would have stayed up.
     expect(screen.getByLabelText('Mensagem')).toBe(input);
+  });
+
+  it('a single line a fraction taller than the line box stays beside the buttons', async () => {
+    const input = await renderComposer();
+    await fireEvent.changeText(input, 'oi');
+    await laidOut(input, 22.4);
+    await elapse(300);
+    expect(frame()).toMatchObject({ marginLeft: 40, marginBottom: 0, height: 36 });
   });
 
   it('with a line typed, ↑ joins the microphone on the right and the text makes room for it', async () => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, Text, TextInput, View, type NativeSyntheticEvent, type TextInputContentSizeChangeEventData } from 'react-native';
+import { Pressable, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
 import { MAX_ATTACHMENTS_PER_MESSAGE, type TChatAttachment } from '@/services/api/contract';
 import { Icon, type IconName } from '@/ui';
@@ -32,6 +32,10 @@ const TEXT_TOP = 6;
 const ROW_GAP = 4;
 /** The pill growing a line, or the text moving between the buttons' line and its own: ChatGPT's glide. */
 const GLIDE = { duration: 220, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.System };
+
+/** The box has wrapped once it is nearer two lines than one: a line a fraction taller than
+ * `LINE_HEIGHT` (a font, a display scale) is still one line. */
+const WRAPPED_FROM = MIN_HEIGHT + LINE_HEIGHT / 2;
 
 /**
  * The text's frame inside the pill. The buttons' row is pinned to the pill's bottom in both layouts;
@@ -176,7 +180,7 @@ export function Composer({ sending, onSend, uploadAttachment, deleteAttachment, 
   submitRef.current = submit;
 
   // An emptied box (sent, or erased) is back to one line at once, without waiting for the native
-  // size event; the returned text of a failed send is measured again by the input.
+  // layout; the returned text of a failed send is laid out again by the input.
   const changeText = (next: string) => {
     setText(next);
     if (next === '') {
@@ -185,10 +189,13 @@ export function Composer({ sending, onSend, uploadAttachment, deleteAttachment, 
     }
   };
 
-  const onContentSizeChange = (e: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {
-    const next = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, Math.ceil(e.nativeEvent.contentSize.height)));
+  // The input sizes itself to its text (between `MIN_HEIGHT` and `MAX_HEIGHT`) and this is where the
+  // pill hears of it. Not `onContentSizeChange`: iOS only sends it when the input's own layout
+  // changes, so an input held at a height set from that event never grew past its first line.
+  const onInputLayout = (e: LayoutChangeEvent) => {
+    const next = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, Math.ceil(e.nativeEvent.layout.height)));
     setHeight(next);
-    if (next > MIN_HEIGHT) setWrapped(true);
+    if (next >= WRAPPED_FROM) setWrapped(true);
   };
 
   const recording = voice.state === 'recording';
@@ -239,10 +246,10 @@ export function Composer({ sending, onSend, uploadAttachment, deleteAttachment, 
   const textStyle = useAnimatedStyle(() => ({
     marginLeft: left.get(),
     marginRight: right.get(),
-    paddingTop: top.get(),
     height: boxHeight.get(),
     marginBottom: below.get(),
   }));
+  const inputStyle = useAnimatedStyle(() => ({ top: top.get() }));
 
   return (
     <View className="bg-app-bg px-3 pb-2 pt-2">
@@ -309,22 +316,29 @@ export function Composer({ sending, onSend, uploadAttachment, deleteAttachment, 
           )}
         </View>
         <Animated.View testID="composer-text" style={[{ overflow: 'hidden' }, textStyle]}>
-          <TextInput
-            ref={inputRef}
-            value={text}
-            onChangeText={changeText}
-            placeholder="Mensagem"
-            accessibilityLabel="Mensagem"
-            multiline
-            onContentSizeChange={onContentSizeChange}
-            scrollEnabled={height >= MAX_HEIGHT}
-            textAlignVertical="top"
-            // No padding of its own (Android adds some by default, iOS some to a multiline input) and
-            // no extra font padding: the height set here is exactly the lines it shows. It takes its
-            // new height at once; the frame around it glides, and clips it meanwhile.
-            style={{ height, lineHeight: LINE_HEIGHT, fontSize: 16, padding: 0, paddingTop: 0, paddingBottom: 0, includeFontPadding: false }}
-            className="text-app-text placeholder:text-app-muted"
-          />
+          {/* Out of the frame's flow, with no height of its own: a measured child (the input) is never
+              laid out taller than a parent of a set height, so inside the frame it could not grow
+              past the frame, whose height is the input's. Here it is as tall as its text. */}
+          <Animated.View testID="composer-input-slot" style={[{ position: 'absolute', left: 0, right: 0 }, inputStyle]}>
+            <TextInput
+              ref={inputRef}
+              value={text}
+              onChangeText={changeText}
+              placeholder="Mensagem"
+              accessibilityLabel="Mensagem"
+              multiline
+              onLayout={onInputLayout}
+              scrollEnabled={height >= MAX_HEIGHT}
+              textAlignVertical="top"
+              // No height: the input grows and shrinks with its text by itself, on both platforms,
+              // between one line and `MAX_ROWS`. No padding of its own (Android adds some by default,
+              // iOS some to a multiline input) and no extra font padding: its height is exactly the
+              // lines it shows. It takes its new height at once; the frame around it glides, and
+              // clips it meanwhile.
+              style={{ minHeight: MIN_HEIGHT, maxHeight: MAX_HEIGHT, lineHeight: LINE_HEIGHT, fontSize: 16, padding: 0, paddingTop: 0, paddingBottom: 0, includeFontPadding: false }}
+              className="text-app-text placeholder:text-app-muted"
+            />
+          </Animated.View>
         </Animated.View>
       </View>
       {/* Only when there is something to say: an empty line here would hold the pill off the keyboard. */}
