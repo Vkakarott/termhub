@@ -408,6 +408,32 @@ describe('GET /api/machines/:id/status', () => {
   });
 });
 
+describe('GET /api/machines/:id/status during a deploy handover', () => {
+  it('waits for an agent this instance never held and that was seen moments ago', async () => {
+    store.m1 = makeMachine({ id: 'm1', type: 'agent', agent_version: '0.9.0', agent_last_seen_at: new Date().toISOString() });
+    ({ app } = buildApp(store));
+    const pending = app.inject({ method: 'GET', url: '/api/machines/m1/status' });
+    // the agent is still on its way from the other colour when the browser asks
+    setTimeout(() => attachAgent('0.9.0'), 20);
+    const body = (await pending).json();
+    expect(body.online).toBe(true);
+    expect(body.tmux).toBe(true);
+  });
+
+  it('answers offline at once for an agent that was here and left', async () => {
+    store.m1 = makeMachine({ id: 'm1', type: 'agent', agent_version: '0.9.0', agent_last_seen_at: new Date().toISOString() });
+    ({ app } = buildApp(store));
+    const conn = Object.assign(new EventEmitter(), { hello: { type: 'hello', protocol: 1, agent_version: '0.9.0', os: 'macos', tools: ['tmux'] }, connectedAt: Date.now(), rpc: vi.fn(), close: vi.fn() });
+    agents.attach('m1', conn as never);
+    conn.emit('close', 1006, '');
+    const waitOnline = vi.spyOn(agents, 'waitOnline');
+    const res = await app.inject({ method: 'GET', url: '/api/machines/m1/status' });
+    expect(res.json().online).toBe(false);
+    expect(waitOnline).not.toHaveBeenCalled();
+    waitOnline.mockRestore();
+  });
+});
+
 describe('GET /api/machines/:id/simulators', () => {
   it('answers 503 AGENT_OFFLINE for an agent machine, before the "is this a Mac" check', async () => {
     // No os/capabilities set (a freshly enrolled agent machine): the agent guard must run

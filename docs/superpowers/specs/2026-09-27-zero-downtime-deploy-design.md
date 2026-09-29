@@ -112,6 +112,13 @@ Where the wait applies — the places that open something on a machine right now
   `readScreen`) and the generic `agentRpc` helper (`agent/errors.ts`), which the REST routes use;
 - the chat host resolution (`chat/host.ts`), so a message sent in those seconds is not answered "máquina offline".
 
+The reads that a screen shows as they come — a machine's status, the chat host of `GET /api/chat`, the MCP
+inventory, the office probe — wait too, but only for a **handover**: an agent this process has never held
+(`AgentRegistry.awaitHandover`). On a colour that just started, the browsers arrive before the agents (a socket
+reconnects in under a second, an agent in about two, and the old colour is only stopped `DRAIN_DELAY` after the
+switch), so an immediate answer would be "offline" and would stay on screen until the next read. An agent that
+was attached here and left is answered at once: a read never stalls on a laptop that went to sleep.
+
 A small helper, `AgentRegistry.awaitAgent(machine)`, holds the rule so each place calls one function. The agent
 WebSocket also touches `agent_last_seen_at` when the agent disconnects, so the timestamp says when it left.
 

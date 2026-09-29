@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../terminal/machine-exec.js', () => ({ listTmuxSessions: vi.fn() }));
-vi.mock('../agent/registry.js', () => ({ agents: { isOnline: vi.fn() } }));
+vi.mock('../agent/registry.js', () => {
+  // by default nobody is on the way: the wait answers what `isOnline` says
+  const agents = { isOnline: vi.fn(), awaitHandover: vi.fn(async (m: { id: string }) => agents.isOnline(m.id) as boolean) };
+  return { agents };
+});
 // inventory -> tickets.ts -> tasks.ts -> config.js (same pattern as control/tasks.test.ts)
 vi.mock('../config.js', () => ({ config: { publicUrl: 'https://app.test' } }));
 
@@ -112,6 +116,20 @@ describe('listMachines', () => {
     vi.mocked(c.repos.machines.list).mockResolvedValue([machine({ id: 'm1', subtitle: 'MacBook do escritório' }), machine({ id: 'm2', subtitle: null })]);
     const r = await listMachines(c);
     expect(r.machines.map((m) => m.subtitle)).toEqual(['MacBook do escritório', null]);
+  });
+
+  it('gives an agent on its way from the other colour (a deploy) the time to attach before reporting it', async () => {
+    vi.mocked(agents.isOnline).mockReturnValue(false);
+    vi.mocked(agents.awaitHandover).mockImplementationOnce(async () => {
+      vi.mocked(agents.isOnline).mockReturnValue(true);
+      return true;
+    });
+    const c = ctx();
+    const m1 = machine({ id: 'm1' });
+    vi.mocked(c.repos.machines.list).mockResolvedValue([m1]);
+    const r = await listMachines(c);
+    expect(agents.awaitHandover).toHaveBeenCalledWith(m1);
+    expect(r.machines.map((m) => m.online)).toEqual([true]);
   });
 
   it('reports an offline agent and an unchecked ssh machine', async () => {
