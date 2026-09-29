@@ -117,6 +117,7 @@ export class LiveRun {
       return false;
     }
     if (turn.question) this.lastQuestion = turn.question;
+    this.announce(turn.answer.id);
     this.turnsChanged();
     return true;
   }
@@ -205,7 +206,8 @@ export class LiveRun {
           if (prev?.turn && prev.collected === '') {
             this.current = { turn, answer: turn.answer, collected: '', usage: null, merged: [...prev.merged, prev.turn] };
             await this.deps.chat.deleteMessage(prev.answer.id);
-            // Re-publishing a question makes every open screen re-read and drop the deleted answer.
+            this.removed(prev.answer.id);
+            // The question is still re-published: screens that predate `message_removed` re-read on it.
             const question = prev.turn.question ?? this.lastQuestion;
             if (question) chatBus.publish({ type: 'message', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message: question });
           } else {
@@ -301,11 +303,17 @@ export class LiveRun {
       }
       this.waiting.unshift(...cur.merged, ...(cur.turn ? [cur.turn] : []));
     }
-    for (const t of this.waiting) chatBus.publish({ type: 'reset', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message_id: t.answer.id });
+    for (const t of this.waiting) {
+      chatBus.publish({ type: 'reset', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message_id: t.answer.id });
+      this.announce(t.answer.id);
+    }
     this.background = 0;
     this.inputOpen = true;
     this.session = null;
     this.turnsChanged();
+    // The row of a turn the CLI started on its own: nothing will be written into it now. Last and
+    // best effort: the person's turns are already waiting again, and a failure here must not strand them.
+    if (cur && cur.turn === null) await this.dropOwnRow(cur.answer.id);
     await this.deps.chat.setCliSession(this.deps.conversationId, null);
   }
 
@@ -347,8 +355,8 @@ export class LiveRun {
     for (const t of open) {
       try {
         await this.deps.chat.deleteMessage(t.answer.id);
-        // Re-publishing the question makes every open screen re-read, which is how they learn the
-        // answer row is gone (the bus has no "removed" event).
+        this.removed(t.answer.id);
+        // The question is still re-published: screens that predate `message_removed` re-read on it.
         if (t.question) chatBus.publish({ type: 'message', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message: t.question });
       } catch (e) {
         failure ??= { error: e };
@@ -365,6 +373,7 @@ export class LiveRun {
     if (this.current) return this.current;
     const answer = await this.deps.chat.addMessage({ conversation_id: this.deps.conversationId, role: 'assistant', text: '' });
     chatBus.publish({ type: 'message', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message: answer });
+    this.announce(answer.id);
     this.current = { turn: null, answer, collected: '', usage: null, merged: [] };
     return this.current;
   }
@@ -384,7 +393,8 @@ export class LiveRun {
     if (a.turn === null && a.collected === '' && code === null) {
       this.ended += 1;
       await this.deps.chat.deleteMessage(a.answer.id);
-      // Re-publishing a question makes every open screen re-read and drop the deleted row.
+      this.removed(a.answer.id);
+      // The question is still re-published: screens that predate `message_removed` re-read on it.
       if (this.lastQuestion) chatBus.publish({ type: 'message', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message: this.lastQuestion });
       return;
     }
@@ -453,6 +463,26 @@ export class LiveRun {
       await work();
     } catch (err) {
       console.error('chat: subagent bookkeeping failed', { conversation_id: this.deps.conversationId, error: failureLabel(err) });
+    }
+  }
+
+  /** An answer row got its owner (this process): every open screen shows it as being answered. */
+  private announce(messageId: string): void {
+    chatBus.publish({ type: 'run_started', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message_id: messageId });
+  }
+
+  /** An answer row was deleted: every open screen drops it. */
+  private removed(messageId: string): void {
+    chatBus.publish({ type: 'message_removed', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message_id: messageId });
+  }
+
+  private async dropOwnRow(id: string): Promise<void> {
+    try {
+      await this.deps.chat.deleteMessage(id);
+      this.removed(id);
+      if (this.lastQuestion) chatBus.publish({ type: 'message', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message: this.lastQuestion });
+    } catch (err) {
+      console.error('chat: the row of a turn the CLI started could not be removed', { conversation_id: this.deps.conversationId, error: failureLabel(err) });
     }
   }
 

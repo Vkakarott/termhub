@@ -299,4 +299,16 @@ export const chatEventSchema = z.discriminatedUnion('type', [
     ok: z.boolean(),
     error_code: z.string().nullable(),
   }),
+  z.object({
+    type: z.literal('run_started'),
+    user_id: z.string(),
+    conversation_id: z.string(),
+    message_id: z.string(),
+  }),
+  z.object({
+    type: z.literal('message_removed'),
+    user_id: z.string(),
+    conversation_id: z.string(),
+    message_id: z.string(),
+  }),
 ]);
