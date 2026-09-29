@@ -32,10 +32,11 @@ re-read in the code before it went into this document.
 | TER-179 | — | Still valid | The subagent flag is a boolean; `TabQuestion` has no `agent_id` |
 | TER-373 | — | Still valid | `asyncUtilTimeout` (5 s) equals vitest's `testTimeout` (5 s), and the test chains four waits |
 | TER-368 | — | In progress, blocked on hardware | A throwaway spike exists on `spike/ter-368-key-commands`; it was never compiled |
-| TER-403 | — | Open spike | The comparison is one table on the landing home page (`apps/landing/src/i18n.ts`) |
+| TER-403 | — | **Delivered** by #209 while this roadmap was being written | The comparison has a herdr column; its pull request says some cells of the older columns on the new rows are inferred, not checked |
 
 Four cards are already fixed on `main` and were never closed on the board: TER-412, TER-413, TER-414 and
-TER-415. Each one is closed by the front that owns it, with the leftover it still has.
+TER-415. Each one is closed by the front that owns it, with the leftover it still has. A fifth, TER-403, was
+delivered by another session (#209) on the same day.
 
 ## 2. Fronts
 
@@ -52,7 +53,7 @@ A front is a set of cards that changes the same code, ships in one pull request 
 | 7 | Concierge: input that really submits | TER-418 | `apps/agent`, `agent-protocol`, `terminal/session-ops.ts`, `control/terminals.ts` | Yes | No | M |
 | 8 | Tab questions per subagent | TER-179 | hook script, `monitor`, `chat/tab-questions`, Prisma | Yes | Yes | M–L |
 | 9 | Cursor: approval prompts and unmonitored tabs | TER-421, TER-420 | `monitor`, `chat/permission-dialog.ts`, `apps/agent`, `apps/web` | Yes (TER-420) | No | L |
-| 10 | Landing: comparison with herdr | TER-403 | `apps/landing` | No | No | S + research |
+| 10 | Landing: comparison with herdr | TER-403 | `apps/landing` | No | No | Delivered by #209; S left |
 | 11 | Mobile: hardware keyboard | TER-368 | `apps/mobile` | No | No | M, blocked |
 
 ## 3. Order and dependencies
@@ -96,7 +97,7 @@ Execution order: **1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11**.
 | TER-179 live check | Closing per `agent_id` ships together with a stronger live check (the tool name must be on screen). | The spec of 2026-09-26 §10 reverted the first attempt because one subagent's card could approve another's dialog. |
 | TER-421 detector | A new detector biased to "no dialog", with Cursor fixtures captured from a real `cursor-agent`. | `permissionDialogVisible` is biased to "yes" for the gate's safety; that bias would raise false alerts. |
 | TER-368 | The Linux part (rebase, cleanup, jest tests) is planned; the native build, the nine manual cases and TestFlight stay blocked until someone runs them on the Mac. | The spike was never compiled. jarvis has no Xcode. |
-| TER-403 | Planned as research first, then the table change. No copy is written before the product is read. | The comparison note says it is based on the products' public pages; inventing cells would make that false. |
+| TER-403 | Delivered by #209. What is left is to check, against each product's public pages, the cells that pull request marked as inferred. | The comparison note says it is based on the products' public pages; an inferred cell makes that false until it is checked. |
 | Local verification | Tests run in `node:22` before every push, in a container named `th-<something>`. | The command in `CLAUDE.md` runs no test and uses `node:20`; CI runs Node 22 and every suite. |
 
 ## 5. Per front: what changes
@@ -116,6 +117,10 @@ Plan: `docs/superpowers/plans/2026-09-29-agent-resilience-hook-files.md`.
 - **TER-412 leftover.** The failure at the top of `heal` is logged once per distinct message.
 - **TER-413 leftover.** `discoverClaudeDirs` sorts the names it lists, so the two sibling tests discriminate
   on every filesystem.
+- **From the review of the front.** The agent refuses a config file that is a symlink to nothing, as
+  ssh/local does, and `heal` leaves the link alone. A read refused by permission answers `failed`, the code
+  whose message reaches the person, so the file is named. Uninstall skips Cursor when `~/.cursor` is not a
+  directory.
 - `@termhub/agent` 0.10.1.
 
 ### Front 2 — Stable web test suite
@@ -181,8 +186,9 @@ Plan: `docs/superpowers/plans/2026-09-29-agent-resilience-hook-files.md`.
 
 ### Front 10 — Landing: comparison with herdr
 
-- Read the product's public pages, decide the column or the hint it belongs to, write pt and en copy, update
-  the note.
+- Delivered by #209: a "terminal agent runtime (e.g. herdr)" column and four new rows.
+- Left: check the cells #209 marked as inferred (agent state for Orca, Maestri and Cursor; API/MCP for Orca
+  and Maestri; chat for Cursor), then close the card.
 
 ### Front 11 — Mobile: hardware keyboard
 
@@ -198,6 +204,11 @@ Plan: `docs/superpowers/plans/2026-09-29-agent-resilience-hook-files.md`.
 - The mobile `GET` has no `compacting` field and no `/compact` route.
 - Reading the session transcript through the agent (TER-417 phase 2).
 - `machine_hooks.installed_at` is not updated when the agent repairs the hooks by itself.
+- On an agent machine, a config file that cannot be read refuses the whole uninstall, so the hook token is
+  not revoked until the file is fixed; ssh/local skips the file. Found by the review of front 1; it belongs
+  with TER-420, which changes the same screen.
+- ssh/local install can stop half way when a parent directory is not searchable: the probe says `absent` and
+  the write fails after earlier files were written. Nothing of the person is overwritten.
 
 ## 7. Delivery per front
 

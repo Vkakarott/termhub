@@ -101,6 +101,7 @@ function build(opts: {
     capabilities: vi.fn((id: string) => (id === 'm1' ? ['chat'] : null)),
     info: vi.fn((id: string) => (id === 'm1' ? { agent_version: '0.9.0' } : null)),
     awaitAgent: vi.fn(async () => true),
+    awaitHandover: vi.fn(async () => true),
   };
   const hostMachines = opts.hostMachines ?? [{ id: 'm1', name: 'jarvis', type: 'agent' }];
   const aiAccounts = opts.aiAccounts ?? [];
