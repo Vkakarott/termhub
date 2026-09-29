@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 jest.mock('@/features/session/viewmodel/useSessionStore', () => ({ useSessionStore: require('../../../../test/helpers/ui-stores').stores.store }));
@@ -79,6 +79,25 @@ describe('Progresso', () => {
     jest.spyOn(stores.api, 'progress').mockResolvedValue({ epics: [], generated_at: '' });
     await render(<ProgressScreen />);
     expect(await screen.findByText('Nenhum épico em andamento', {}, LOAD)).toBeTruthy();
+  });
+
+  it('keeps the list off the status bar: inside the safe area, top edge included, the tab bar\'s bottom left alone', async () => {
+    await render(<ProgressScreen />);
+    await screen.findByText('Visão gerencial', {}, LOAD);
+    const safeArea = screen.getByTestId('progress-safe-area');
+    expect(safeArea.props.edges).toEqual(['top', 'left', 'right']);
+    // The list is what the safe area holds, and fills it: it still scrolls to its last card.
+    expect(within(safeArea).getByTestId('progress-list')).toBe(screen.getByTestId('progress-list'));
+    expect(within(safeArea).getByText('Visão gerencial')).toBeTruthy();
+  });
+
+  it('keeps the safe area around the empty state and the error too', async () => {
+    jest.spyOn(stores.api, 'progress').mockRejectedValue(new Error('offline'));
+    await render(<ProgressScreen />);
+    await waitFor(() => expect(useProgressStore.getState().error).not.toBeNull(), LOAD);
+    const safeArea = screen.getByTestId('progress-safe-area');
+    expect(within(safeArea).getByText(useProgressStore.getState().error!)).toBeTruthy();
+    expect(within(safeArea).getByText('Nenhum épico em andamento')).toBeTruthy();
   });
 
   it('keeps the epics in a readable column on a wide window (spec 2026-09-28 iPad §2.4)', async () => {

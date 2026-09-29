@@ -378,10 +378,45 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
       expect(event).not.toBeNull();
       expect(needsYou(tab)).toBe(true);
     });
+
+    it('idle_prompt on a tab whose session ended: the tab waits, already seen', async () => {
+      await repo.recordEvent(tabId, { kind: 'idle', tool: 'claude', text: null, meta: { event: 'SessionEnd', reason: 'exit' } });
+      const { tab, event } = await repo.recordEvent(tabId, idlePrompt);
+      expect(event).not.toBeNull();
+      expect(tab.state).toBe('waiting_input');
+      expect(needsYou(tab)).toBe(false);
+    });
+
+    it('a look that commits while an event waits for the row lock does not hide the wait that event opens', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'codex', text: 'um', meta: { event: 'agent-turn-complete' } });
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      let locked!: () => void;
+      const hasLock = new Promise<void>((resolve) => (locked = resolve));
+      // another transaction holds the tab's row, then writes the look and commits
+      const holder = db.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT 1 FROM "tabs" WHERE "id" = ${tabId} FOR UPDATE`;
+          locked();
+          await held;
+          await tx.$executeRaw`UPDATE "tabs" SET "state_seen_at" = ${new Date()} WHERE "id" = ${tabId}`;
+        },
+        { timeout: 10_000 },
+      );
+      await hasLock;
+      // the next turn arrives and waits for the lock
+      const pending = repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'codex', text: 'dois', meta: { event: 'agent-turn-complete' } });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      release();
+      await holder;
+      const { tab } = await pending;
+      expect(tab.state_text).toBe('dois');
+      expect(needsYou(tab)).toBe(true);
+    });
   });
 
   describe('recordEvent — a Cursor session start that arrives after its own prompt', () => {
-    it('is dropped: no row, the tab keeps working, and the working interval is not credited twice', async () => {
+    it('is dropped: no row is written and the tab keeps working, with the time of its prompt', async () => {
       const { tab: prompted } = await repo.recordEvent(tabId, { kind: 'working', tool: 'cursor', text: null, meta: { event: 'beforeSubmitPrompt' } });
       const before = await repo.listEvents(tabId);
       const { tab, event, rearm } = await repo.recordEvent(tabId, { kind: 'idle', tool: 'cursor', text: null, meta: { event: 'sessionStart' } });

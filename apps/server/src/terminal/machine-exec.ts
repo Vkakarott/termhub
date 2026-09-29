@@ -114,6 +114,8 @@ export interface MachineStatus {
 export async function machineStatus(machine: Machine): Promise<MachineStatus> {
   // Agent: status comes from the registry's own connection state, never a shell exec.
   if (machine.type === 'agent') {
+    // A colour that just started has not met its agents yet (a deploy): give the one on its way the time to attach.
+    await agents.awaitHandover(machine);
     const info = agents.info(machine.id);
     return { online: agents.isOnline(machine.id), tmux: info?.tools.includes('tmux') ?? false, os: machine.os, capabilities: machine.capabilities };
   }
@@ -180,8 +182,9 @@ const NO_TMUX_SERVER = /no server running|error connecting to|no sessions/i;
 export async function probeTmuxSessions(machine: Machine): Promise<TmuxProbe> {
   const unreachable = (cause: string): TmuxProbe => ({ reachable: false, sessions: new Set(), cause });
   if (machine.type === 'agent') {
-    // the registry's own connection state, as control/inventory.ts checks it
-    if (!agents.isOnline(machine.id)) return unreachable('agent offline');
+    // the registry's own connection state, as control/inventory.ts checks it; an agent on its way from the
+    // other colour (a deploy) is waited for, or this answer would sit in the memo as "unreachable" for a minute
+    if (!(await agents.awaitHandover(machine))) return unreachable('agent offline');
     try {
       const { sessions } = await agents.rpc(machine.id, 'tmux.list', {});
       return { reachable: true, sessions: new Set(sessions) };

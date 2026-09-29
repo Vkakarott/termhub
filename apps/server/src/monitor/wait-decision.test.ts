@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { REORDER_WINDOW_MS, decideWait, rearmOf, type HistoryRow, type WaitCurrent, type WaitEvent, type WaitOutcome } from './wait-decision.js';
+import { HISTORY_ROWS, REORDER_WINDOW_MS, decideWait, rearmOf, type HistoryRow, type WaitCurrent, type WaitEvent, type WaitOutcome } from './wait-decision.js';
 
 const current = (over: Partial<WaitCurrent> = {}): WaitCurrent => ({ state: null, seen: false, hasActivity: false, seenAgeMs: null, ...over });
 const event = (over: Partial<WaitEvent> = {}): WaitEvent => ({ kind: 'waiting_input', name: 'Stop', continuesWait: false, keepsWaitText: false, ...over });
@@ -116,6 +116,19 @@ describe('decideWait — a reminder never opens an alert by itself', () => {
 
   it('only a reminder is born seen: a Cursor continuation after a quiet start is a new wait', () => {
     expect(decideWait(current({ state: 'working' }), [row('working', 'SessionStart')], continuation)).toEqual(NEW);
+  });
+
+  it('alerts when the rows that are kept ran out before a wait was found: a prompt may sit just beyond them', () => {
+    const full = Array.from({ length: HISTORY_ROWS }, (_, i) => row('working', 'SessionStart', 1_000 * (i + 1)));
+    expect(decideWait(current({ state: 'working' }), full, reminder)).toEqual(NEW);
+    expect(decideWait(current({ state: 'working' }), full.slice(1), reminder)).toEqual(BORN);
+  });
+
+  it('never treats a permission event as a reminder, whatever it is flagged with', () => {
+    const flagged = event({ kind: 'waiting_permission', name: 'Notification', continuesWait: true, keepsWaitText: true });
+    expect(decideWait(current({ state: 'idle' }), [row('idle', 'SessionEnd')], flagged)).toEqual(NEW);
+    expect(decideWait(current({ state: 'working' }), [row('working', 'SessionStart')], flagged)).toEqual(NEW);
+    expect(decideWait(current({ state: 'waiting_permission', seen: true }), [row('waiting_permission', 'PermissionRequest')], flagged)).toEqual(NEW);
   });
 });
 

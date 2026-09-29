@@ -49,7 +49,8 @@ export async function sendTabSuggestion(ctx: ControlContext, id: string, raw: un
   let shown: string | null;
   try {
     assertTerminal(tab);
-    if (machine.type === 'agent' && !agents.isOnline(machine.id)) throw offline();
+    // an agent moving between instances (a deploy) gets a few seconds to attach before it is called offline
+    if (!(await agents.awaitAgent(machine))) throw offline();
     shown = await readSuggestion(machine, tab.tmux_session);
   } catch (err) {
     // agentRpc turns a connection that dropped mid-call into a bare 503 (toHttpError)

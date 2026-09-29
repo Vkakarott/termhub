@@ -15,6 +15,9 @@ export interface HostAgents {
   /** Waits a little for a machine's agent that is moving between instances (a deploy, spec §5.3)
    *  before `capabilities` is read; `AgentRegistry.awaitAgent` in production. */
   awaitAgent(machine: Pick<Machine, 'id' | 'type' | 'agent_last_seen_at'>): Promise<boolean>;
+  /** The same wait, only for an agent this instance never held: what a read for the screen may afford
+   *  (`AgentRegistry.awaitHandover`). */
+  awaitHandover(machine: Pick<Machine, 'id' | 'type' | 'agent_last_seen_at'>): Promise<boolean>;
 }
 
 /** Everything `resolveHost` needs, so it can be exercised without a server: the owner-scoped reads
@@ -86,7 +89,7 @@ export type HostProblem = Exclude<HostChoice, { kind: 'ready' }>;
  * list is owner-scoped in SQL, so a chosen id that belongs to someone else is simply not in it. That
  * is what makes `ready` unreachable for a machine the user does not own.
  */
-export async function resolveHost(ctx: HostContext, user: User, opts: { requires?: string; runSessionId?: string | null; wait?: boolean } = {}): Promise<HostChoice> {
+export async function resolveHost(ctx: HostContext, user: User, opts: { requires?: string; runSessionId?: string | null; wait?: boolean | 'handover' } = {}): Promise<HostChoice> {
   const [conversation, machines] = await Promise.all([ctx.repos.chat.getOrCreateForUser(user.id), ctx.repos.machines.list(user.id)]);
   const candidates = machines.filter((m) => m.type === 'agent');
   if (candidates.length === 0) return { kind: 'no_machine' };
@@ -110,7 +113,10 @@ export async function resolveHost(ctx: HostContext, user: User, opts: { requires
   // A host moving between instances (a deploy) gets a few seconds before a message about to be sent
   // is answered "offline". Only such a caller waits (`wait`): a read of the screen, or a sweep over
   // many rows, answers with what is connected now instead of stalling on a laptop that went to sleep.
-  if (opts.wait) await ctx.agents.awaitAgent(machine);
+  // The screen still waits for a `handover`: on a colour that just started the browser arrives before
+  // the agent does, and an "offline" read then stays on screen until the next one.
+  if (opts.wait === 'handover') await ctx.agents.awaitHandover(machine);
+  else if (opts.wait) await ctx.agents.awaitAgent(machine);
   const capabilities = ctx.agents.capabilities(machine.id);
   // Offline, or connected but still before `hello`: the same thing to a message that has to be sent
   // now. Never a fallback to the operator's container (spec §3) — that would spend the operator's

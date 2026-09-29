@@ -98,7 +98,9 @@ function noTurnSinceLastWait(history: HistoryRow[]): boolean {
     if (isQuiet(row) || row.kind === 'idle') continue;
     return isWait(row.kind);
   }
-  return true; // nothing but quiet rows in what is kept: a session nobody asked anything
+  // Nothing but quiet rows: a session nobody asked anything — unless the rows that are kept ran
+  // out, and a prompt may sit just beyond them.
+  return history.length < HISTORY_ROWS;
 }
 
 export function decideWait(current: WaitCurrent, history: HistoryRow[], event: WaitEvent): WaitOutcome {
@@ -117,7 +119,7 @@ export function decideWait(current: WaitCurrent, history: HistoryRow[], event: W
   }
 
   // A reminder (Claude's idle_prompt) is news only when it is the first sign that a turn ended.
-  if (event.continuesWait && event.keepsWaitText) {
+  if (event.continuesWait && event.keepsWaitText && event.kind === 'waiting_input') {
     // The dialog is gone and Claude is back at its prompt (an Esc sends no Stop): the state is
     // corrected, and a prompt the person had seen does not alert again.
     if (current.state === 'waiting_permission') return { action: 'record', seen: current.seen ? 'carry' : 'none', continuing: false };
