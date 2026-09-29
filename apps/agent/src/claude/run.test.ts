@@ -116,8 +116,13 @@ function argvOf(out: string): string[] {
   return readFileSync(join(out, 'argv'), 'utf8').split('\n').slice(0, -1);
 }
 
-/** True once `pid` is gone. `process.kill(pid, 0)` throws ESRCH for a process that no longer exists. */
+/**
+ * True once `pid` is gone. `process.kill(pid, 0)` throws ESRCH for a process that no longer exists.
+ * Refuses anything that is not a pid: `kill(0, 0)` signals this very process group, which answers
+ * "alive" for ever, and a wait built on it could only time out.
+ */
 function dead(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) throw new Error(`not a pid: ${pid}`);
   try {
     process.kill(pid, 0);
     return false;
@@ -125,6 +130,36 @@ function dead(pid: number): boolean {
     return true;
   }
 }
+
+/**
+ * The pid a fake wrote to `file`, or null while it is not there yet. `echo $$ > file` creates the
+ * file before it writes to it: read in between, the file is empty and `Number('')` is 0 — the pid
+ * that `dead` could never see die. So "the file exists" is not "the pid is there".
+ */
+function pidIn(file: string): number | null {
+  if (!existsSync(file)) return null;
+  const pid = Number(readFileSync(file, 'utf8').trim());
+  return Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
+/** Waits for the fake to have written its pid, and answers it. */
+async function waitForPid(what: string, file: string): Promise<number> {
+  await waitFor(what, () => pidIn(file) !== null);
+  return pidIn(file) as number;
+}
+
+describe('pidIn', () => {
+  it('answers null for a pid file that is not there or is still empty, and the pid once it is written', () => {
+    const file = join(mkdtempSync(join(root, 'pid-')), 'pid');
+    expect(pidIn(file)).toBeNull();
+    writeFileSync(file, '');
+    expect(pidIn(file)).toBeNull();
+    writeFileSync(file, '0\n');
+    expect(pidIn(file)).toBeNull();
+    writeFileSync(file, '4242\n');
+    expect(pidIn(file)).toBe(4242);
+  });
+});
 
 describe('createClaudeManager', () => {
   it('spawns `claude` from the run PATH with the argv buildClaudeArgs produced, under the config dir it was given', async () => {
@@ -243,9 +278,8 @@ exec sleep 30
     const claude = createClaudeManager({ log: vi.fn(), env: pathEnv(bin), tmpDir: runs });
 
     await claude.open(2, baseParams, socket);
-    await waitFor('the fake CLI and its own child to report their pids', () => existsSync(join(out, 'pid')) && existsSync(join(out, 'child-pid')));
-    const pid = Number(readFileSync(join(out, 'pid'), 'utf8').trim());
-    const childPid = Number(readFileSync(join(out, 'child-pid'), 'utf8').trim());
+    const pid = await waitForPid('the fake CLI to report its pid', join(out, 'pid'));
+    const childPid = await waitForPid('the process the CLI started to report its pid', join(out, 'child-pid'));
 
     claude.close(2);
 
@@ -262,8 +296,7 @@ exec sleep 30
     const claude = createClaudeManager({ log: vi.fn(), env: pathEnv(bin), tmpDir: runs });
 
     await claude.open(3, baseParams, socket);
-    await waitFor('the fake CLI to report its pid', () => existsSync(join(out, 'pid')));
-    const pid = Number(readFileSync(join(out, 'pid'), 'utf8').trim());
+    const pid = await waitForPid('the fake CLI to report its pid', join(out, 'pid'));
 
     claude.closeAll();
 
@@ -278,8 +311,7 @@ exec sleep 30
     const claude = createClaudeManager({ log: vi.fn(), env: pathEnv(bin), tmpDir: runs, timeoutMs: 300 });
 
     await claude.open(1, baseParams, socket);
-    await waitFor('the fake CLI to report its pid', () => existsSync(join(out, 'pid')));
-    const pid = Number(readFileSync(join(out, 'pid'), 'utf8').trim());
+    const pid = await waitForPid('the fake CLI to report its pid', join(out, 'pid'));
 
     expect(await waitForClosed(sendControl)).toMatchObject({ type: 'closed', ch: 1, reason: 'run_failed' });
     await waitFor('the CLI process to die', () => dead(pid));
@@ -368,8 +400,7 @@ while :; do sleep 0.1; done
     const claude = createClaudeManager({ log: vi.fn(), env: pathEnv(bin), tmpDir: runs });
 
     await claude.open(1, baseParams, socket);
-    await waitFor('the fake CLI to report its pid', () => existsSync(join(out, 'pid')));
-    const pid = Number(readFileSync(join(out, 'pid'), 'utf8').trim());
+    const pid = await waitForPid('the fake CLI to report its pid', join(out, 'pid'));
 
     claude.closeAll();
 
@@ -444,8 +475,7 @@ echo '{"type":"result"}'
     const claude = createClaudeManager({ log: vi.fn(), env: pathEnv(bin), tmpDir: runs, promptTimeoutMs: 200 });
 
     await claude.open(1, baseParams, socket);
-    await waitFor('the fake CLI to report its pid', () => existsSync(join(out, 'pid')));
-    const pid = Number(readFileSync(join(out, 'pid'), 'utf8').trim());
+    const pid = await waitForPid('the fake CLI to report its pid', join(out, 'pid'));
 
     // The prompt follows the open by one frame in practice: a channel nobody writes to must not hold
     // the 0600 config — a live token — for the whole run deadline.
