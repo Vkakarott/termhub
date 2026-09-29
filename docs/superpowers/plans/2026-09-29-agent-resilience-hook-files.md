@@ -1022,6 +1022,17 @@ git commit -m "Agent: release 0.10.1" -m "Handshake timeout (#103), a named erro
 
 ---
 
+## Added by the review of the front
+
+The whole-branch review found two gaps of this plan, fixed in one commit that merges before the release:
+
+- **Dangling symlink.** Task 3 put "a dangling link" in the contract of the ssh/local probe only. On the agent, `readFile` answers `ENOENT` for it, so `readOrEmpty` read it as an absent file and the write replaced the link. `readOrEmpty` now throws `EDANGLING` for a symlink whose target is gone: install and uninstall name the file, `heal` logs the skip once and leaves the link.
+- **Permission failure.** Task 4 answered `eperm` for `EACCES` and `EPERM`. The server turns every `eperm` into one fixed sentence, on purpose, so the name of the file was lost again. `readFailure` always answers `failed` now.
+- Uninstall on the agent skips Cursor when `~/.cursor` is not a directory, as ssh/local does.
+- The two tests of Task 5 in `run.test.ts` restore the shared mock in `afterEach`.
+
+The delivery changed during the execution, at the person's request: one pull request per task, stacked, merged in sequence as each `check` turns green.
+
 ## After the last task
 
 The controller, not a task subagent, does what follows:
