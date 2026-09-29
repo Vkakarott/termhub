@@ -26,7 +26,8 @@ export async function readMachineSecret(machine: Machine, source: SecretSource):
     throw new HttpError(400, `A máquina ${machine.name} não está conectada pelo agente do termhub; só dá para ler o login do gh de uma máquina com o agente`, 'UNSUPPORTED_MACHINE');
   }
   const offline = () => new HttpError(503, `A máquina ${machine.name} está desconectada`, 'MACHINE_OFFLINE');
-  if (!agents.isOnline(machine.id)) throw offline();
+  // an agent moving between instances (a deploy) gets a few seconds to attach before it is called offline
+  if (!(await agents.awaitAgent(machine))) throw offline();
   requireAgentVersion(machine, SECRET_MIN_AGENT_VERSION);
   const unavailable = () => new HttpError(502, `\`gh auth token\` falhou na máquina ${machine.name}: rode \`gh auth login\` nela`, 'SECRET_UNAVAILABLE');
   let value: string;

@@ -29,6 +29,11 @@ laptop that went to sleep — the reason reads stopped waiting in the first plac
 before looking at the registry: `machineStatus`, `probeTmuxSessions`, `listMachines`/`listTabs` and
 `ChatService.hostFor` (`resolveHost` with `wait: 'handover'`).
 
+Three actions had been left checking `agents.isOnline()` as well and now go through `awaitAgent` like
+every other action: `readMachineSecret`, `swapAccount` and `sendTabSuggestion`. A new action on a
+machine asks `awaitAgent`, a new read for a screen asks `awaitHandover`; neither reads `isOnline`
+to decide that a machine is offline.
+
 ## How to check
 
 After a deploy, in the new colour's log (`docker logs termhub-app-<color>`): the first

@@ -110,7 +110,9 @@ Where the wait applies — the places that open something on a machine right now
 - the terminal WebSocket, before `createPtySession()` (the browser keeps showing "Conectando…/Reconectando…");
 - the terminal control used by the MCP and the chat (`control/terminals.ts` `assertReady`, `control/screen.ts`
   `readScreen`) and the generic `agentRpc` helper (`agent/errors.ts`), which the REST routes use;
-- the chat host resolution (`chat/host.ts`), so a message sent in those seconds is not answered "máquina offline".
+- the chat host resolution (`chat/host.ts`), so a message sent in those seconds is not answered "máquina offline";
+- the actions that used to ask the registry themselves: reading the `gh` login (`integrations/machine-secret.ts`),
+  the account swap (`control/account-swap.ts`) and sending a tab suggestion (`chat/tab-suggestion-send.ts`).
 
 The reads that a screen shows as they come — a machine's status, the chat host of `GET /api/chat`, the MCP
 inventory, the office probe — wait too, but only for a **handover**: an agent this process has never held
