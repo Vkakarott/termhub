@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -164,5 +164,14 @@ describe('installHooks on a local/ssh machine', () => {
     expect(r.cursor).toBe('installed');
     expect(JSON.parse(await read('.cursor/hooks.json'))).toMatchObject({ version: 1 });
   });
-});
 
+  it('refuses a hooks.json that is a symlink to nothing, and leaves the link as it was', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await symlink(path.join(home, 'dotfiles/cursor-hooks.json'), path.join(home, '.cursor/hooks.json'));
+
+    await expect(installHooks(machine, 'thb_hk_abc', url)).rejects.toThrow('Não foi possível ler ~/.cursor/hooks.json');
+
+    expect((await lstat(path.join(home, '.cursor/hooks.json'))).isSymbolicLink()).toBe(true);
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});

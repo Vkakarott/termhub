@@ -138,3 +138,17 @@ hook event ends `ingestHookEvent` as `ignored`.
 | Re-arm is judged by the last row | A normal turn with an approved permission counts as a re-arm | Judged from the last `waiting_input` row, with the prompts after it |
 | Cursor `sessionStart` is `idle`, always | The two hooks of a launch can arrive in either order | Dropped when a prompt less than 10 s old is the last row |
 | The account swap's success event continues the wait | It is a request: the resumed Claude may ask to trust the folder | Not changed |
+
+## 9. Not verified, and how to check
+
+| Assumption | Where it matters | How to check |
+|---|---|---|
+| Claude Code sends `idle_prompt` only once the permission dialog is gone | Section 4.1, the row `waiting_permission`. If the reminder also fires with the dialog open, the tab says `waiting_input` during a permission prompt, and what refuses on `waiting_permission` (`send_input` without `answering_permission`, `run_command`, the chat gate) stops refusing. This is what the code did before this change too: the change only stops the reminder from alerting again. | Leave a permission dialog open for 70 s on a real Claude Code, then read the tab's state and its screen. If the state is `waiting_input` with the dialog still on screen, keep `waiting_permission` and its text for a reminder, and carry only the seen mark. |
+| `Stop` does not run when a permission prompt is refused with Esc | The same row: it is why the reminder is what takes the tab out of `waiting_permission`. | Refuse a prompt with Esc and read the tab's events. |
+| A nested `claude -p` runs the hooks of `settings.json` | Section 4.1, the row `idle`: the nested session's end leaves the tab `idle` while the outer Claude still works; if the outer `Stop` is then lost, the reminder is born seen and that answer never alerts. It takes two failures together. | Run `claude -p` from a Claude in a termhub tab and read the tab's events. |
+
+## 10. Reading the log
+
+`monitor: seen wait re-armed` counts every Codex turn the person looked at in between, because Codex sends no prompt event. Filter `tool` when reading it. A permission pair in a turn nobody asked for is reported once per event.
+
+`background: true` with `previous: PreToolUse` or `previous: Stop` is path 5 of section 2. `afterSessionEnd: true` is path 3.

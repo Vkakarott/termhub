@@ -28,6 +28,8 @@ const summary = (m: Machine): MachineSummary => ({ id: m.id, name: m.name, subti
 
 export async function listMachines(ctx: ControlContext): Promise<{ machines: MachineSummary[] }> {
   const machines = await ctx.repos.machines.list(ctx.scope.ownerId);
+  // A colour that just started has not met its agents yet (a deploy): the ones on their way get the time to attach.
+  await Promise.all(machines.map((m) => agents.awaitHandover(m)));
   return { machines: machines.map(summary) };
 }
 
@@ -86,7 +88,7 @@ export async function listTabs(ctx: ControlContext, input: { project_id?: string
   // One probe per machine. An offline agent's listTmuxSessions answers an empty set (not an error): that would read every tab as dead.
   const sessions = new Map<string, Set<string> | null>();
   for (const [id, machine] of machines) {
-    sessions.set(id, machine.type === 'agent' && !agents.isOnline(machine.id) ? null : await listTmuxSessions(machine).catch(() => null));
+    sessions.set(id, machine.type === 'agent' && !(await agents.awaitHandover(machine)) ? null : await listTmuxSessions(machine).catch(() => null));
   }
   const byTab = new Map<string, { id: string; title: string; status: string }>();
   for (const pid of new Set(tabs.map((t) => t.project_id))) {

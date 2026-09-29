@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { RpcParams, RpcResult } from '@termhub/agent-protocol';
@@ -37,12 +37,27 @@ const CURSOR_HOOKS_REL = '.cursor/hooks.json';
 
 const isEnoent = (err: unknown) => (err as NodeJS.ErrnoException)?.code === 'ENOENT';
 
+/** A symlink whose target is gone: `readFile` answers ENOENT for it, exactly as for a path with nothing there. */
+async function isDanglingLink(file: string): Promise<boolean> {
+  try {
+    return (await lstat(file)).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The file's content, or '' when nothing is there. A dangling symlink is not "nothing": writing to
+ * that path would replace the link (one a dotfiles tool manages, say) by a plain file, so it is
+ * reported as a failure, the same way the ssh/local probe answers `unreadable` for it.
+ */
 async function readOrEmpty(file: string): Promise<string> {
   try {
     return await readFile(file, 'utf8');
   } catch (err) {
-    if (isEnoent(err)) return '';
-    throw err;
+    if (!isEnoent(err)) throw err;
+    if (await isDanglingLink(file)) throw Object.assign(new Error('link simbólico quebrado'), { code: 'EDANGLING' });
+    return '';
   }
 }
 
@@ -72,10 +87,14 @@ function fsFailure(err: unknown, shown: string): RpcFailure {
   return new RpcFailure('failed', `não foi possível escrever ${shown}: ${err instanceof Error ? err.message : String(err)}`, relPath(shown));
 }
 
-/** The read side of `fsFailure`: a file that is there but cannot be read, named so the server can say which one. */
+/**
+ * The read side of `fsFailure`: a file that is there but cannot be read, named so the person knows
+ * which one. Always `failed`, the code whose message the server shows as it is: `eperm` is answered
+ * with one fixed sentence about the folder, which would drop the name again.
+ */
 function readFailure(err: unknown, shown: string): RpcFailure {
   const code = (err as NodeJS.ErrnoException)?.code;
-  if (code === 'EACCES' || code === 'EPERM') return new RpcFailure('eperm', `sem permissão para ler ${shown}`, relPath(shown));
+  if (code === 'EACCES' || code === 'EPERM') return new RpcFailure('failed', `sem permissão para ler ${shown}`, relPath(shown));
   return new RpcFailure('failed', `não foi possível ler ${shown}: ${err instanceof Error ? err.message : String(err)}`, relPath(shown));
 }
 
@@ -301,7 +320,7 @@ export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.
   }
   const codexConfig = (await isDir(path.join(home, CODEX_DIR_REL))) ? await readNamed(codexFile, `~/${CODEX_CONFIG_REL}`) : '';
   const cursorFile = path.join(home, CURSOR_HOOKS_REL);
-  const cursorHooks = await readNamed(cursorFile, `~/${CURSOR_HOOKS_REL}`);
+  const cursorHooks = (await isDir(path.join(home, CURSOR_DIR_REL))) ? await readNamed(cursorFile, `~/${CURSOR_HOOKS_REL}`) : '';
   let strippedCursor: string | null = null;
   try {
     strippedCursor = cursorHooks.includes(HOOK_MARK) ? stripCursorHooks(cursorHooks) : null;

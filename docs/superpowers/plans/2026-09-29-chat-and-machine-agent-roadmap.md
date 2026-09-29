@@ -37,10 +37,10 @@
 | 7 | Concierge: input that really submits | TER-418 | 1, 3 | Yes | No |
 | 8 | Tab questions per subagent | TER-179 | 6, 7 | Yes | Yes |
 | 9 | Cursor: approval prompts and unmonitored tabs | TER-421, TER-420 | 3, 8 | Yes | No |
-| 10 | Landing: comparison with herdr | TER-403 | — | No | No |
+| 10 | Landing: comparison with herdr | TER-403 | delivered by #209 | No | No |
 | 11 | Mobile: hardware keyboard | TER-368 | a Mac with Xcode | No | No |
 
-Fronts 2, 3, 4, 5 and 10 have no dependency. They are ordered by what they unblock and by what the person feels first.
+Fronts 2, 3, 4 and 5 have no dependency, and neither has what is left of front 10. They are ordered by what they unblock and by what the person feels first.
 
 ---
 
@@ -56,7 +56,8 @@ Fronts 2, 3, 4, 5 and 10 have no dependency. They are ordered by what they unblo
 - [ ] Task 4: the agent names the file it could not read (TER-409)
 - [ ] Task 5: name-ordered discovery and a heal failure logged once (TER-413, TER-412)
 - [ ] Task 6: release 0.10.1 and verify the whole change
-- [ ] Pull request, merge on green, deploy followed to the health check
+- [ ] Review of the front: the agent refuses a dangling link, names the file on a permission failure, and uninstall skips Cursor when `~/.cursor` is not a directory
+- [ ] One pull request per task, stacked, merged in sequence on green, each deploy followed to the health check
 - [ ] "Publish @termhub/agent" followed; the tarball of 0.10.1 holds `handshakeTimeout`
 
 **Done when:** an upgrade request that gets no answer is retried after 15 s; install on ssh/local stops with the file's name when a config file cannot be read; uninstall leaves no `hooks.json` that termhub created; the five cards are in "Feito".
@@ -90,7 +91,11 @@ Fronts 2, 3, 4, 5 and 10 have no dependency. They are ordered by what they unblo
 - [ ] Web test: stop, seen, answer pushed through `entersNeedsYou` fires one toast (TER-414)
 - [ ] Pull request, merge on green, deploy followed to the health check
 
-**Done when:** a wait the person has seen is re-armed only by a new request, the repository tests cover each of the six causes, and the three cards are in "Feito".
+**Spec and plan:** `docs/superpowers/specs/2026-09-29-monitor-one-wait-one-alert-design.md`, `docs/superpowers/plans/2026-09-29-monitor-one-wait-one-alert.md`.
+
+**What the front's own design changed from the list above.** A review of the first design found that some of these items were unsafe or were real requests. Late events after a session end, the account swap and an answer nobody asked for are kept as they are; the reply route and Claude's `SessionStart` are not changed (a reminder that finds no turn running is born seen instead). A log line counts what still re-arms a seen wait.
+
+**Done when:** a reminder of a wait the person has seen does not light it again, TER-411 and TER-414 are in "Feito", and the log has been read. TER-422 stays open until the log says which path the person is seeing: the design expects this front not to close it by itself.
 
 ### Front 4: Chat: run state and decisions that answer at once
 
@@ -198,15 +203,15 @@ Fronts 2, 3, 4, 5 and 10 have no dependency. They are ordered by what they unblo
 ### Front 10: Landing: comparison with herdr
 
 **Cards:** TER-403
-**Files:** `apps/landing/src/i18n.ts` (the `compare` block in pt and in en), `apps/landing/src/App.tsx` (only if the table gets wider)
+**Delivered by:** #209 (another session, 2026-09-29): a "terminal agent runtime (e.g. herdr)" column and four new rows in `apps/landing/src/i18n.ts`.
+**Files:** `apps/landing/src/i18n.ts` (the `compare` block in pt and in en)
 
-- [ ] Research: read the public pages of herdr.dev and write down, per row of the table, what the product does, with the link that says so
-- [ ] Decide: a new column, or the hint of a column that already exists
-- [ ] Copy in pt and en, one cell per row, in the same order in both languages
-- [ ] Update the note with the date of the research
+- [x] Research and the herdr column, in pt and en (#209)
+- [ ] Check, against each product's public pages, the cells #209 marked as inferred: agent state (Orca, Maestri, Cursor), API/MCP (Orca, Maestri), chat (Cursor)
+- [ ] Correct what the check finds, in both languages, and update the note with the date
 - [ ] Pull request, merge on green, deploy followed to the health check
 
-**Done when:** every cell about herdr can be traced to a public page, and both languages hold the same cells.
+**Done when:** every cell of the table can be traced to a public page, and both languages hold the same cells.
 
 ### Front 11: Mobile: hardware keyboard
 
