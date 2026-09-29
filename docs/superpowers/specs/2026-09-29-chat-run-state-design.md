@@ -123,6 +123,17 @@ start of `finishRun` and deleted in its `finally`.
 
 The re-publication of the question that goes with each deletion stays as it is.
 
+The deletion in `restart` is the last step before `setCliSession`: the person's turns are back in the
+waiting list, and their `reset` and `run_started` are published, before it is tried. It is best
+effort. A failure is logged by its label, the row is left as it is, and the restart goes on: a turn of
+the person's must never be stranded by the row of a turn nobody asked for. The question re-published
+with it is `lastQuestion`, as in `finishTurn`.
+
+A closed row is closed for good. `run_finished` with an id always follows the final `message` of that
+id; a merged turn closes through `message_removed`; a queued turn that was closed has a final row,
+which `carryOver` skips. A future path that writes into a closed row would be invisible to the
+screens: the comment on `openAnswerIds` says so.
+
 ## 5. Screens
 
 Both screens keep, for the open conversation, a **started** set and a **closed** set of message ids.
@@ -137,15 +148,35 @@ Both screens keep, for the open conversation, a **started** set and a **closed**
 | `run_finished` with a message id | Closed. |
 | `run_finished` with `message_id: null` | The screen re-reads the conversation and shows "O concierge não conseguiu começar a resposta. Tente de novo." |
 | `message_removed` | Closed, and the row leaves the thread. |
-| A re-read | `open_answer_ids` are started, unless closed. A row the snapshot lists as empty and the screen holds as final keeps the screen's version. A row the screen saw removed is left out. |
+| A re-read of the same conversation | The four rules below, then `open_answer_ids` are started, unless closed. |
+| A re-read of another conversation (a reset, another project) | The snapshot replaces the thread. The started, closed and removed sets are emptied, then seeded. |
+
+A re-read of the same conversation merges the snapshot into the thread by id:
+
+1. A row the snapshot lists as empty and the screen holds as final keeps the screen's version.
+2. A row the screen saw removed is left out of the snapshot.
+3. A row the snapshot lacks is dropped, unless it is newer than the snapshot's newest row. This is
+   what closes a row whose `message_removed` was missed while the socket was down.
+4. Every other row takes the snapshot's version.
+
+Rules 3 and 4 are what the phone's `mergeThread` does today. The web replaces the list wholesale today,
+and gets the same four rules.
+
+A `message_removed` for a row the screen never had is harmless: the id is remembered, so a later
+snapshot that still lists the row leaves it out. The null `run_finished` belongs to one conversation:
+only the screen, or the phone's slot, of its `conversation_id` re-reads and shows the line.
 
 **Web** (`apps/web`).
 
 - `ChatEvent` gains `run_started`, `run_finished` and `message_removed`.
-- `lib/chat-live.ts`: the fold gains the closed set, `seed(ids)`, `isClosed(id)` and `wasRemoved(id)`.
-  On `reset` the row keeps `started` and takes `text: ''` and the shared empty tools array.
-- `lib/chat-merge.ts`: `mergeThread(current, server, fold)` applies the two re-read rules.
-  `ChatPanel.load` uses it instead of replacing the list, then seeds.
+- `lib/chat-live.ts`: the fold gains the closed set, `seed(ids)`, `clear()`, `isClosed(id)` and
+  `wasRemoved(id)`. On `reset` the row keeps `started` and takes `text: ''` and the shared empty tools
+  array.
+- `lib/chat-merge.ts`: `mergeThread(current, server, removed)` applies the four rules.
+  `ChatPanel.load` uses it when the conversation is the one on screen, replaces the list and clears the
+  fold otherwise, then seeds.
+- Events held before the panel knows its conversation are replayed through the same path as live
+  ones, so a held final `message` or `message_removed` also reaches the thread, not only the fold.
 - `answering` is true while sending, or while any listed message is an assistant row with no text, no
   error and a started mark. It no longer looks only at the newest row.
 
@@ -196,6 +227,9 @@ shows as failed.
 - One-shot runs that die with the server: their row stays empty. Only streamed runs are resumed.
 - A bus that reaches the other instance. Until then a turn that finishes in the other colour during
   the overlap shows as failed on a screen connected to this one, until a re-read. It is so today.
+  Likewise a stale row this instance listed and the old instance claimed first: the old instance sweeps
+  until it is told to stop, and what it then publishes stays on its own bus. The window is a crash row
+  that goes stale during a deploy.
 - The mobile decision routes and their note.
 - Removing `ChatService.send`.
 
@@ -219,3 +253,6 @@ shows as failed.
 | The order in `startWhileBusy` was not stated | `launchQueued` may close the turn at once | After `enqueue`, before `launchQueued` |
 | `restart` was listed only as a place that opens rows | It leaves the row of a turn the CLI started open for ever | It deletes that row and says so |
 | `findElsewhere`, a new repository method | Not needed once only released or stale rows count | `findResumable`, which exists |
+| The web merges a re-read "by the two rules" | A merge that never drops a row keeps the archived thread on screen after "Nova conversa", and keeps a row whose removal was missed | The phone's two other rules, and a replace when the conversation changes |
+| The new deletion in `restart` had no place in the order | A deletion that throws before the turns are re-queued strands the person's turns | Last step, best effort |
+| Held events feed only the fold | A held final `message` or removal leaves the thread with the snapshot's row | Held events take the same path as live ones |
