@@ -9,6 +9,7 @@ import {
   claudeConfigDirs,
   expandHome,
   hookEnvFile,
+  isBareCursorHooks,
   mergeClaudeSettings,
   mergeCodexConfig,
   mergeCursorHooks,
@@ -160,6 +161,13 @@ function strippedCursorHooks(configs: MachineConfigs): string | null {
   }
 }
 
+/** Writes what is left of hooks.json back, or removes the file when nothing of the person is left in it. */
+function cursorUninstallSteps(home: string, stripped: string | null): string[] {
+  if (stripped === null) return [];
+  const file = `${home}/.cursor/hooks.json`;
+  return isBareCursorHooks(stripped) ? [`rm -f ${shellQuote(file)}`] : replaceFile(file, stripped);
+}
+
 /**
  * `accountDirs`: config dirs of the Claude accounts registered for this machine (CLAUDE_CONFIG_DIR);
  * they get the entries too, besides ~/.claude, when they exist on the machine.
@@ -238,7 +246,7 @@ export async function uninstallHooks(machine: Machine, accountDirs: string[] = [
     `rm -f ${q(`${home}/${HOOK_SCRIPT_REL}`)} ${q(`${home}/${HOOK_ENV_REL}`)}`,
     ...stripped.flatMap((s) => replaceFile(s.file, s.body)),
     ...(hasCodex && codexConfig.includes(HOOK_MARK) ? replaceFile(`${home}/.codex/config.toml`, stripCodexConfig(codexConfig)) : []),
-    ...(strippedCursor !== null ? replaceFile(`${home}/.cursor/hooks.json`, strippedCursor) : []),
+    ...cursorUninstallSteps(home, strippedCursor),
     'echo ok',
   ].join('\n');
   const r = await shOnMachine(machine, script);

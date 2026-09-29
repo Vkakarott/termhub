@@ -11,6 +11,7 @@ import {
   claudeConfigDirs,
   expandHome,
   hookEnvFile,
+  isBareCursorHooks,
   mergeClaudeSettings,
   mergeCodexConfig,
   mergeCursorHooks,
@@ -305,7 +306,9 @@ export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.
     }
     if (strippedCursor !== null) {
       current = `~/${CURSOR_HOOKS_REL}`;
-      await writeAtomic(cursorFile, strippedCursor, 0o644);
+      // nothing of the person is left in it: the file only exists because we created it
+      if (isBareCursorHooks(strippedCursor)) await rm(cursorFile, { force: true });
+      else await writeAtomic(cursorFile, strippedCursor, 0o644);
     }
   } catch (err) {
     throw fsFailure(err, current);
