@@ -287,3 +287,46 @@ describe('ingestHookEvent — claude session and rate limit (spec 2026-09-26 acc
     expect(autoSwapOnLimit).not.toHaveBeenCalled();
   });
 });
+
+describe('ingestHookEvent — an event the repository dropped', () => {
+  it('ends as ignored: nothing is published, no card is touched, no suggestion check is scheduled', async () => {
+    publish.mockClear();
+    note.mockClear();
+    schedule.mockClear();
+    const current = tab({ state: 'working', state_tool: 'cursor' });
+    const { r } = repos(current);
+    (r.tabs.recordEvent as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ tab: current, event: null, rearm: null });
+
+    const res = await ingestHookEvent(r, log, { machineId: 'm1', tool: 'cursor', session: 'th-t1', event: { hook_event_name: 'sessionStart' } });
+
+    expect(res).toEqual({ ok: false, reason: 'ignored' });
+    expect(publish).not.toHaveBeenCalled();
+    expect(note).not.toHaveBeenCalled();
+    expect(schedule).not.toHaveBeenCalled();
+  });
+});
+
+describe('ingestHookEvent — a seen wait that alerts again', () => {
+  it('is logged with event names and flags, never the text', async () => {
+    const info = vi.fn();
+    const current = tab({ state: 'working' });
+    const { r } = repos(current);
+    (r.tabs.recordEvent as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      tab: tab({ ...current, state: 'waiting_input' }),
+      event: {},
+      rearm: { previous: 'PreToolUse', background: true, afterSessionEnd: false },
+    });
+
+    await ingestHookEvent(r, { info, debug: vi.fn(), warn: vi.fn() } as never, { machineId: 'm1', tool: 'claude', session: 'th-t1', event: { hook_event_name: 'Stop', last_assistant_message: 'segredo do terminal' } });
+
+    expect(info).toHaveBeenCalledWith({ tabId: 't1', tool: 'claude', previous: 'PreToolUse', event: 'Stop', background: true, afterSessionEnd: false }, 'monitor: seen wait re-armed');
+    expect(JSON.stringify(info.mock.calls)).not.toContain('segredo do terminal');
+  });
+
+  it('is not logged for an event that re-armed nothing', async () => {
+    const info = vi.fn();
+    const { r } = repos(tab({ state: 'working' }));
+    await ingestHookEvent(r, { info, debug: vi.fn(), warn: vi.fn() } as never, { machineId: 'm1', tool: 'claude', session: 'th-t1', event: { hook_event_name: 'Stop', last_assistant_message: 'Pronto.' } });
+    expect(info.mock.calls.some((c) => c[1] === 'monitor: seen wait re-armed')).toBe(false);
+  });
+});

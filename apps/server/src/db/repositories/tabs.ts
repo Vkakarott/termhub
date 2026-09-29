@@ -1,5 +1,6 @@
 import type { PrismaClient } from '../prisma.js';
 import { newId } from '../../lib/ids.js';
+import { HISTORY_ROWS, decideWait, rearmOf, type HistoryRow, type Rearm } from '../../monitor/wait-decision.js';
 import { mapTab, mapTabEvent, type Tab, type TabActivity, type TabEvent, type TabKind, type TabState } from './types.js';
 
 /** A flood of hook events cannot grow the log without bound: only this many are kept per tab. */
@@ -10,6 +11,20 @@ export const MAX_WORKING_INTERVAL_S = 7200;
 
 /** States that mean a tool is mid-task in that tab — as opposed to `idle`, `error` or never seen. */
 const BUSY_STATES: TabState[] = ['working', 'waiting_input', 'waiting_permission'];
+
+const metaOf = (meta: unknown): Record<string, unknown> => (meta && typeof meta === 'object' && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {});
+
+/** The hook event name an event row carries in its meta (`{ event: 'Stop', … }`), or null. */
+function eventName(meta: unknown): string | null {
+  const name = metaOf(meta).event;
+  return typeof name === 'string' && name ? name : null;
+}
+
+/** A Claude Stop that left background tasks running writes their count in its meta. */
+function hasBackgroundTasks(meta: unknown): boolean {
+  const count = metaOf(meta).background_tasks;
+  return typeof count === 'number' && count > 0;
+}
 
 export class TabsRepository {
   constructor(private db: PrismaClient) {}
@@ -120,17 +135,17 @@ export class TabsRepository {
 
   /**
    * Monitor: records the event and makes it the tab's current state; keeps only the newest events
-   * per tab. Leaving `stateSeenAt` untouched re-arms a seen tab by itself (the bumped `stateAt` is
-   * now newer than it) — except for an event that `continuesWait`: Claude's hooks send `Stop` and,
-   * ~1 min later, `Notification idle_prompt` for one turn, both mapped to `waiting_input`; if the
-   * person already saw the tab for that wait, the idle_prompt must not re-open it, so the seen mark
-   * is carried forward to the new `stateAt` instead. A continuation with no text of its own keeps
-   * the wait's text (Cursor's `stop` after its answer), and so does one whose own text is never the
-   * answer — only a generic reminder (`keepsWaitText`, spec 2026-09-26 §6.1: Claude's idle_prompt
-   * over the Stop's `last_assistant_message`); any other continuation's text replaces the wait's own
-   * (Cursor's `afterAgentResponse` over a stale or missing answer). Two `waiting_input` in a row are
-   * not enough to tell: Codex sends only that, once per turn, so its next turn is a new wait that
-   * must re-arm.
+   * per tab. Whether the event alerts is `decideWait`'s call (monitor/wait-decision.ts, spec
+   * 2026-09-29), from the tab's row and its last events, read here under the row lock: a wait the
+   * person already saw stays seen when the event continues it or brings nothing new. The text
+   * follows the same decision: a continuation with no text of its own, or whose own text is only a
+   * reminder (`keepsWaitText`), keeps the wait's text.
+   *
+   * A dropped event (a Cursor session start that arrived after its own prompt) writes no row and
+   * changes nothing: `event` is null and the tab is the row as it was.
+   *
+   * `rearm` is for the log: the wait alerts although the person had seen the one before it and
+   * asked for nothing since.
    */
   async recordEvent(
     tabId: string,
@@ -144,39 +159,58 @@ export class TabsRepository {
       continuesWait?: boolean;
       keepsWaitText?: boolean;
     },
-  ): Promise<{ tab: Tab; event: TabEvent }> {
+  ): Promise<{ tab: Tab; event: TabEvent | null; rearm: Rearm | null }> {
     const at = new Date();
-    const [e, t] = await this.db.$transaction(async (tx) => {
+    const [e, t, rearm] = await this.db.$transaction(async (tx) => {
       // One event per tab at a time: two hooks fired together (PermissionRequest and
       // Notification(permission_prompt)) would otherwise both see the same `working` event as the
       // previous one and credit its interval twice. The second waits here and reads the first's event.
       await tx.$queryRaw`SELECT 1 FROM "tabs" WHERE "id" = ${tabId} FOR UPDATE`;
-      const current = await tx.tab.findUnique({ where: { id: tabId }, select: { state: true, stateAt: true, stateSeenAt: true, stateText: true } });
+      const current = await tx.tab.findUnique({ where: { id: tabId }, select: { state: true, stateAt: true, stateSeenAt: true, stateText: true, activity: true } });
+      const rows = await tx.tabEvent.findMany({ where: { tabId }, orderBy: { createdAt: 'desc' }, take: HISTORY_ROWS, select: { kind: true, createdAt: true, meta: true } });
+      const previous = rows[0];
+      const history: HistoryRow[] = rows.map((r) => ({ kind: r.kind as TabState, event: eventName(r.meta), ageMs: at.getTime() - r.createdAt.getTime(), backgroundTasks: hasBackgroundTasks(r.meta) }));
+      const now = {
+        state: (current?.state ?? null) as TabState | null,
+        seen: !!current?.stateSeenAt && !!current.stateAt && current.stateSeenAt >= current.stateAt,
+        hasActivity: !!current?.activity,
+        seenAgeMs: current?.stateSeenAt ? at.getTime() - current.stateSeenAt.getTime() : null,
+      };
+      const incoming = { kind: event.kind, name: eventName(event.meta), continuesWait: !!event.continuesWait, keepsWaitText: !!event.keepsWaitText };
+      const outcome = decideWait(now, history, incoming);
+      if (outcome.action === 'drop') {
+        return [null, await tx.tab.findUniqueOrThrow({ where: { id: tabId } }), null] as const;
+      }
+
       // A working interval ends here: credit it to the card this tab works on (a subtask's parent), once.
-      const previous = await tx.tabEvent.findFirst({ where: { tabId }, orderBy: { createdAt: 'desc' }, select: { kind: true, createdAt: true } });
       if (previous?.kind === 'working') {
         const seconds = Math.min(MAX_WORKING_INTERVAL_S, Math.round((at.getTime() - previous.createdAt.getTime()) / 1000));
         if (seconds > 0) {
           await tx.$executeRaw`UPDATE "tasks" SET "active_seconds" = "active_seconds" + ${seconds} WHERE "id" IN (SELECT DISTINCT COALESCE("parent_id", "id") FROM "tasks" WHERE "tab_id" = ${tabId})`;
         }
       }
-      const currentlySeen = !!current?.stateSeenAt && !!current.stateAt && current.stateSeenAt >= current.stateAt;
-      const continuing = !!event.continuesWait && current?.state === 'waiting_input' && event.kind === 'waiting_input';
-      const carrySeen = continuing && currentlySeen;
       // A continuation keeps the wait's own text when it has none of its own, or when its own text is
       // never the answer (`keepsWaitText`: Claude's idle_prompt, "Claude is waiting for your input", which
       // must not replace the Stop's last_assistant_message). Any other continuation's text — Cursor's
       // afterAgentResponse — replaces the wait's own, including a stale one from an earlier turn.
-      const text = continuing && (event.text === null || event.keepsWaitText) ? (current?.stateText ?? event.text) : event.text;
+      const text = outcome.continuing && (event.text === null || event.keepsWaitText) ? (current?.stateText ?? event.text) : event.text;
       const ev = await tx.tabEvent.create({ data: { id: newId(), tabId, kind: event.kind, tool: event.tool, text: event.text, meta: (event.meta ?? {}) as object, createdAt: at } });
       const updated = await tx.tab.update({
         where: { id: tabId },
-        data: { state: event.kind, stateText: text, stateTool: event.tool, stateAt: at, activity: event.kind === 'working' ? (event.activity ?? null) : null, activityVerb: event.kind === 'working' ? (event.activityVerb ?? null) : null, ...(carrySeen ? { stateSeenAt: at } : {}) },
+        data: {
+          state: event.kind,
+          stateText: text,
+          stateTool: event.tool,
+          stateAt: at,
+          activity: event.kind === 'working' ? (event.activity ?? null) : null,
+          activityVerb: event.kind === 'working' ? (event.activityVerb ?? null) : null,
+          ...(outcome.seen === 'none' ? {} : { stateSeenAt: at }),
+        },
       });
       await tx.$executeRaw`DELETE FROM "tab_events" WHERE "tab_id" = ${tabId} AND "id" NOT IN (SELECT "id" FROM "tab_events" WHERE "tab_id" = ${tabId} ORDER BY "created_at" DESC LIMIT ${EVENTS_KEPT_PER_TAB})`;
-      return [ev, updated] as const;
+      return [ev, updated, rearmOf(now, history, incoming, outcome)] as const;
     });
-    return { tab: mapTab(t), event: mapTabEvent(e) };
+    return { tab: mapTab(t), event: e ? mapTabEvent(e) : null, rearm };
   }
 
   async listEvents(tabId: string, limit = 50): Promise<TabEvent[]> {
