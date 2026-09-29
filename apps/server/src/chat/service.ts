@@ -620,12 +620,12 @@ export class ChatService {
    * Runs in the action's own conversation, not whichever scope the caller has open: a card answered
    * from the account-wide screen may belong to a project chat, and the model that proposed it is there.
    *
-   * Reuses `sendIn` wholesale rather than duplicating its streaming, retry and locking logic: the
+   * Reuses `startIn` wholesale rather than duplicating its streaming, retry and locking logic: the
    * injected sentence is just another user turn, so the busy lock, the fresh-session fallback and the
    * bus events all behave exactly as they do for anything the user types.
    *
    * A live streamed run that still takes input gets the decisions injected (spec 2026-09-26, concierge
-   * always on). Otherwise, if another run already holds the conversation's lock, `sendIn` throws
+   * always on). Otherwise, if another run already holds the conversation's lock, `startIn` throws
    * `HttpError(409, CHAT_BUSY)` before `beforeRun` ever gets to mark the rows injected — every decision
    * of the batch stays `approved`/`denied` with `injected_at` still null, exactly the state
    * `findNextToInject` looks for. The route (fix round 2) turns that specific 409 into a 200: the
@@ -634,7 +634,7 @@ export class ChatService {
    * paths — inject into the live run, inject now, or inject once the lock frees up — all go through the
    * same `markInjectedMany` marking in `beforeRun`, and cannot diverge (fix round 2, point 4).
    */
-  async resumeAfterDecision(user: User, action: ChatAction): Promise<ChatMessage | undefined> {
+  async startAfterDecision(user: User, action: ChatAction): Promise<StartedRun | undefined> {
     const conversation = await this.deps.repos.chat.findByIdForUser(action.conversation_id, user.id);
     // `decide` already proved the row is this user's; a conversation archived since then has nobody
     // reading it, and `reset` expired its open rows — nothing to inject.
@@ -646,15 +646,25 @@ export class ChatService {
     const batch = current.injected_at === null ? [action, ...rest] : rest;
     if (batch.length === 0) return undefined;
     try {
-      return await this.sendIn(user, conversation, await this.injectionFor(user, batch, conversation.cli_session_id === null), {
+      const started = await this.startIn(user, conversation, await this.injectionFor(user, batch, conversation.cli_session_id === null), {
         beforeRun: () => this.markBatchInjected(batch),
       });
+      // Nobody has to await the answer: it reaches the screens over the chat's stream, and a run
+      // that could not be attempted says so there (`run_finished` with no message). The label only.
+      started.done.catch((err) => console.error('chat: a run started by a decision failed', { conversation_id: conversation.id, action_id: action.id, error: failureLabel(err) }));
+      return started;
     } catch (err) {
       // Another run carried part of the batch first: nothing was marked nor sent, and the drain the
       // released lock schedules picks up whatever is still waiting.
       if (err instanceof HttpError && err.code === ALREADY_INJECTED) return undefined;
       throw err;
     }
+  }
+
+  /** `startAfterDecision`, then the whole run: for a caller that wants the answer (the phone's routes,
+   *  in the background). Rejects when the run does. */
+  async resumeAfterDecision(user: User, action: ChatAction): Promise<ChatMessage | undefined> {
+    return (await this.startAfterDecision(user, action))?.done;
   }
 
   /** Marks a run's decisions injected (all or none), or throws `ALREADY_INJECTED` — before the run
@@ -779,15 +789,17 @@ export class ChatService {
     }
   }
 
-  /** A message the user typed, in the account-wide chat or in one of their projects' (`projectId`).
-   * Awaits the whole run: what the web's `POST /api/chat/messages` answers with. */
+  /** A message the user typed, in the account-wide chat or in one of their projects' (`projectId`),
+   * as one whole turn: `start`, then `done`. For tests and for a caller that wants the answer; no route
+   * awaits it (`POST /api/chat/messages` always answers with `start`). */
   async send(user: User, text: string, opts: SendOptions = {}): Promise<ChatMessage> {
     return (await this.start(user, text, opts)).done;
   }
 
   /**
-   * The same message as `send`, but resolved as soon as the question and the empty answer are stored
-   * and published — for a client that cannot hold a request open for the whole run (the phone app).
+   * A message the user typed, resolved as soon as the question and the empty answer are stored and
+   * published — what the web's `POST /api/chat/messages` and the phone's route answer with, so no
+   * request is held open for the whole run.
    * Everything that refuses the message outright (no host, archived) still rejects this call
    * itself, with nothing stored; what happens afterwards is `done`'s, which rejects exactly when `send`
    * would have thrown (a setup failure). A caller that does not await `done` must attach its own
@@ -797,7 +809,7 @@ export class ChatService {
     const conversation = await this.conversationFor(user, opts.projectId ?? null);
     const started = await this.startIn(user, conversation, text, { attachmentIds: opts.attachmentIds });
     // Only a message the person typed is memory (spec D3/D4): re-injections and wakes go through
-    // `sendIn` directly and never reach here. Best effort, fire-and-forget: `indexMessage` never throws.
+    // `startIn` directly and never reach here. Best effort, fire-and-forget: `indexMessage` never throws.
     void this.deps.indexMessage({ id: started.user_message_id, owner_id: user.id, project_id: conversation.project_id, text, created_at: new Date().toISOString() });
     return started;
   }
@@ -962,7 +974,8 @@ export class ChatService {
     return { ...question, attachments };
   }
 
-  /** One whole run in a given conversation — what a decision's re-injection and the drain await. */
+  /** One whole run in a given conversation — what the drain awaits. A decision's re-injection starts
+   *  with `startIn` instead (`startAfterDecision`), so its route answers when the run has started. */
   private async sendIn(user: User, conversation: ChatConversation, text: string, opts?: { beforeRun?: () => Promise<void> }): Promise<ChatMessage> {
     return (await this.startIn(user, conversation, text, opts)).done;
   }

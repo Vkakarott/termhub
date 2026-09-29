@@ -785,6 +785,87 @@ it('resumeAfterDecision answers busy when a run is already in flight, without ma
   await first;
 });
 
+it('startAfterDecision resolves when the run has started, not when it ends', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const { service, chatActions, messages } = build(() => (async function* () { await gate; yield delta('feito'); yield done(); })());
+
+  const started = await service.startAfterDecision(user, action());
+
+  // Resolved while the runner is still held: the ids of both stored rows, and the decision marked.
+  expect(started).toMatchObject({ conversation_id: 'c1', user_message_id: messages[0].id, assistant_message_id: messages[1].id });
+  expect(messages.map((m) => [m.role, m.text])).toEqual([
+    ['user', messages[0].text],
+    ['assistant', ''],
+  ]);
+  expect(messages[0].text).toMatch(/^O usuário autorizou:/);
+  expect(chatActions.markInjectedMany).toHaveBeenCalledWith(['a1']);
+  release();
+  const answer = await started!.done;
+  expect(answer).toMatchObject({ id: started!.assistant_message_id, text: 'feito' });
+});
+
+it('startAfterDecision answers undefined when another run carried the decision first', async () => {
+  const { service, runner, messages, chatActions } = build([delta('feito'), done()], { chatActions: [action({ injected_at: '2026-09-21T12:00:01.000Z' })] });
+
+  const started = await service.startAfterDecision(user, action());
+  await settled();
+
+  expect(started).toBeUndefined();
+  expect(chatActions.markInjectedMany).not.toHaveBeenCalled();
+  expect(runner.run).not.toHaveBeenCalled();
+  expect(messages).toEqual([]);
+});
+
+it('startAfterDecision refuses as before: an archived conversation, a busy one-shot run', async () => {
+  const archived = build([delta('feito'), done()]);
+  archived.projectConversation.archived_at = '2026-09-23T00:00:00.000Z';
+  await expect(archived.service.startAfterDecision(user, action({ conversation_id: 'c_p1' }))).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_ARCHIVED' });
+  expect(archived.runner.run).not.toHaveBeenCalled();
+
+  let release: () => void = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  const { service, runner, chatActions } = build(() => (async function* () { await gate; yield delta('ok'); yield done(); })());
+  const first = service.send(user, 'primeira'); // holds the conversation's lock
+  await expect(service.startAfterDecision(user, action())).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_BUSY' });
+  expect(chatActions.markInjectedMany).not.toHaveBeenCalled();
+  expect(runner.run).toHaveBeenCalledTimes(1);
+  release();
+  await first;
+});
+
+it('a run that fails after startAfterDecision is never an unhandled rejection', async () => {
+  const unhandled = vi.fn();
+  process.on('unhandledRejection', unhandled);
+  try {
+    let fail!: () => void;
+    const gate = new Promise<void>((r) => (fail = r));
+    const { service, runner } = build([]);
+    vi.mocked(runner.run).mockImplementationOnce(() => (async function* () {
+      await gate;
+      throw new HttpError(502, 'O concierge não respondeu', 'CONCIERGE_FAILED');
+    })());
+
+    const started = await service.startAfterDecision(user, action());
+    expect(started).toBeDefined();
+    fail(); // the setup failure lands after the caller already has its answer, and nobody awaits `done`
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(unhandled).not.toHaveBeenCalled();
+  } finally {
+    process.off('unhandledRejection', unhandled);
+  }
+});
+
+it('resumeAfterDecision still rejects with the failure of the run it awaits', async () => {
+  const { service, runner } = build([]);
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () {
+    throw new HttpError(502, 'O concierge não respondeu', 'CONCIERGE_FAILED');
+  })());
+
+  await expect(service.resumeAfterDecision(user, action())).rejects.toMatchObject({ statusCode: 502, code: 'CONCIERGE_FAILED' });
+});
+
 it('injects a decision left queued by a busy run exactly once, when that run finishes', async () => {
   // The state `resumeAfterDecision` would have left behind after losing the race for the lock:
   // already approved, not yet injected — `chatActions.decide` already ran in the route before the

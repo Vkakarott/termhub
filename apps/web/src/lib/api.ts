@@ -267,8 +267,9 @@ export const api = {
    *  `SUBAGENT_NOT_RUNNING` (already at rest) or `SUBAGENT_GONE` (its process is no longer around). */
   cancelSubagent: (id: string) => request<{ subagent: SubagentView }>('POST', `/chat/subagents/${encodeURIComponent(id)}/cancel`, {}),
   /**
-   * 200 normally; 200 with `queued: true` and a pt-BR `note` when a run is in flight (the decision is
-   * recorded and will be applied once it finishes); 404 unknown/not yours; 409 already decided (400
+   * 200 once the injected run has started (never after its end: the answer arrives over `/ws/chat`);
+   * 200 with `queued: true` and a pt-BR `note` when a run is in flight (the decision is recorded and
+   * will be applied once it finishes); 404 unknown/not yours; 409 already decided (400
    * `GRANT_NOT_ALLOWED` for `approve_tab`/`approve_project`/`approve_tab_terminal`/`approve_project_all`/
    * `approve_project_always` on an action the server does not consider grantable that way). `action` is the raw decided row (not
    * the enriched card `GET /api/chat` returns — no `summary` here): only its `id`/`status` are honoured,
@@ -278,10 +279,11 @@ export const api = {
    * prazo" one, present only for `approve_project_always`.
    */
   decideChatAction: (id: string, decision: ChatDecisionWord) =>
-    request<{ action: { id: string; status: ChatActionStatus }; message?: ChatMessage; queued?: true; note?: string; grant?: ChatGrant; project_grant?: ChatProjectGrant; standing_grant?: ChatStandingGrant }>('POST', `/chat/actions/${id}/decision`, { decision }),
-  /** A grouped confirmation: every decision of the batch in one request, injected as one sentence. */
+    request<{ action: { id: string; status: ChatActionStatus }; queued?: true; note?: string; grant?: ChatGrant; project_grant?: ChatProjectGrant; standing_grant?: ChatStandingGrant }>('POST', `/chat/actions/${id}/decision`, { decision }),
+  /** A grouped confirmation: every decision of the batch in one request, injected as one sentence.
+   *  Answers once that run has started, like `decideChatAction`; the answer arrives over `/ws/chat`. */
   decideChatActions: (decisions: { id: string; decision: 'approve' | 'deny' }[]) =>
-    request<{ actions: { id: string; status: ChatActionStatus }[]; skipped: { id: string; reason: string }[]; message?: ChatMessage; queued?: true; note?: string }>('POST', '/chat/actions/decisions', { decisions }),
+    request<{ actions: { id: string; status: ChatActionStatus }[]; skipped: { id: string; reason: string }[]; queued?: true; note?: string }>('POST', '/chat/actions/decisions', { decisions }),
   /** "Revogar": 404 unknown/not yours, 409 already revoked. */
   revokeChatGrant: (id: string) => request<{ grant: ChatGrant }>('DELETE', `/chat/grants/${encodeURIComponent(id)}`),
   /** "Permissões do chat": the grants in force, or the paged history (`state: 'ended'` also covers

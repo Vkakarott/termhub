@@ -41,9 +41,8 @@ import { conflict, HttpError, notFound } from '../lib/errors.js';
 export type IndexActionsFn = (userId: string, actions: ChatAction[]) => Promise<void>;
 
 /** The same rule as the mobile contract's `mobileMessageBody` (spec 2026-09-26 §5.5): words, files, or both — never neither.
- *  `wait: false` (what the web sends): answer 202 as soon as the message is stored, like the phone's
- *  route, instead of holding the request open for the whole answer — an edge that cuts a long request
- *  would otherwise make the page give the text back and invite a duplicate send. */
+ *  `wait` is accepted for pages loaded before 2026-09-29 and ignored: the route always answers 202 as
+ *  soon as the message is stored, like the phone's, and never holds the request for the whole answer. */
 const messageBody = z
   .object({
     text: z.string().trim().max(8000).default(''),
@@ -166,19 +165,16 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
   });
 
   app.post('/messages', { config: { action: 'create' } }, async (request, reply) => {
-    const { text, project_id, attachment_ids, wait } = messageBody.parse(request.body);
+    // `wait` is read and ignored: a page loaded before this release still sends it.
+    const { text, project_id, attachment_ids } = messageBody.parse(request.body);
     // `attachmentIds` only when the body carried ids, so a plain message calls the service exactly as before.
     const opts = { projectId: project_id ?? null, ...(attachment_ids ? { attachmentIds: attachment_ids } : {}) };
-    if (wait === false) {
-      // A refusal (host problem, archived conversation, busy decision, an attachment that is not this
-      // user's) rejects `start` itself and keeps its status. The answer streams over `/ws/chat`; a
-      // failure after this point is logged by label.
-      const started = await deps.service.start(request.scope.user, text, opts);
-      started.done.catch((err) => request.log.warn({ code: failureLabel(err), conversationId: started.conversation_id }, 'chat run failed after start'));
-      return reply.code(202).send({ conversation_id: started.conversation_id, user_message_id: started.user_message_id, assistant_message_id: started.assistant_message_id });
-    }
-    const message = await deps.service.send(request.scope.user, text, opts);
-    return reply.code(201).send({ message });
+    // A refusal (host problem, archived conversation, an attachment that is not this user's) rejects
+    // `start` itself and keeps its status. The answer streams over `/ws/chat`; a failure after this
+    // point is logged by label, and a run that could not be attempted says so on the stream.
+    const started = await deps.service.start(request.scope.user, text, opts);
+    started.done.catch((err) => request.log.warn({ code: failureLabel(err), conversationId: started.conversation_id }, 'chat run failed after start'));
+    return reply.code(202).send({ conversation_id: started.conversation_id, user_message_id: started.user_message_id, assistant_message_id: started.assistant_message_id });
   });
 
   /**
@@ -275,8 +271,10 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     }
 
     try {
-      const message = await deps.service.resumeAfterDecision(user, action);
-      return { action, message, grant, project_grant, standing_grant };
+      // Awaits the start of the injected run, never its end: an answer longer than the edge allows
+      // used to cut this request and show an error for a decision that was recorded.
+      await deps.service.startAfterDecision(user, action);
+      return { action, grant, project_grant, standing_grant };
     } catch (err) {
       // The decision above already happened and was already published — a busy run must not turn a
       // successful decision into a 409. The row stays approved/denied with no injection yet; the run
@@ -293,8 +291,9 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     const { decided, skipped } = await decideMany(repos, user.id, decisions);
     void indexActions(user.id, decided);
     try {
-      const message = await deps.service.resumeAfterDecision(user, decided[0]!);
-      return { actions: decided, skipped, message };
+      // The start of the run, never its end, as in the single decision above.
+      await deps.service.startAfterDecision(user, decided[0]!);
+      return { actions: decided, skipped };
     } catch (err) {
       if (err instanceof HttpError && err.code === 'CHAT_BUSY') return { actions: decided, skipped, queued: true, note: QUEUED_NOTE };
       throw err;
