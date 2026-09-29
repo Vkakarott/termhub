@@ -1,0 +1,147 @@
+import type { TabState } from '../db/repositories/types.js';
+
+/**
+ * What an incoming event is, for the "needs you" rule (spec 2026-09-29 one wait, one alert).
+ *
+ * A tab needs the person when it waits and the wait is newer than the last time they looked. Every
+ * recorded event moves the wait's time, so an event that brings nothing new has to say so, or a wait
+ * the person already saw lights up again. The interpreters know part of it (`continuesWait`,
+ * `keepsWaitText`); the rest depends on where the tab is and how it got there, which only its own
+ * row and its last events can tell. Pure: `recordEvent` reads both under its lock and asks here.
+ *
+ * Nothing is ever dropped because a session ended. Codex sends nothing but waits, and a second
+ * session in the same tmux session can end while the first still works: a rule that guessed which
+ * session an event belongs to could silence a live agent.
+ */
+
+/** Events that put a tab in `working` with no turn of the agent behind them. */
+const QUIET_EVENTS: ReadonlySet<string> = new Set(['SessionStart', 'input']);
+
+/** Events that prove the person asked for the turn that followed. */
+const PROMPT_EVENTS: ReadonlySet<string> = new Set(['UserPromptSubmit', 'beforeSubmitPrompt', 'input']);
+
+/** Events that say the tool's session ended. */
+const SESSION_END_EVENTS: ReadonlySet<string> = new Set(['SessionEnd', 'sessionEnd']);
+
+/** How many event rows, newest first, the decision reads. */
+export const HISTORY_ROWS = 10;
+
+/**
+ * Two hooks fired together can arrive in either order: each is posted in the background, and the
+ * hook's curl gives up after 5 s. Twice that is how late the first of a pair can be.
+ */
+export const REORDER_WINDOW_MS = 10_000;
+
+export interface WaitCurrent {
+  state: TabState | null;
+  /** the person has seen the tab's current state (`state_seen_at >= state_at`) */
+  seen: boolean;
+  /** the tab has an activity: a tool call went through the light path, which writes no event row */
+  hasActivity: boolean;
+  /** how long ago the person last looked, or null when they never did */
+  seenAgeMs: number | null;
+}
+
+/** One event row of the tab. The rows are given newest first. */
+export interface HistoryRow {
+  kind: TabState;
+  /** the hook event name in the row's meta, or null */
+  event: string | null;
+  /** how long ago the row was written */
+  ageMs: number;
+  /** a Claude Stop that left background tasks running */
+  backgroundTasks: boolean;
+}
+
+export interface WaitEvent {
+  kind: TabState;
+  /** the hook event name in the event's meta, or null */
+  name: string | null;
+  continuesWait: boolean;
+  keepsWaitText: boolean;
+}
+
+export type WaitOutcome =
+  | { action: 'drop'; reason: 'session_start_during_turn' }
+  /**
+   * `carry`: the person had seen the wait this one follows. `born`: a wait with nothing new in it,
+   * seen from its first moment. `none`: a request the person has not seen.
+   * `continuing`: the wait's own text is kept when the event has none or brings only a reminder.
+   */
+  | { action: 'record'; seen: 'carry' | 'born' | 'none'; continuing: boolean };
+
+/** What the log says when a wait the person had seen is re-armed with no prompt of theirs. */
+export interface Rearm {
+  /** the event name of the tab's last row */
+  previous: string | null;
+  /** the wait the person had seen was a Stop with background tasks running */
+  background: boolean;
+  /** the tab's last row is a session end: the event landed after it */
+  afterSessionEnd: boolean;
+}
+
+const NEW: WaitOutcome = { action: 'record', seen: 'none', continuing: false };
+
+const isWait = (kind: TabState | null): boolean => kind === 'waiting_input' || kind === 'waiting_permission';
+const isQuiet = (row: HistoryRow): boolean => row.kind === 'working' && row.event !== null && QUIET_EVENTS.has(row.event);
+
+/**
+ * The tab went to `working` with no turn behind it: its last row is quiet, and so is everything
+ * back to the last wait (a session end in between is `idle`, and counts as nothing). A prompt or a
+ * tool call on the way means a turn was running — a session start in the middle of a turn is what
+ * a compaction sends.
+ */
+function noTurnSinceLastWait(history: HistoryRow[]): boolean {
+  const last = history[0];
+  if (!last || !isQuiet(last)) return false;
+  for (const row of history) {
+    if (isQuiet(row) || row.kind === 'idle') continue;
+    return isWait(row.kind);
+  }
+  return true; // nothing but quiet rows in what is kept: a session nobody asked anything
+}
+
+export function decideWait(current: WaitCurrent, history: HistoryRow[], event: WaitEvent): WaitOutcome {
+  const last = history[0] ?? null;
+
+  // Cursor's launch with a prompt fires sessionStart and beforeSubmitPrompt together. When the
+  // prompt lands first, the session start must not take the tab out of the turn it announces.
+  if (event.kind === 'idle' && event.name === 'sessionStart' && current.state === 'working' && last?.event === 'beforeSubmitPrompt' && last.ageMs <= REORDER_WINDOW_MS) {
+    return { action: 'drop', reason: 'session_start_during_turn' };
+  }
+
+  if (!isWait(event.kind)) return NEW;
+
+  if (event.continuesWait && event.kind === 'waiting_input' && current.state === 'waiting_input') {
+    return { action: 'record', seen: current.seen ? 'carry' : 'none', continuing: true };
+  }
+
+  // A reminder (Claude's idle_prompt) is news only when it is the first sign that a turn ended.
+  if (event.continuesWait && event.keepsWaitText) {
+    // The dialog is gone and Claude is back at its prompt (an Esc sends no Stop): the state is
+    // corrected, and a prompt the person had seen does not alert again.
+    if (current.state === 'waiting_permission') return { action: 'record', seen: current.seen ? 'carry' : 'none', continuing: false };
+    if (current.state === 'idle') return { action: 'record', seen: 'born', continuing: false };
+    if (current.state === 'working' && !current.hasActivity && noTurnSinceLastWait(history)) return { action: 'record', seen: 'born', continuing: false };
+  }
+
+  return NEW;
+}
+
+/**
+ * Whether this event re-arms a wait the person had seen, with no prompt of theirs since: the last
+ * `waiting_input` row is at or before their last look, and no prompt event came after it. Permission
+ * rows are passed over — a turn of the person with a prompt approved on the way is not a re-arm.
+ */
+export function rearmOf(current: WaitCurrent, history: HistoryRow[], event: WaitEvent, outcome: WaitOutcome): Rearm | null {
+  if (outcome.action !== 'record' || outcome.seen !== 'none' || !isWait(event.kind)) return null;
+  if (current.seenAgeMs === null) return null;
+  const last = history[0] ?? null;
+  for (const row of history) {
+    if (row.event !== null && PROMPT_EVENTS.has(row.event)) return null;
+    if (row.kind !== 'waiting_input') continue;
+    if (current.seenAgeMs > row.ageMs) return null; // their last look is older than that wait
+    return { previous: last?.event ?? null, background: row.backgroundTasks, afterSessionEnd: last !== null && last.event !== null && SESSION_END_EVENTS.has(last.event) };
+  }
+  return null;
+}
