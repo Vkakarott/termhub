@@ -446,25 +446,25 @@ describe('Conversa', () => {
     const scrolls = () => screen.getByLabelText('Mensagem').props.scrollEnabled;
     // The text's frame glides (composer.motion.test.tsx looks at the motion): wait for where it lands.
     const lands = (frame: object) => waitFor(() => expect(getAnimatedStyle(screen.getByTestId('composer-text'))).toMatchObject(frame), SETTLE);
-    // One line: no padding of its own, the text between 📎 and the button, on their row.
-    expect(style()).toMatchObject({ height: 22, lineHeight: 22, padding: 0, paddingTop: 0, paddingBottom: 0 });
+    // One line: no padding of its own, the text between 📎 and the button, on their row. The input
+    // has no height set: it sizes itself to its text, between one line and six.
+    expect(style()).toMatchObject({ minHeight: 22, maxHeight: 132, lineHeight: 22, padding: 0, paddingTop: 0, paddingBottom: 0 });
+    expect(style().height).toBeUndefined();
     expect(screen.getByLabelText('Mensagem').props.textAlignVertical).toBe('top');
     expect(scrolls()).toBe(false);
     await lands(BESIDE_BUTTONS);
 
-    await fireEvent(input, 'contentSizeChange', { nativeEvent: { contentSize: { width: 300, height: 66 } } });
-    expect(style().height).toBe(66);
+    await fireEvent(input, 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 300, height: 66 } } });
     expect(scrolls()).toBe(false);
     await lands({ ...ABOVE_BUTTONS, height: 72 });
     // The input survived the switch: the same host element, not a remount (the keyboard stays up).
     expect(screen.getByLabelText('Mensagem')).toBe(input);
 
-    await fireEvent(input, 'contentSizeChange', { nativeEvent: { contentSize: { width: 300, height: 400 } } });
-    expect(style().height).toBe(132);
+    await fireEvent(input, 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 300, height: 400 } } });
     expect(scrolls()).toBe(true);
     await lands({ height: 138 });
-    await fireEvent(input, 'contentSizeChange', { nativeEvent: { contentSize: { width: 300, height: 10 } } });
-    expect(style().height).toBe(22);
+    await fireEvent(input, 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 300, height: 10 } } });
+    expect(scrolls()).toBe(false);
     // Still above: the text only goes back beside the buttons once the box is emptied.
     await lands({ ...ABOVE_BUTTONS, height: 28 });
   });
@@ -474,13 +474,12 @@ describe('Conversa', () => {
     await render(<ConversationScreen />);
     const input = await screen.findByLabelText('Mensagem', undefined, LOAD);
     await fireEvent.changeText(input, 'uma mensagem longa '.repeat(30));
-    await fireEvent(input, 'contentSizeChange', { nativeEvent: { contentSize: { width: 300, height: 400 } } });
-    expect(StyleSheet.flatten(screen.getByLabelText('Mensagem').props.style).height).toBe(132);
+    await fireEvent(input, 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 300, height: 400 } } });
+    expect(screen.getByLabelText('Mensagem').props.scrollEnabled).toBe(true);
     await waitFor(() => expect(getAnimatedStyle(screen.getByTestId('composer-text'))).toMatchObject(ABOVE_BUTTONS), SETTLE);
 
     await fireEvent.press(screen.getByRole('button', { name: 'Enviar' }));
     expect(screen.getByLabelText('Mensagem').props.value).toBe('');
-    expect(StyleSheet.flatten(screen.getByLabelText('Mensagem').props.style).height).toBe(22);
     expect(screen.getByLabelText('Mensagem').props.scrollEnabled).toBe(false);
     expect(screen.getByRole('button', { name: 'Ditar' })).toBeTruthy();
     await waitFor(() => expect(getAnimatedStyle(screen.getByTestId('composer-text'))).toMatchObject(BESIDE_BUTTONS), SETTLE);
