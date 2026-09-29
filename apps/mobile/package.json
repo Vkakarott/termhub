@@ -1,6 +1,6 @@
 {
   "name": "@termhub/mobile",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "license": "MIT",
   "private": true,
   "main": "index.ts",
@@ -15,7 +15,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "doctor": "expo-doctor",
-    "release:ios": "bash scripts/ios-release.sh"
+    "release:ios": "bash scripts/ios-release.sh",
+    "release:android": "bash scripts/android-release.sh"
   },
   "dependencies": {
     "@noble/curves": "^2.4.0",

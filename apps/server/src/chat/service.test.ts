@@ -276,6 +276,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
     capabilities: vi.fn(() => (opts.host && 'capabilities' in opts.host ? (opts.host.capabilities ?? null) : ['pty', 'claude', 'claude.system_prompt', ...(opts.streaming ? ['claude.stream_input'] : [])])),
     info: vi.fn(() => ({ agent_version: '0.5.0' })),
     awaitAgent: vi.fn(async () => true),
+    awaitHandover: vi.fn(async () => true),
   };
   const runner: RunnerClient = {
     // Every run can take more input, like `agentRunner`'s: a one-shot run simply never gets any.
@@ -2704,11 +2705,12 @@ describe('waiting for a moving agent (TER-320 final review)', () => {
     built.liveRunsStore.set('c1', { conversation_id: 'c1', user_id: 'u1', instance_id: 'old-instance', heartbeat_at: now, released_at: now, turns: [{ question_id: 'q1', answer_id: 'a1', text: 'primeira' }], created_at: now });
   }
 
-  it('hostFor (the screen) never waits for the agent', async () => {
+  it('hostFor (the screen) waits only for a handover, never for an agent that left', async () => {
     const { service, agents } = build([]);
     await service.hostFor(user);
     await service.hostFor(user, 'p1');
     expect(agents.awaitAgent).not.toHaveBeenCalled();
+    expect(agents.awaitHandover).toHaveBeenCalledTimes(2);
   });
 
   it('a message about to be sent waits for the agent', async () => {

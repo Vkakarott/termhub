@@ -97,7 +97,8 @@ export async function swapAccount(
   if (!sessionId || !transcriptPath) {
     throw new ControlError('NO_SESSION', 'O termhub não sabe qual sessão do Claude roda nesta aba (os hooks da máquina estão instalados?)');
   }
-  if (machine.type === 'agent' && !agents.isOnline(machine.id)) throw offline();
+  // an agent moving between instances (a deploy) gets a few seconds to attach before it is called offline
+  if (!(await agents.awaitAgent(machine))) throw offline();
   if (!machine.capabilities.includes('claude')) throw new ControlError('TOOL_MISSING', `claude não foi detectado em ${machine.name}`);
   if (swapping.has(tab.id)) throw new ControlError('SWAP_IN_PROGRESS', 'Já existe uma troca de conta em andamento nesta aba');
   swapping.add(tab.id);

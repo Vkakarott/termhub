@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getAccountUsage, linkClaudeSession, sendKeyToSession, sendTextToSession, isOnline, applyState } = vi.hoisted(() => ({
+const { getAccountUsage, linkClaudeSession, sendKeyToSession, sendTextToSession, awaitAgent, applyState } = vi.hoisted(() => ({
   getAccountUsage: vi.fn(),
   linkClaudeSession: vi.fn(),
   sendKeyToSession: vi.fn(),
   sendTextToSession: vi.fn(),
-  isOnline: vi.fn(() => true),
+  awaitAgent: vi.fn(async () => true),
   applyState: vi.fn(),
 }));
 vi.mock('../ai/index.js', () => ({ getAccountUsage }));
 vi.mock('../ai/claude-session.js', () => ({ linkClaudeSession }));
 vi.mock('../terminal/session-ops.js', () => ({ sendKeyToSession, sendTextToSession }));
-vi.mock('../agent/registry.js', () => ({ agents: { isOnline } }));
+vi.mock('../agent/registry.js', () => ({ agents: { awaitAgent } }));
 vi.mock('../monitor/ingest.js', () => ({ applyState }));
 
 import type { FastifyBaseLogger } from 'fastify';
@@ -94,7 +94,7 @@ function exitGoesIdle() {
 beforeEach(() => {
   vi.clearAllMocks();
   stored = baseTab();
-  isOnline.mockReturnValue(true);
+  awaitAgent.mockResolvedValue(true);
   getAccountUsage.mockImplementation(async (a: AiAccount) => usage(a.id, USAGE[a.id] ?? null));
   linkClaudeSession.mockResolvedValue('linked');
   sendKeyToSession.mockResolvedValue(undefined);
@@ -380,9 +380,12 @@ describe('swapAccount', () => {
     await expect(swapAccount(r, log, baseTab({ agent_session_id: null }), machine(), { auto: false })).rejects.toMatchObject({ code: 'NO_SESSION' });
     await expect(swapAccount(r, log, baseTab({ agent_transcript_path: null }), machine(), { auto: false })).rejects.toMatchObject({ code: 'NO_SESSION' });
     await expect(swapAccount(r, log, baseTab(), machine({ capabilities: ['tmux'] }), { auto: false })).rejects.toMatchObject({ code: 'TOOL_MISSING' });
-    isOnline.mockReturnValue(false);
-    await expect(swapAccount(r, log, baseTab(), machine(), { auto: false })).rejects.toMatchObject({ code: 'MACHINE_OFFLINE' });
-    isOnline.mockReturnValue(true);
+    // the agent gets the wait of a machine moving between instances (a deploy) before it is called offline
+    awaitAgent.mockResolvedValue(false);
+    const gone = machine();
+    await expect(swapAccount(r, log, baseTab(), gone, { auto: false })).rejects.toMatchObject({ code: 'MACHINE_OFFLINE' });
+    expect(awaitAgent).toHaveBeenCalledWith(gone);
+    awaitAgent.mockResolvedValue(true);
     expect(linkClaudeSession).not.toHaveBeenCalled();
 
     // the first swap waits for the Claude to exit; a second one on the same tab is refused meanwhile

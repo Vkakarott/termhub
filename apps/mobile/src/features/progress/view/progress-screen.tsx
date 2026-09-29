@@ -1,6 +1,7 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { FlatList, Linking, Pressable, RefreshControl, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { relativeTime } from '@/features/shared/relative-time';
 import type { TAgentOnCard, TEpicProgress } from '@/services/api/contract';
 import { MAX_READABLE_WIDTH, readableColumn } from '@/ui';
@@ -65,6 +66,10 @@ function Epic({ epic }: { epic: TEpicProgress }) {
  * its pull-to-refresh and background, still span the window. */
 const COLUMN = readableColumn(MAX_READABLE_WIDTH);
 
+/** The tabs have no header, so the screen keeps off the status bar itself (the notch, the Dynamic
+ * Island, Android's bar), like the other tabs do through `Screen`. The bottom is the tab bar's. */
+const SAFE_EDGES = ['top', 'left', 'right'] as const;
+
 /** The Progresso tab (spec 2026-09-26 progress-panel D10): active epics across projects, read-only. */
 export function ProgressScreen() {
   const epics = useProgressStore((s) => s.epics);
@@ -78,16 +83,19 @@ export function ProgressScreen() {
     }, []),
   );
   return (
-    <FlatList
-      testID="progress-list"
-      className="flex-1 bg-[#0B0E17]"
-      contentContainerStyle={COLUMN}
-      data={epics}
-      keyExtractor={(e) => e.id}
-      renderItem={({ item }) => <Epic epic={item} />}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void useProgressStore.getState().refresh()} />}
-      ListHeaderComponent={error ? <Text className="px-4 pt-4 text-sm text-red-400">{error}</Text> : null}
-      ListEmptyComponent={!loading ? <Text className="px-4 pt-8 text-center text-sm text-zinc-500">Nenhum épico em andamento</Text> : null}
-    />
+    // The list's own colour, so the strip behind the status bar is the list's and not a band of its own.
+    <SafeAreaView testID="progress-safe-area" edges={SAFE_EDGES} className="flex-1 bg-[#0B0E17]">
+      <FlatList
+        testID="progress-list"
+        className="flex-1 bg-[#0B0E17]"
+        contentContainerStyle={COLUMN}
+        data={epics}
+        keyExtractor={(e) => e.id}
+        renderItem={({ item }) => <Epic epic={item} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void useProgressStore.getState().refresh()} />}
+        ListHeaderComponent={error ? <Text className="px-4 pt-4 text-sm text-red-400">{error}</Text> : null}
+        ListEmptyComponent={!loading ? <Text className="px-4 pt-8 text-center text-sm text-zinc-500">Nenhum épico em andamento</Text> : null}
+      />
+    </SafeAreaView>
   );
 }

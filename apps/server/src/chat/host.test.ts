@@ -74,6 +74,7 @@ function build(opts: {
     // The default here is an agent already reachable: nothing to wait for. Tests of the wait itself
     // override this.
     awaitAgent: vi.fn(async () => true),
+    awaitHandover: vi.fn(async () => true),
   };
   return { ctx: { repos, agents } as unknown as HostContext, repos, agents, online, conversation };
 }
@@ -290,6 +291,19 @@ it('answers offline when the awaited agent never attaches in time', async () => 
 
   expect(await resolveHost(ctx, user, { wait: true })).toEqual({ kind: 'offline', machine: moving });
   expect(agents.awaitAgent).toHaveBeenCalledWith(moving);
+});
+
+it('a read for the screen waits only for a handover (an agent this instance never held)', async () => {
+  const moving = machine('m1', 'jarvis');
+  const { ctx, agents, online } = build({ machines: [moving], online: {} });
+  agents.awaitHandover.mockImplementation(async () => {
+    online['m1'] = { capabilities: ['claude'], agent_version: '0.5.0' };
+    return true;
+  });
+
+  expect((await resolveHost(ctx, user, { wait: 'handover' })).kind).toBe('ready');
+  expect(agents.awaitHandover).toHaveBeenCalledWith(moving);
+  expect(agents.awaitAgent).not.toHaveBeenCalled();
 });
 
 it('never waits for a moving agent unless asked to: a read of the screen answers at once', async () => {

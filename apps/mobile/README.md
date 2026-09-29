@@ -93,7 +93,7 @@ Copy `.env.example` to `.env` for `expo start`: it points the app at `https://te
 
 ## Releasing to TestFlight (iOS)
 
-Builds are made locally on a Mac, without EAS, and only for iOS through TestFlight. `ios/` is generated each time and never committed.
+Builds are made locally on a Mac, without EAS: iOS goes to TestFlight, Android to Firebase App Distribution (next section). `ios/` and `android/` are generated each time and never committed.
 
 Prerequisites on the Mac: Xcode, CocoaPods, Node 22, and an Apple ID of team **8020 DIGITAL LTDA (`S873WHF2TZ`)** signed in to Xcode → Settings → Accounts with a role that may use cloud-managed distribution certificates (Admin or Account Holder). The distribution certificate is cloud-managed, so its private key is not in the keychain: Xcode signs the export through Apple, and `-allowProvisioningUpdates` creates or refreshes the App Store provisioning profile for `dev.termhub.app`.
 
@@ -104,6 +104,19 @@ Prerequisites on the Mac: Xcode, CocoaPods, Node 22, and an Apple ID of team **8
 5. In App Store Connect → TestFlight, wait for the build to finish processing, answer the export compliance question if asked (`ITSAppUsesNonExemptEncryption` is `false`, so it normally is not), fill in "What to Test" and add it to the testers' group.
 
 Push to real devices is not wired yet (the app registers only the mock push token); when it is, the APNs key it needs is set up then.
+
+## Releasing to Firebase App Distribution (Android)
+
+Android builds are made on the same Mac and handed to testers through Firebase App Distribution (project `apptermhub`, group `termhub-testers`); nothing goes to Google Play yet.
+
+Prerequisites: the Android SDK (`ANDROID_HOME`), JDK 17, Node 22, and a Google account with access to the Firebase project signed in to the Firebase CLI (`npx firebase-tools login`, once).
+
+1. The same checks as for iOS (step 1 above), from the same commit: one version is one commit, on both platforms.
+2. Bump `expo.android.versionCode` in `app.json`, together with `expo.version`. It is a plain counter (`2`, `3`, …), not the iOS date: Android refuses a version code above 2100000000, and a phone only takes an update whose code is not below the installed one. The app sends it in `X-Termhub-App` (`android/0.3.1+2`).
+3. `npm run release:android -w @termhub/mobile` — `expo prebuild --platform android --clean`, then `gradlew assembleRelease` into `apps/mobile/build/android/termhub.apk`.
+4. `npm run release:android -w @termhub/mobile -- --upload "what changed"` repeats the build and sends it to the `termhub-testers` group with those release notes (pt-BR: testers read them).
+
+The APK is signed with the keystore Expo's template generates into `android/app/debug.keystore`, the same file on every prebuild, so a tester's phone takes each build as an update of the last one. That is enough for App Distribution, not for Google Play: a Play release needs an upload key of its own, kept out of the repository.
 
 ## Firebase
 
