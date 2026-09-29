@@ -6,8 +6,8 @@ import type { MonitorItem, Tab } from './types';
 const tab = (id: string, over: Partial<Tab> = {}) => ({ id, project_id: 'p1', machine_id: 'm1', name: id, kind: 'terminal', position: 0, state: null, state_at: null, state_seen_at: null, ...over }) as Tab;
 const item = (t: Tab) => ({ tab: t, project: { id: t.project_id }, machine: { id: t.machine_id } }) as MonitorItem;
 
-const api = vi.hoisted(() => ({ tabs: vi.fn(), openTabs: vi.fn() }));
-vi.mock('./api', () => ({ api: { monitor: api, tabs: {} } }));
+const api = vi.hoisted(() => ({ tabs: vi.fn(), openTabs: vi.fn(), seen: vi.fn() }));
+vi.mock('./api', () => ({ api: { monitor: api, tabs: { seen: api.seen } } }));
 vi.mock('./auth', () => ({ useAuth: () => ({ can: () => true }) }));
 
 import { MonitorProvider, useMonitor } from './monitor';
@@ -184,5 +184,36 @@ describe('MonitorProvider reconnect timing', () => {
       vi.advanceTimersByTime(5000);
     });
     expect(FakeSocket.all).toHaveLength(2);
+  });
+});
+
+describe('MonitorProvider markSeen', () => {
+  const waiting = (id: string) => tab(id, { state: 'waiting_input', state_at: '2026-09-23T10:00:00.000Z', state_seen_at: null });
+
+  it('clears the dot in both lists at once, before the server answers', async () => {
+    api.tabs.mockResolvedValue({ items: [item(waiting('t1'))] });
+    api.openTabs.mockResolvedValue({ items: [item(waiting('t1')), item(tab('t2'))] });
+    let release!: () => void;
+    api.seen.mockReturnValue(new Promise<void>((resolve) => (release = () => resolve())));
+    const m = mount();
+    await waitFor(() => expect(m().openTabs).toHaveLength(2));
+    await waitFor(() => expect(m().needsYou).toHaveLength(1));
+
+    let pending!: Promise<void>;
+    act(() => {
+      pending = m().markSeen('t1');
+    });
+
+    const seenAt = m().items[0].tab.state_seen_at;
+    expect(seenAt).not.toBeNull();
+    expect(m().needsYou).toHaveLength(0);
+    expect(m().openTabs.find((t) => t.id === 't1')?.state_seen_at).toBe(seenAt);
+    expect(m().openTabs.find((t) => t.id === 't2')?.state_seen_at).toBeNull();
+
+    await act(async () => {
+      release();
+      await pending;
+    });
+    expect(api.seen).toHaveBeenCalledWith('t1');
   });
 });

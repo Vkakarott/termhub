@@ -80,6 +80,16 @@ describe('entersNeedsYou', () => {
     const rearmed = tab({ state: 'waiting_permission', state_at: T2, state_seen_at: T1 });
     expect(entersNeedsYou(seen, rearmed)).toBe(true);
   });
+
+  it('alerts once for a Cursor turn whose stop came before its answer, with the person looking in between', () => {
+    // the three pushes the server sends (spec 2026-09-29 §6): the stop opens the wait, the seen mark
+    // lands, and the answer continues the wait with the seen mark carried to its own time
+    const stop = { state: 'waiting_input' as const, state_at: '2026-09-23T10:00:00.000Z', state_seen_at: null };
+    const seen = { ...stop, state_seen_at: '2026-09-23T10:00:01.000Z' };
+    const answer = { state: 'waiting_input' as const, state_at: '2026-09-23T10:00:02.000Z', state_seen_at: '2026-09-23T10:00:02.000Z' };
+    const alerts = [entersNeedsYou({ state: 'working', state_at: '2026-09-23T09:59:00.000Z', state_seen_at: null }, stop), entersNeedsYou(stop, seen), entersNeedsYou(seen, answer)];
+    expect(alerts).toEqual([true, false, false]);
+  });
 });
 
 describe('needsYouByProject', () => {
