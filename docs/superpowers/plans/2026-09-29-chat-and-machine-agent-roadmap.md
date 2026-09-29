@@ -91,7 +91,11 @@ Fronts 2, 3, 4 and 5 have no dependency, and neither has what is left of front 1
 - [ ] Web test: stop, seen, answer pushed through `entersNeedsYou` fires one toast (TER-414)
 - [ ] Pull request, merge on green, deploy followed to the health check
 
-**Done when:** a wait the person has seen is re-armed only by a new request, the repository tests cover each of the six causes, and the three cards are in "Feito".
+**Spec and plan:** `docs/superpowers/specs/2026-09-29-monitor-one-wait-one-alert-design.md`, `docs/superpowers/plans/2026-09-29-monitor-one-wait-one-alert.md`.
+
+**What the front's own design changed from the list above.** A review of the first design found that some of these items were unsafe or were real requests. Late events after a session end, the account swap and an answer nobody asked for are kept as they are; the reply route and Claude's `SessionStart` are not changed (a reminder that finds no turn running is born seen instead). A log line counts what still re-arms a seen wait.
+
+**Done when:** a reminder of a wait the person has seen does not light it again, TER-411 and TER-414 are in "Feito", and the log has been read. TER-422 stays open until the log says which path the person is seeing: the design expects this front not to close it by itself.
 
 ### Front 4: Chat: run state and decisions that answer at once
 
