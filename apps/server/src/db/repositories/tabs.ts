@@ -160,12 +160,15 @@ export class TabsRepository {
       keepsWaitText?: boolean;
     },
   ): Promise<{ tab: Tab; event: TabEvent | null; rearm: Rearm | null }> {
-    const at = new Date();
     const [e, t, rearm] = await this.db.$transaction(async (tx) => {
       // One event per tab at a time: two hooks fired together (PermissionRequest and
       // Notification(permission_prompt)) would otherwise both see the same `working` event as the
       // previous one and credit its interval twice. The second waits here and reads the first's event.
       await tx.$queryRaw`SELECT 1 FROM "tabs" WHERE "id" = ${tabId} FOR UPDATE`;
+      // Taken under the lock, not before it: an event that waited here must not write a time older
+      // than a look that committed meanwhile (the wait it opens would read as seen), and the rows'
+      // `created_at` must follow the order the events were applied in, which the decision reads.
+      const at = new Date();
       const current = await tx.tab.findUnique({ where: { id: tabId }, select: { state: true, stateAt: true, stateSeenAt: true, stateText: true, activity: true } });
       const rows = await tx.tabEvent.findMany({ where: { tabId }, orderBy: { createdAt: 'desc' }, take: HISTORY_ROWS, select: { kind: true, createdAt: true, meta: true } });
       const previous = rows[0];
