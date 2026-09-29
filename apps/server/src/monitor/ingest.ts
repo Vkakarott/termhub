@@ -32,7 +32,11 @@ export async function ingestHookEvent(
   const interpreted = interpretHookEvent(input.tool, input.event);
   if (input.tool === 'claude') current = await noteClaudeSession(repos, current, input.event, interpreted);
   if (!interpreted) return { ok: false, reason: 'ignored' };
-  const updated = await recordInterpretation(repos, log, current, input.tool, interpreted);
+  const recorded = await recordInterpretation(repos, log, current, input.tool, interpreted);
+  // Dropped by the wait rule (a Cursor session start that arrived after its own prompt): nothing
+  // changed, so no card opens or closes and no suggestion check is scheduled.
+  if (recorded.dropped) return { ok: false, reason: 'ignored' };
+  const updated = recorded.tab;
   // After the tab row (spec 2026-09-25 §4.2): a question opens a card in the project's chat, any
   // other event closes the one on screen. Never throws.
   await noteHookEvent(repos, log, updated, interpreted, waker);
@@ -43,14 +47,20 @@ export async function ingestHookEvent(
   return { ok: true, tab: updated };
 }
 
+interface Recorded {
+  tab: Tab;
+  /** the wait rule dropped the event: the tab is as it was and nothing was published */
+  dropped: boolean;
+}
+
 /** The tab's side of an interpreted event: the light activity path, or a recorded state. */
-async function recordInterpretation(repos: Repositories, log: FastifyBaseLogger, tab: Tab, tool: HookTool, interpreted: Interpreted): Promise<Tab> {
+async function recordInterpretation(repos: Repositories, log: FastifyBaseLogger, tab: Tab, tool: HookTool, interpreted: Interpreted): Promise<Recorded> {
   // A tool (or spinner verb) change on a tab already working is not a state change: the light path
   // moves only the activity and its verb (no event row) and still tells the subscribers. The script
   // already posts only on a change; the equality check here is a defensive no-op for anything else.
   if (interpreted.activity !== undefined && tab.state === 'working' && interpreted.kind === 'working') {
     const verb = interpreted.verb ?? null;
-    if (tab.activity === interpreted.activity && tab.activity_verb === verb) return tab;
+    if (tab.activity === interpreted.activity && tab.activity_verb === verb) return { tab, dropped: false };
     // Nothing updated: the tab stopped working (or is gone) between the read above and this write —
     // the conditional UPDATE is what decides, not the row we read. The full path takes it from here.
     const updated = await repos.tabs.setActivity(tab.id, interpreted.activity, verb);
@@ -59,15 +69,19 @@ async function recordInterpretation(repos: Repositories, log: FastifyBaseLogger,
       // the verb came off the person's screen: only whether there was one is logged
       log.debug({ tabId: tab.id, machineId: machine?.id, activity: interpreted.activity, hasVerb: verb !== null }, 'monitor: tab activity');
       publishTabChange(updated, tab.project_id, machine);
-      return updated;
+      return { tab: updated, dropped: false };
     }
   }
-  return applyState(repos, log, tab, tool, interpreted);
+  return recordState(repos, log, tab, tool, interpreted);
 }
 
 /** Records the event for the tab, updates its state and publishes the change. */
 export async function applyState(repos: Repositories, log: FastifyBaseLogger, tab: Tab, tool: string, next: Interpreted): Promise<Tab> {
-  const { tab: updated } = await repos.tabs.recordEvent(tab.id, {
+  return (await recordState(repos, log, tab, tool, next)).tab;
+}
+
+async function recordState(repos: Repositories, log: FastifyBaseLogger, tab: Tab, tool: string, next: Interpreted): Promise<Recorded> {
+  const { tab: updated, event, rearm } = await repos.tabs.recordEvent(tab.id, {
     kind: next.kind,
     tool,
     text: next.text,
@@ -77,10 +91,17 @@ export async function applyState(repos: Repositories, log: FastifyBaseLogger, ta
     ...(next.continuesWait ? { continuesWait: true } : {}),
     ...(next.keepsWaitText ? { keepsWaitText: true } : {}),
   });
+  const name = typeof next.meta.event === 'string' ? next.meta.event : null;
+  if (!event) {
+    log.debug({ tabId: tab.id, tool, kind: next.kind, event: name }, 'monitor: event dropped');
+    return { tab: updated, dropped: true };
+  }
   const machine = await repos.machines.findById(tab.machine_id);
   log.info({ tabId: tab.id, machineId: machine?.id, tool, kind: next.kind, textLen: next.text?.length ?? 0 }, 'monitor: tab state');
+  // What re-arms a wait the person had seen, counted: names and flags only (spec 2026-09-29 §4.5).
+  if (rearm) log.info({ tabId: tab.id, tool, previous: rearm.previous, event: name, background: rearm.background, afterSessionEnd: rearm.afterSessionEnd }, 'monitor: seen wait re-armed');
   publishTabChange(updated, tab.project_id, machine);
-  return updated;
+  return { tab: updated, dropped: false };
 }
 
 /** Tells the monitor subscribers (WS handler) about a tab whose state or seen-ness changed. */

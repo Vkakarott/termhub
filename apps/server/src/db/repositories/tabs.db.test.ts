@@ -290,6 +290,154 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     });
   });
 
+  describe('recordEvent — a reminder with nothing new in it does not alert (spec 2026-09-29)', () => {
+    const idlePrompt = { kind: 'waiting_input' as const, tool: 'claude', text: 'Claude is waiting for your input', meta: { event: 'Notification', type: 'idle_prompt' }, continuesWait: true, keepsWaitText: true };
+    const stop = (text: string) => ({ kind: 'waiting_input' as const, tool: 'claude', text, meta: { event: 'Stop' } });
+    const working = (name: string) => ({ kind: 'working' as const, tool: 'claude', text: null, meta: { event: name } });
+
+    it('/clear on a seen wait, then idle_prompt: the tab waits again, already seen', async () => {
+      await repo.recordEvent(tabId, stop('Pronto.'));
+      await repo.markSeen(tabId);
+      await repo.recordEvent(tabId, { kind: 'idle', tool: 'claude', text: null, meta: { event: 'SessionEnd', reason: 'clear' } });
+      await repo.recordEvent(tabId, working('SessionStart'));
+      const { tab, event, rearm } = await repo.recordEvent(tabId, idlePrompt);
+      expect(event).not.toBeNull();
+      expect(tab.state).toBe('waiting_input');
+      expect(needsYou(tab)).toBe(false);
+      expect(tab.state_seen_at).toBe(tab.state_at);
+      expect(rearm).toBeNull();
+    });
+
+    it('a reply typed from termhub that started no turn, then idle_prompt: no alert', async () => {
+      await repo.recordEvent(tabId, stop('Pronto.'));
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, meta: { event: 'input', via: 'termhub' } });
+      const { tab } = await repo.recordEvent(tabId, idlePrompt);
+      expect(tab.state).toBe('waiting_input');
+      expect(needsYou(tab)).toBe(false);
+    });
+
+    it('a turn whose Stop was lost: idle_prompt is what ends it, and it alerts', async () => {
+      await repo.recordEvent(tabId, stop('antes'));
+      await repo.markSeen(tabId);
+      await repo.recordEvent(tabId, working('UserPromptSubmit'));
+      const { tab } = await repo.recordEvent(tabId, idlePrompt);
+      expect(tab.state).toBe('waiting_input');
+      expect(needsYou(tab)).toBe(true);
+    });
+
+    it('a compaction in the middle of a turn, then a lost Stop: idle_prompt still alerts', async () => {
+      await repo.recordEvent(tabId, stop('antes'));
+      await repo.markSeen(tabId);
+      await repo.recordEvent(tabId, working('UserPromptSubmit'));
+      await repo.recordEvent(tabId, working('SessionStart'));
+      const { tab } = await repo.recordEvent(tabId, idlePrompt);
+      expect(needsYou(tab)).toBe(true);
+    });
+
+    it('tool calls after a quiet start leave no row, only the activity: idle_prompt alerts', async () => {
+      await repo.recordEvent(tabId, working('SessionStart'));
+      await repo.setActivity(tabId, 'coding', null);
+      const { tab } = await repo.recordEvent(tabId, idlePrompt);
+      expect(needsYou(tab)).toBe(true);
+    });
+
+    it('idle_prompt over a permission prompt the person saw: the tab waits for input, still seen', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_permission', tool: 'claude', text: 'Allow Bash?', meta: { event: 'Notification', type: 'permission_prompt' } });
+      await repo.markSeen(tabId);
+      const { tab, event } = await repo.recordEvent(tabId, idlePrompt);
+      expect(event).not.toBeNull();
+      expect(tab.state).toBe('waiting_input');
+      expect(tab.state_text).toBe('Claude is waiting for your input');
+      expect(needsYou(tab)).toBe(false);
+    });
+
+    it('idle_prompt over a permission prompt the person did not see: still needs them', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_permission', tool: 'claude', text: 'Allow Bash?', meta: { event: 'Notification', type: 'permission_prompt' } });
+      const { tab } = await repo.recordEvent(tabId, idlePrompt);
+      expect(tab.state).toBe('waiting_input');
+      expect(needsYou(tab)).toBe(true);
+    });
+
+    it('nothing is dropped because a session ended: Codex in a tab where Claude ended still alerts, turn after turn', async () => {
+      await repo.recordEvent(tabId, working('UserPromptSubmit'));
+      await repo.recordEvent(tabId, { kind: 'idle', tool: 'claude', text: null, meta: { event: 'SessionEnd', reason: 'exit' } });
+      const codex = (text: string) => ({ kind: 'waiting_input' as const, tool: 'codex', text, meta: { event: 'agent-turn-complete' } });
+      const first = await repo.recordEvent(tabId, codex('um'));
+      expect(first.event).not.toBeNull();
+      expect(needsYou(first.tab)).toBe(true);
+      await repo.markSeen(tabId);
+      const second = await repo.recordEvent(tabId, codex('dois'));
+      expect(second.event).not.toBeNull();
+      expect(needsYou(second.tab)).toBe(true);
+      expect(second.tab.state_text).toBe('dois');
+    });
+
+    it("the account swap's own wait after the session ended is recorded and alerts", async () => {
+      await repo.recordEvent(tabId, { kind: 'idle', tool: 'claude', text: null, meta: { event: 'SessionEnd' } });
+      const { tab, event } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'Conta trocada', meta: { event: 'AccountSwap' } });
+      expect(event).not.toBeNull();
+      expect(needsYou(tab)).toBe(true);
+    });
+  });
+
+  describe('recordEvent — a Cursor session start that arrives after its own prompt', () => {
+    it('is dropped: no row, the tab keeps working, and the working interval is not credited twice', async () => {
+      const { tab: prompted } = await repo.recordEvent(tabId, { kind: 'working', tool: 'cursor', text: null, meta: { event: 'beforeSubmitPrompt' } });
+      const before = await repo.listEvents(tabId);
+      const { tab, event, rearm } = await repo.recordEvent(tabId, { kind: 'idle', tool: 'cursor', text: null, meta: { event: 'sessionStart' } });
+      expect(event).toBeNull();
+      expect(rearm).toBeNull();
+      expect(tab.state).toBe('working');
+      expect(tab.state_at).toBe(prompted.state_at);
+      expect((await repo.listEvents(tabId)).map((e) => e.id)).toEqual(before.map((e) => e.id));
+    });
+
+    it('is recorded on a tab that is not in a fresh turn', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: 'Pronto.', meta: { event: 'afterAgentResponse' }, continuesWait: true });
+      const { tab, event } = await repo.recordEvent(tabId, { kind: 'idle', tool: 'cursor', text: null, meta: { event: 'sessionStart' } });
+      expect(event).not.toBeNull();
+      expect(tab.state).toBe('idle');
+    });
+  });
+
+  describe('recordEvent — reports a wait the person had seen that alerts again with no prompt of theirs', () => {
+    const stop = (text: string, background = 0) => ({ kind: 'waiting_input' as const, tool: 'claude', text, meta: background > 0 ? { event: 'Stop', background_tasks: background } : { event: 'Stop' } });
+
+    it('an answer nobody asked for, after a Stop that left background tasks running', async () => {
+      await repo.recordEvent(tabId, stop('um', 2));
+      await repo.markSeen(tabId);
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, meta: { event: 'PreToolUse', tool: 'Bash' } });
+      const { rearm, tab } = await repo.recordEvent(tabId, stop('dois'));
+      expect(needsYou(tab)).toBe(true);
+      expect(rearm).toEqual({ previous: 'PreToolUse', background: true, afterSessionEnd: false });
+    });
+
+    it('a wait that lands after the session ended', async () => {
+      await repo.recordEvent(tabId, stop('um'));
+      await repo.markSeen(tabId);
+      await repo.recordEvent(tabId, { kind: 'idle', tool: 'claude', text: null, meta: { event: 'SessionEnd' } });
+      const { rearm, tab } = await repo.recordEvent(tabId, stop('dois'));
+      expect(needsYou(tab)).toBe(true);
+      expect(rearm).toEqual({ previous: 'SessionEnd', background: false, afterSessionEnd: true });
+    });
+
+    it('is null when the person asked for the turn', async () => {
+      await repo.recordEvent(tabId, stop('um'));
+      await repo.markSeen(tabId);
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, meta: { event: 'UserPromptSubmit' } });
+      const { rearm, tab } = await repo.recordEvent(tabId, stop('dois'));
+      expect(needsYou(tab)).toBe(true);
+      expect(rearm).toBeNull();
+    });
+
+    it('is null when the wait before it had not been seen, and for the first wait of a tab', async () => {
+      const first = await repo.recordEvent(tabId, stop('um'));
+      expect(first.rearm).toBeNull();
+      const second = await repo.recordEvent(tabId, stop('dois'));
+      expect(second.rearm).toBeNull();
+    });
+  });
+
   describe('activity', () => {
     it('recordEvent stores the activity of a working event and clears it when the tab leaves working', async () => {
       const { tab } = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding' });
