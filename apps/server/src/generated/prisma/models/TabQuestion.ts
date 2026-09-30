@@ -37,6 +37,7 @@ export type TabQuestionMinAggregateOutputType = {
   toolUseId: string | null
   status: string | null
   errorCode: string | null
+  agentId: string | null
   answeredBy: string | null
   answeredAt: Date | null
   closedAt: Date | null
@@ -56,6 +57,7 @@ export type TabQuestionMaxAggregateOutputType = {
   toolUseId: string | null
   status: string | null
   errorCode: string | null
+  agentId: string | null
   answeredBy: string | null
   answeredAt: Date | null
   closedAt: Date | null
@@ -77,6 +79,8 @@ export type TabQuestionCountAggregateOutputType = {
   status: number
   answer: number
   errorCode: number
+  agentId: number
+  queueAgents: number
   answeredBy: number
   answeredAt: number
   closedAt: number
@@ -100,6 +104,7 @@ export type TabQuestionMinAggregateInputType = {
   toolUseId?: true
   status?: true
   errorCode?: true
+  agentId?: true
   answeredBy?: true
   answeredAt?: true
   closedAt?: true
@@ -119,6 +124,7 @@ export type TabQuestionMaxAggregateInputType = {
   toolUseId?: true
   status?: true
   errorCode?: true
+  agentId?: true
   answeredBy?: true
   answeredAt?: true
   closedAt?: true
@@ -140,6 +146,8 @@ export type TabQuestionCountAggregateInputType = {
   status?: true
   answer?: true
   errorCode?: true
+  agentId?: true
+  queueAgents?: true
   answeredBy?: true
   answeredAt?: true
   closedAt?: true
@@ -236,6 +244,8 @@ export type TabQuestionGroupByOutputType = {
   status: string
   answer: runtime.JsonValue | null
   errorCode: string | null
+  agentId: string | null
+  queueAgents: string[]
   answeredBy: string | null
   answeredAt: Date | null
   closedAt: Date | null
@@ -280,6 +290,8 @@ export type TabQuestionWhereInput = {
   status?: Prisma.StringFilter<"TabQuestion"> | string
   answer?: Prisma.JsonNullableFilter<"TabQuestion">
   errorCode?: Prisma.StringNullableFilter<"TabQuestion"> | string | null
+  agentId?: Prisma.StringNullableFilter<"TabQuestion"> | string | null
+  queueAgents?: Prisma.StringNullableListFilter<"TabQuestion">
   answeredBy?: Prisma.StringNullableFilter<"TabQuestion"> | string | null
   answeredAt?: Prisma.DateTimeNullableFilter<"TabQuestion"> | Date | string | null
   closedAt?: Prisma.DateTimeNullableFilter<"TabQuestion"> | Date | string | null
@@ -305,6 +317,8 @@ export type TabQuestionOrderByWithRelationInput = {
   status?: Prisma.SortOrder
   answer?: Prisma.SortOrderInput | Prisma.SortOrder
   errorCode?: Prisma.SortOrderInput | Prisma.SortOrder
+  agentId?: Prisma.SortOrderInput | Prisma.SortOrder
+  queueAgents?: Prisma.SortOrder
   answeredBy?: Prisma.SortOrderInput | Prisma.SortOrder
   answeredAt?: Prisma.SortOrderInput | Prisma.SortOrder
   closedAt?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -333,6 +347,8 @@ export type TabQuestionWhereUniqueInput = Prisma.AtLeast<{
   status?: Prisma.StringFilter<"TabQuestion"> | string
   answer?: Prisma.JsonNullableFilter<"TabQuestion">
   errorCode?: Prisma.StringNullableFilter<"TabQuestion"> | string | null
+  agentId?: Prisma.StringNullableFilter<"TabQuestion"> | string | null
+  queueAgents?: Prisma.StringNullableListFilter<"TabQuestion">
   answeredBy?: Prisma.StringNullableFilter<"TabQuestion"> | string | null
   answeredAt?: Prisma.DateTimeNullableFilter<"TabQuestion"> | Date | string | null
   closedAt?: Prisma.DateTimeNullableFilter<"TabQuestion"> | Date | string | null
@@ -358,6 +374,8 @@ export type TabQuestionOrderByWithAggregationInput = {
   status?: Prisma.SortOrder
   answer?: Prisma.SortOrderInput | Prisma.SortOrder
   errorCode?: Prisma.SortOrderInput | Prisma.SortOrder
+  agentId?: Prisma.SortOrderInput | Prisma.SortOrder
+  queueAgents?: Prisma.SortOrder
   answeredBy?: Prisma.SortOrderInput | Prisma.SortOrder
   answeredAt?: Prisma.SortOrderInput | Prisma.SortOrder
   closedAt?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -387,6 +405,8 @@ export type TabQuestionScalarWhereWithAggregatesInput = {
   status?: Prisma.StringWithAggregatesFilter<"TabQuestion"> | string
   answer?: Prisma.JsonNullableWithAggregatesFilter<"TabQuestion">
   errorCode?: Prisma.StringNullableWithAggregatesFilter<"TabQuestion"> | string | null
+  agentId?: Prisma.StringNullableWithAggregatesFilter<"TabQuestion"> | string | null
+  queueAgents?: Prisma.StringNullableListFilter<"TabQuestion">
   answeredBy?: Prisma.StringNullableWithAggregatesFilter<"TabQuestion"> | string | null
   answeredAt?: Prisma.DateTimeNullableWithAggregatesFilter<"TabQuestion"> | Date | string | null
   closedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"TabQuestion"> | Date | string | null
@@ -408,6 +428,8 @@ export type TabQuestionCreateInput = {
   status: string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
+  agentId?: string | null
+  queueAgents?: Prisma.TabQuestionCreatequeueAgentsInput | string[]
   answeredBy?: string | null
   answeredAt?: Date | string | null
   closedAt?: Date | string | null
@@ -433,6 +455,8 @@ export type TabQuestionUncheckedCreateInput = {
   status: string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
+  agentId?: string | null
+  queueAgents?: Prisma.TabQuestionCreatequeueAgentsInput | string[]
   answeredBy?: string | null
   answeredAt?: Date | string | null
   closedAt?: Date | string | null
@@ -454,6 +478,8 @@ export type TabQuestionUpdateInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  agentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  queueAgents?: Prisma.TabQuestionUpdatequeueAgentsInput | string[]
   answeredBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   answeredAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   closedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -479,6 +505,8 @@ export type TabQuestionUncheckedUpdateInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  agentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  queueAgents?: Prisma.TabQuestionUpdatequeueAgentsInput | string[]
   answeredBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   answeredAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   closedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -502,6 +530,8 @@ export type TabQuestionCreateManyInput = {
   status: string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
+  agentId?: string | null
+  queueAgents?: Prisma.TabQuestionCreatequeueAgentsInput | string[]
   answeredBy?: string | null
   answeredAt?: Date | string | null
   closedAt?: Date | string | null
@@ -523,6 +553,8 @@ export type TabQuestionUpdateManyMutationInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  agentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  queueAgents?: Prisma.TabQuestionUpdatequeueAgentsInput | string[]
   answeredBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   answeredAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   closedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -546,6 +578,8 @@ export type TabQuestionUncheckedUpdateManyInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  agentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  queueAgents?: Prisma.TabQuestionUpdatequeueAgentsInput | string[]
   answeredBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   answeredAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   closedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -579,6 +613,8 @@ export type TabQuestionCountOrderByAggregateInput = {
   status?: Prisma.SortOrder
   answer?: Prisma.SortOrder
   errorCode?: Prisma.SortOrder
+  agentId?: Prisma.SortOrder
+  queueAgents?: Prisma.SortOrder
   answeredBy?: Prisma.SortOrder
   answeredAt?: Prisma.SortOrder
   closedAt?: Prisma.SortOrder
@@ -600,6 +636,7 @@ export type TabQuestionMaxOrderByAggregateInput = {
   toolUseId?: Prisma.SortOrder
   status?: Prisma.SortOrder
   errorCode?: Prisma.SortOrder
+  agentId?: Prisma.SortOrder
   answeredBy?: Prisma.SortOrder
   answeredAt?: Prisma.SortOrder
   closedAt?: Prisma.SortOrder
@@ -619,6 +656,7 @@ export type TabQuestionMinOrderByAggregateInput = {
   toolUseId?: Prisma.SortOrder
   status?: Prisma.SortOrder
   errorCode?: Prisma.SortOrder
+  agentId?: Prisma.SortOrder
   answeredBy?: Prisma.SortOrder
   answeredAt?: Prisma.SortOrder
   closedAt?: Prisma.SortOrder
@@ -713,6 +751,15 @@ export type TabQuestionUncheckedUpdateManyWithoutConversationNestedInput = {
   deleteMany?: Prisma.TabQuestionScalarWhereInput | Prisma.TabQuestionScalarWhereInput[]
 }
 
+export type TabQuestionCreatequeueAgentsInput = {
+  set: string[]
+}
+
+export type TabQuestionUpdatequeueAgentsInput = {
+  set?: string[]
+  push?: string | string[]
+}
+
 export type TabQuestionCreateWithoutProjectInput = {
   id: string
   tabId: string
@@ -722,6 +769,8 @@ export type TabQuestionCreateWithoutProjectInput = {
   status: string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
+  agentId?: string | null
+  queueAgents?: Prisma.TabQuestionCreatequeueAgentsInput | string[]
   answeredBy?: string | null
   answeredAt?: Date | string | null
   closedAt?: Date | string | null
@@ -745,6 +794,8 @@ export type TabQuestionUncheckedCreateWithoutProjectInput = {
   status: string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
+  agentId?: string | null
+  queueAgents?: Prisma.TabQuestionCreatequeueAgentsInput | string[]
   answeredBy?: string | null
   answeredAt?: Date | string | null
   closedAt?: Date | string | null
@@ -797,6 +848,8 @@ export type TabQuestionScalarWhereInput = {
   status?: Prisma.StringFilter<"TabQuestion"> | string
   answer?: Prisma.JsonNullableFilter<"TabQuestion">
   errorCode?: Prisma.StringNullableFilter<"TabQuestion"> | string | null
+  agentId?: Prisma.StringNullableFilter<"TabQuestion"> | string | null
+  queueAgents?: Prisma.StringNullableListFilter<"TabQuestion">
   answeredBy?: Prisma.StringNullableFilter<"TabQuestion"> | string | null
   answeredAt?: Prisma.DateTimeNullableFilter<"TabQuestion"> | Date | string | null
   closedAt?: Prisma.DateTimeNullableFilter<"TabQuestion"> | Date | string | null
@@ -818,6 +871,8 @@ export type TabQuestionCreateWithoutConversationInput = {
   status: string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
+  agentId?: string | null
+  queueAgents?: Prisma.TabQuestionCreatequeueAgentsInput | string[]
   answeredBy?: string | null
   answeredAt?: Date | string | null
   closedAt?: Date | string | null
@@ -841,6 +896,8 @@ export type TabQuestionUncheckedCreateWithoutConversationInput = {
   status: string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
+  agentId?: string | null
+  queueAgents?: Prisma.TabQuestionCreatequeueAgentsInput | string[]
   answeredBy?: string | null
   answeredAt?: Date | string | null
   closedAt?: Date | string | null
@@ -889,6 +946,8 @@ export type TabQuestionCreateManyProjectInput = {
   status: string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
+  agentId?: string | null
+  queueAgents?: Prisma.TabQuestionCreatequeueAgentsInput | string[]
   answeredBy?: string | null
   answeredAt?: Date | string | null
   closedAt?: Date | string | null
@@ -910,6 +969,8 @@ export type TabQuestionUpdateWithoutProjectInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  agentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  queueAgents?: Prisma.TabQuestionUpdatequeueAgentsInput | string[]
   answeredBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   answeredAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   closedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -933,6 +994,8 @@ export type TabQuestionUncheckedUpdateWithoutProjectInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  agentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  queueAgents?: Prisma.TabQuestionUpdatequeueAgentsInput | string[]
   answeredBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   answeredAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   closedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -955,6 +1018,8 @@ export type TabQuestionUncheckedUpdateManyWithoutProjectInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  agentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  queueAgents?: Prisma.TabQuestionUpdatequeueAgentsInput | string[]
   answeredBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   answeredAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   closedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -977,6 +1042,8 @@ export type TabQuestionCreateManyConversationInput = {
   status: string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
+  agentId?: string | null
+  queueAgents?: Prisma.TabQuestionCreatequeueAgentsInput | string[]
   answeredBy?: string | null
   answeredAt?: Date | string | null
   closedAt?: Date | string | null
@@ -998,6 +1065,8 @@ export type TabQuestionUpdateWithoutConversationInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  agentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  queueAgents?: Prisma.TabQuestionUpdatequeueAgentsInput | string[]
   answeredBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   answeredAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   closedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1021,6 +1090,8 @@ export type TabQuestionUncheckedUpdateWithoutConversationInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  agentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  queueAgents?: Prisma.TabQuestionUpdatequeueAgentsInput | string[]
   answeredBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   answeredAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   closedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1043,6 +1114,8 @@ export type TabQuestionUncheckedUpdateManyWithoutConversationInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   answer?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  agentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  queueAgents?: Prisma.TabQuestionUpdatequeueAgentsInput | string[]
   answeredBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   answeredAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   closedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1068,6 +1141,8 @@ export type TabQuestionSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   status?: boolean
   answer?: boolean
   errorCode?: boolean
+  agentId?: boolean
+  queueAgents?: boolean
   answeredBy?: boolean
   answeredAt?: boolean
   closedAt?: boolean
@@ -1093,6 +1168,8 @@ export type TabQuestionSelectCreateManyAndReturn<ExtArgs extends runtime.Types.E
   status?: boolean
   answer?: boolean
   errorCode?: boolean
+  agentId?: boolean
+  queueAgents?: boolean
   answeredBy?: boolean
   answeredAt?: boolean
   closedAt?: boolean
@@ -1118,6 +1195,8 @@ export type TabQuestionSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.E
   status?: boolean
   answer?: boolean
   errorCode?: boolean
+  agentId?: boolean
+  queueAgents?: boolean
   answeredBy?: boolean
   answeredAt?: boolean
   closedAt?: boolean
@@ -1143,6 +1222,8 @@ export type TabQuestionSelectScalar = {
   status?: boolean
   answer?: boolean
   errorCode?: boolean
+  agentId?: boolean
+  queueAgents?: boolean
   answeredBy?: boolean
   answeredAt?: boolean
   closedAt?: boolean
@@ -1155,7 +1236,7 @@ export type TabQuestionSelectScalar = {
   surfacedAt?: boolean
 }
 
-export type TabQuestionOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tabId" | "projectId" | "conversationId" | "kind" | "payload" | "toolUseId" | "status" | "answer" | "errorCode" | "answeredBy" | "answeredAt" | "closedAt" | "injectedAt" | "createdAt" | "suggestion" | "autoAnswer" | "answeredVia" | "wokenAt" | "surfacedAt", ExtArgs["result"]["tabQuestion"]>
+export type TabQuestionOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tabId" | "projectId" | "conversationId" | "kind" | "payload" | "toolUseId" | "status" | "answer" | "errorCode" | "agentId" | "queueAgents" | "answeredBy" | "answeredAt" | "closedAt" | "injectedAt" | "createdAt" | "suggestion" | "autoAnswer" | "answeredVia" | "wokenAt" | "surfacedAt", ExtArgs["result"]["tabQuestion"]>
 export type TabQuestionInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
   conversation?: boolean | Prisma.ChatConversationDefaultArgs<ExtArgs>
@@ -1195,6 +1276,16 @@ export type $TabQuestionPayload<ExtArgs extends runtime.Types.Extensions.Interna
     status: string
     answer: runtime.JsonValue | null
     errorCode: string | null
+    /**
+     * The subagent whose dialog this is (spec 2026-09-30 tab questions per subagent); null for the main
+     * thread, for Codex and Cursor, and for a hook script that predates the id.
+     */
+    agentId: string | null
+    /**
+     * On a row marked `QUEUED`: the agents in that permission queue ('' is the main thread). The queue
+     * ends when the list is empty. A mark of the previous release has none and ends on the first close.
+     */
+    queueAgents: string[]
     answeredBy: string | null
     answeredAt: Date | null
     /**
@@ -1664,6 +1755,8 @@ export interface TabQuestionFieldRefs {
   readonly status: Prisma.FieldRef<"TabQuestion", 'String'>
   readonly answer: Prisma.FieldRef<"TabQuestion", 'Json'>
   readonly errorCode: Prisma.FieldRef<"TabQuestion", 'String'>
+  readonly agentId: Prisma.FieldRef<"TabQuestion", 'String'>
+  readonly queueAgents: Prisma.FieldRef<"TabQuestion", 'String[]'>
   readonly answeredBy: Prisma.FieldRef<"TabQuestion", 'String'>
   readonly answeredAt: Prisma.FieldRef<"TabQuestion", 'DateTime'>
   readonly closedAt: Prisma.FieldRef<"TabQuestion", 'DateTime'>

@@ -6,7 +6,7 @@ export const CHAT_MSG = {
   notFound: 'Conversa não encontrada.',
   updateApp: 'Atualize o app para continuar.',
   network: 'Não foi possível falar com o servidor. Tente de novo.',
-  tabPromptChanged: 'A pergunta mudou na aba',
+  tabPromptChanged: 'A aba já não mostra esta pergunta: nada foi enviado.',
   tabSuggestionChanged: 'A sugestão mudou na aba',
   attachmentType: 'Tipo de arquivo não suportado',
   attachmentLegacyOffice: 'Envie como .docx/.xlsx',

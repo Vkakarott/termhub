@@ -8,7 +8,7 @@ import { chatBus, type ChatEvent } from './bus.js';
 import { suggestFor } from './decision-memory.js';
 import type { TabQuestionSuggestion } from './decision-text.js';
 import type { Embedder } from './embeddings.js';
-import { closesOpenQuestion, expireOrphanTabQuestions, noteHookEvent, openTabQuestion, publishTabQuestions, startTabQuestionExpiry } from './tab-questions.js';
+import { closingScope, expireOrphanTabQuestions, noteHookEvent, openTabQuestion, publishTabQuestions, startTabQuestionExpiry } from './tab-questions.js';
 
 vi.mock('./decision-memory.js', () => ({ suggestFor: vi.fn(async () => null) }));
 
@@ -80,19 +80,27 @@ beforeEach(() => {
 });
 afterEach(() => unsubscribe());
 
-describe('closesOpenQuestion', () => {
+describe('closingScope', () => {
   it.each([
-    ['a tool call', { kind: 'working', text: null, meta: { event: 'PreToolUse', tool: 'Edit' } }, true],
-    ['a finished turn', { kind: 'waiting_input', text: null, meta: { event: 'Stop' } }, true],
-    ['a new prompt', { kind: 'working', text: null, meta: { event: 'UserPromptSubmit' } }, true],
-    ['the permission_prompt notification', { kind: 'waiting_permission', text: 'x', meta: { event: 'Notification', type: 'permission_prompt' } }, false],
-    ['an idle reminder', { kind: 'waiting_input', text: 'x', meta: { event: 'Notification', type: 'idle_prompt' } }, false],
-    ['AskUserQuestion\'s own PermissionRequest', { kind: 'waiting_permission', text: null, meta: { event: 'PermissionRequest', tool: 'AskUserQuestion' } }, false],
-    ['an event that opens a question', choice, false],
-    ["a subagent's tool call", { kind: 'working', text: null, meta: { event: 'PreToolUse', tool: 'Bash', subagent: true } }, false],
-    ["a subagent's permission prompt that opens no card (ExitPlanMode)", { kind: 'waiting_permission', text: null, meta: { event: 'PermissionRequest', tool: 'ExitPlanMode', subagent: true } }, false],
-  ] as [string, Interpreted, boolean][])('%s → %s', (_l, next, closes) => {
-    expect(closesOpenQuestion(next)).toBe(closes);
+    ['an event that opens a question', choice, null],
+    ['a notification', { kind: 'waiting_permission', text: null, meta: { event: 'Notification' } }, null],
+    ['an idle reminder', { kind: 'waiting_input', text: null, meta: { event: 'Notification', type: 'idle_prompt' } }, null],
+    ['the question companion', { kind: 'waiting_permission', text: null, meta: { event: 'PermissionRequest', tool: 'AskUserQuestion' } }, null],
+    ['an old script subagent', { kind: 'working', text: null, meta: { event: 'PreToolUse', subagent: true } }, null],
+    ['a subagent tool call', { kind: 'working', text: null, meta: { event: 'PreToolUse', subagent: true, agent_id: 'A' } }, { agent: 'A', leavesQueue: false }],
+    ['a subagent ending', { kind: 'working', text: null, closeOnly: true, meta: { event: 'SubagentStop', subagent: true, agent_id: 'A' } }, { agent: 'A', leavesQueue: true }],
+    ['subagent ExitPlanMode', { kind: 'waiting_permission', text: null, meta: { event: 'PermissionRequest', tool: 'ExitPlanMode', subagent: true, agent_id: 'A' } }, { agent: 'A', leavesQueue: false }],
+    ['main ExitPlanMode', { kind: 'waiting_permission', text: null, meta: { event: 'PermissionRequest', tool: 'ExitPlanMode' } }, { agent: null, leavesQueue: true }],
+    ['main tool call', { kind: 'working', text: null, meta: { event: 'PreToolUse' } }, { agent: null, leavesQueue: true }],
+    ['Stop with background work', { kind: 'waiting_input', text: null, backgroundTasks: 2, meta: { event: 'Stop' } }, { agent: null, leavesQueue: true }],
+    ['StopFailure', { kind: 'waiting_input', text: null, meta: { event: 'StopFailure' } }, { agent: null, leavesQueue: true }],
+    ['Stop without background work', { kind: 'waiting_input', text: null, meta: { event: 'Stop' } }, 'all'],
+    ['Stop with zero background tasks', { kind: 'waiting_input', text: null, backgroundTasks: 0, meta: { event: 'Stop' } }, 'all'],
+    ['a new prompt', { kind: 'working', text: null, meta: { event: 'UserPromptSubmit' } }, { agent: null, leavesQueue: true }],
+    ['session end', { kind: 'idle', text: null, meta: { event: 'SessionEnd' } }, 'all'],
+    ['Codex turn complete', { kind: 'waiting_input', text: null, meta: { event: 'agent-turn-complete' } }, { agent: null, leavesQueue: true }],
+  ] as [string, Interpreted, { agent: string | null; leavesQueue: boolean } | 'all' | null][])('%s', (_label, next, scope) => {
+    expect(closingScope(next)).toEqual(scope);
   });
 });
 
@@ -104,7 +112,7 @@ describe('openTabQuestion', () => {
     expect(q?.id).toBe('q1');
     // Only the project owner's conversations: a former owner's chat never gets the card.
     expect(repos.chat.findLatestActiveForProject).toHaveBeenCalledWith('p1', 'u1');
-    expect(repos.tabQuestions.open).toHaveBeenCalledWith({ tab_id: 't1', project_id: 'p1', conversation_id: 'c1', kind: 'choice', payload, tool_use_id: 'toolu_1' });
+    expect(repos.tabQuestions.open).toHaveBeenCalledWith({ tab_id: 't1', project_id: 'p1', conversation_id: 'c1', kind: 'choice', payload, tool_use_id: 'toolu_1', agent_id: null });
     expect(events.map((e) => [e.type, 'question' in e ? e.question.id : null])).toEqual([
       ['tab_question_closed', 'q0'],
       ['tab_question', 'q1'],
@@ -116,7 +124,7 @@ describe('openTabQuestion', () => {
     const repos = fakeRepos({ conversation: null, opened: null, closed: [row({ id: 'q0', status: 'answered_in_tab' })] });
     expect(await openTabQuestion(asRepos(repos), tab, { kind: 'permission', payload: { tool_name: 'Bash' }, tool_use_id: null })).toBeNull();
     // Through `open` with no conversation: under the tab's lock, the queue marking included (spec 2026-09-26 §4.1).
-    expect(repos.tabQuestions.open).toHaveBeenCalledWith({ tab_id: 't1', project_id: 'p1', conversation_id: null, kind: 'permission', payload: { tool_name: 'Bash' }, tool_use_id: null });
+    expect(repos.tabQuestions.open).toHaveBeenCalledWith({ tab_id: 't1', project_id: 'p1', conversation_id: null, kind: 'permission', payload: { tool_name: 'Bash' }, tool_use_id: null, agent_id: null });
     expect(repos.tabQuestions.closeForTab).not.toHaveBeenCalled();
     expect(events.map((e) => e.type)).toEqual(['tab_question_closed']);
   });
@@ -277,6 +285,50 @@ describe('openTabQuestion', () => {
 });
 
 describe('noteHookEvent', () => {
+  it('follows the measured two-background-agent sequence, scoping every close and open', async () => {
+    const repos = fakeRepos({ opened: null });
+    const main = { agent: null, leavesQueue: true };
+    const tool = (agent: string) => ({ agent, leavesQueue: false });
+    const ended = (agent: string) => ({ agent, leavesQueue: true });
+    const event = (name: string, agent?: string, extra: Partial<Interpreted> = {}): Interpreted => ({
+      kind: 'working', text: null,
+      meta: { event: name, ...(agent ? { subagent: true, agent_id: agent } : {}), ...(name === 'PreToolUse' ? { tool: agent ? 'Bash' : 'Agent' } : {}) },
+      ...extra,
+    });
+    const permission = (agent: string): Interpreted => event('PermissionRequest', agent, {
+      question: { kind: 'permission', payload: { tool_name: 'Bash' }, tool_use_id: null },
+    });
+    const sequence = [
+      { next: event('PreToolUse'), scope: main },
+      { next: event('Stop', undefined, { backgroundTasks: 2 }), scope: main },
+      { next: event('PreToolUse', 'A'), scope: tool('A') },
+      { next: permission('A'), opens: 'A' },
+      { next: event('PreToolUse', 'B'), scope: tool('B') },
+      { next: permission('B'), opens: 'B' },
+      { next: event('SubagentStop', 'H', { closeOnly: true }), scope: ended('H') },
+      { next: event('Notification', undefined, { meta: { event: 'Notification', type: 'permission_prompt' } }) },
+      { next: event('SubagentStop', 'A', { closeOnly: true }), scope: ended('A') },
+      { next: event('Stop', undefined, { backgroundTasks: 1 }), scope: main },
+      { next: event('SubagentStop', 'B', { closeOnly: true }), scope: ended('B') },
+      { next: event('Stop'), scope: 'all' },
+    ];
+    for (const step of sequence) {
+      repos.tabQuestions.open.mockClear();
+      repos.tabQuestions.closeForTab.mockClear();
+      await noteHookEvent(asRepos(repos), log(), tab, step.next);
+      if (step.opens) {
+        expect(repos.tabQuestions.open).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ agent_id: step.opens, kind: 'permission' }));
+        expect(repos.tabQuestions.closeForTab).not.toHaveBeenCalled();
+      } else if (step.scope) {
+        expect(repos.tabQuestions.closeForTab).toHaveBeenCalledExactlyOnceWith('t1', 'answered_in_tab', step.scope);
+        expect(repos.tabQuestions.open).not.toHaveBeenCalled();
+      } else {
+        expect(repos.tabQuestions.open).not.toHaveBeenCalled();
+        expect(repos.tabQuestions.closeForTab).not.toHaveBeenCalled();
+      }
+    }
+  });
+
   it('opens on a question, closes on anything else, leaves it alone on a notification', async () => {
     const repos = fakeRepos();
     await noteHookEvent(asRepos(repos), log(), tab, choice);
@@ -284,10 +336,10 @@ describe('noteHookEvent', () => {
     await noteHookEvent(asRepos(repos), log(), tab, { kind: 'waiting_permission', text: 'x', meta: { event: 'Notification', type: 'permission_prompt' } });
     expect(repos.tabQuestions.closeForTab).not.toHaveBeenCalled();
     await noteHookEvent(asRepos(repos), log(), tab, { kind: 'working', text: null, meta: { event: 'PreToolUse', tool: 'Bash' } });
-    expect(repos.tabQuestions.closeForTab).toHaveBeenCalledWith('t1', 'answered_in_tab'); // a closing event: ends a permission queue
+    expect(repos.tabQuestions.closeForTab).toHaveBeenCalledWith('t1', 'answered_in_tab', { agent: null, leavesQueue: true }); // the main thread leaves its permission queue
   });
 
-  it("a subagent's event updates nothing on the card: no close", async () => {
+  it("an old script subagent event updates nothing on the card: no close", async () => {
     const repos = fakeRepos();
     await noteHookEvent(asRepos(repos), log(), tab, { kind: 'working', text: null, meta: { event: 'PreToolUse', tool: 'Bash', subagent: true } });
     expect(repos.tabQuestions.closeForTab).not.toHaveBeenCalled();
@@ -350,7 +402,7 @@ describe('startTabQuestionExpiry', () => {
     await vi.waitFor(() => expect(events.map((e) => e.type)).toEqual(['tab_question_closed']));
     stop();
     expect(repos.tabQuestions.closeForTab).toHaveBeenCalledTimes(1);
-    expect(repos.tabQuestions.closeForTab).toHaveBeenCalledWith('t1', 'expired');
+    expect(repos.tabQuestions.closeForTab).toHaveBeenCalledWith('t1', 'expired', 'all');
   });
 });
 
