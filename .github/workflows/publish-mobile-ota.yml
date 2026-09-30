@@ -1,0 +1,85 @@
+name: Publish mobile OTA
+
+# Publishes the mobile app's JS bundle as an over-the-air update to the self-hosted xprem server
+# (apps/mobile/scripts/ota-publish.sh, `production` branch, runtime version = expo.version).
+#
+# A push to main that touches the app publishes by itself, unless the push also changes what goes
+# into the native binary (app.json, app.config.js, the app's package.json) without bumping
+# expo.version: that bundle could need native code the installed binaries lack, so it is skipped
+# and needs a new store build with a new version. Running the workflow by hand always publishes
+# (use it for a JS-only change the guard was too cautious about).
+#
+# Runs on jarvis (no Node there): the publish itself runs in a node:22 container as the runner's
+# user. The token is the XPREM_TOKEN secret, a publishing API key of the termhub app on xprem.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/mobile-api/**'
+  workflow_dispatch:
+    inputs:
+      message:
+        description: 'Mensagem do update (padrão: assunto do último commit)'
+        required: false
+        type: string
+
+concurrency:
+  group: mobile-ota
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: [self-hosted, termhub]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: guard
+        name: Mudança nativa sem bump de versão?
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != push ]; then echo 'publish=true' >> "$GITHUB_OUTPUT"; exit 0; fi
+          version_at() { git show "${1}:apps/mobile/app.json" | grep -m1 '"version"' | sed -E 's/.*"version": *"([^"]+)".*/\1/'; }
+          if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then BEFORE="$(git rev-parse HEAD^)"; fi
+          native=$(git diff --name-only "$BEFORE" HEAD -- apps/mobile/app.json apps/mobile/app.config.js apps/mobile/package.json)
+          if [ -n "$native" ] && [ "$(version_at "$BEFORE")" = "$(version_at HEAD)" ]; then
+            {
+              echo "### OTA não publicado"
+              echo "O push muda arquivos que entram no binário sem mudar \`expo.version\` ($(version_at HEAD)):"
+              echo "$native" | sed 's/^/- /'
+              echo "Se a mudança for só de JS, rode este workflow manualmente; se for nativa, gere um build novo com a versão aumentada."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publicar (eoas, iOS + Android)
+        if: steps.guard.outputs.publish == 'true'
+        env:
+          EOO_TOKEN: ${{ secrets.XPREM_TOKEN }}
+          MESSAGE: ${{ inputs.message }}
+        run: |
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e EOO_TOKEN -e MESSAGE \
+            -v "$PWD:/w" -w /w node:22 \
+            sh -c 'git config --global --add safe.directory /w && npm ci --no-audit --no-fund && \
+                   bash apps/mobile/scripts/ota-publish.sh ${MESSAGE:+-m "$MESSAGE"}'
+
+      - name: Resumo
+        if: steps.guard.outputs.publish == 'true'
+        run: |
+          {
+            echo "### OTA publicado"
+            echo "Runtime \`$(grep -m1 '"version"' apps/mobile/app.json | sed -E 's/.*"version": *"([^"]+)".*/\1/')\` · branch \`production\` · commit \`${GITHUB_SHA::8}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Limpar
+        if: always()
+        run: rm -rf apps/mobile/dist

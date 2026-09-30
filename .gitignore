@@ -6,3 +6,6 @@ data/
 .DS_Store
 .superpowers/
 __pycache__/
+
+# Claude Code worktrees (local checkouts of other branches)
+.claude/worktrees/
