@@ -66,7 +66,8 @@ export type ChatEvent =
   /** A run ended, whichever way: after the final `message` event of its answer, or — for a run that
    * could not even be attempted (the concierge refused it) — with no message at all, its empty
    * assistant row already deleted. `error_code` is the stored answer's code, or `SETUP_FAILED`.
-   * Metadata only: never the answer's text. Browsers ignore it; the push service listens for it. */
+   * Metadata only: never the answer's text. Screens close the row; with no message id they re-read
+   * and say the run could not start; the push service listens for it. */
   | { type: 'run_finished'; user_id: string; conversation_id: string; message_id: string | null; ok: boolean; error_code: string | null }
   /** An answer row is open: a process has its turn, or the queue holds it for the next one. Published
    * after the row's own `message` event, and again when a queued row is taken by a process: screens

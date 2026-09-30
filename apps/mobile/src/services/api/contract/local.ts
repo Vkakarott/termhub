@@ -122,6 +122,9 @@ export const chatResponse = z.object({
   tab_questions: z.array(tabQuestionSchema).default([]),
   tab_suggestions: z.array(tabSuggestionSchema).default([]),
   subagents: z.array(subagentViewSchema).default([]),
+  /** The answer rows still to be answered (spec 2026-09-29): what the screen shows as "pensando…"
+   * when it opens in the middle of a run. Defaulted: an older server never sends the field. */
+  open_answer_ids: z.array(z.string()).default([]),
   host: chatHostStateSchema,
 });
 

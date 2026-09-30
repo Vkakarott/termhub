@@ -256,7 +256,9 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
     shown.current = conversation.id;
     if (!same && !first) clear();
     const removed = fold.removed();
-    if (same) closeRows(droppedRows(thread.current, messages, arrived));
+    // A row the snapshot shows answered (text or an error) carries its answer now: what streamed for
+    // it goes and it is closed, with the dropped ones — the phone's `pruneLive`.
+    if (same) closeRows([...droppedRows(thread.current, messages, arrived), ...messages.filter((m) => m.role === 'assistant' && (m.text || m.error_code)).map((m) => m.id)]);
     setMessages((prev) => (same ? mergeThread(prev, messages, removed, arrived) : messages));
     // An older server sends no list: nothing is seeded, and an empty row counts as started only on a sign of life.
     seed(open_answer_ids ?? []);

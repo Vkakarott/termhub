@@ -102,18 +102,29 @@ Fronts 2, 3, 4 and 5 have no dependency, and neither has what is left of front 1
 **Cards:** TER-416 (#157), TER-415 (#156)
 **Files:** `apps/server/src/chat/bus.ts`, `apps/server/src/chat/service.ts`, `apps/server/src/chat/live-run.ts`, `apps/server/src/routes/chat.ts`, `apps/server/src/routes/m-chat.ts`, `apps/server/src/mobile/events-parity.test.ts`, `apps/web/src/lib/types.ts`, `apps/web/src/lib/api.ts`, `apps/web/src/lib/chat-live.ts`, `apps/web/src/components/chat/ChatPanel.tsx`, `packages/mobile-api/src/events.ts`, `apps/mobile/src/services/api/contract/local.ts`, `apps/mobile/src/features/chat/model/live.ts`, `apps/mobile/src/features/chat/viewmodel/createChatStore.ts`, and their tests
 **Needs its own spec:** yes, a short one: what counts as an active run when only subagents hold the lock.
+**Spec:** `docs/superpowers/specs/2026-09-29-chat-run-state-design.md`
+**Plan:** `docs/superpowers/plans/2026-09-29-chat-run-state.md`
+**Delivered by:** #228, #229, #230 and #231; the phone goes in the next pull request.
 
-- [ ] Spec: the shape of `run_started`, the active-run field, and the subagent-only case
-- [ ] Server: `run_started` on the bus, published wherever a turn starts
-- [ ] Server: `GET /api/chat` and the mobile `GET` carry the active run and its open answer ids
-- [ ] Server: the web decision and batch routes answer at once, as `m-chat.ts:303-306` does
-- [ ] Server: `POST /api/chat/messages` always answers 202; the 201 path and `ChatService.send` are removed (TER-415 leftover)
-- [ ] Contract: `run_started` in `packages/mobile-api`, with its sample in `events-parity.test.ts`
-- [ ] Web: "answering" is seeded from the server and follows `run_started` / `run_finished`; a row opened mid-run shows as answering, not as failed
-- [ ] Mobile: the same, in the store and the live model
-- [ ] Pull request, merge on green, deploy followed to the health check
+- [x] Spec: the shape of `run_started`, the active-run field, and the subagent-only case (the field is `open_answer_ids`; a process kept alive only by subagents is not an active run)
+- [x] Server: `run_started` on the bus, published wherever a turn starts
+- [x] Server: `GET /api/chat` and the mobile `GET` carry the active run and its open answer ids
+- [x] Server: the web decision and batch routes answer at once, as `m-chat.ts:303-306` does
+- [x] Server: `POST /api/chat/messages` always answers 202; the 201 path and `ChatService.send` are removed (TER-415 leftover). The 201 path went; `ChatService.send` was kept (see below)
+- [x] Contract: `run_started` in `packages/mobile-api`, with its sample in `events-parity.test.ts` (and `message_removed`)
+- [x] Web: "answering" is seeded from the server and follows `run_started` / `run_finished`; a row opened mid-run shows as answering, not as failed
+- [x] Mobile: the same, in the store and the live model
+- [ ] Pull request, merge on green, deploy followed to the health check (#228, #229, #230 and #231 for the server and the web; the phone in the next one)
 
 **Done when:** approving an action with an answer longer than 100 s shows no error; a page opened in the middle of a run shows the answer as in progress; web and mobile behave the same.
+
+**What changed against this roadmap:**
+
+- `ChatService.send` was kept: 67 tests of `service.test.ts` use it as "run a whole turn", and it is one line over `start`. The route's 201 path is what went.
+- `message_removed` was added: the server publishes it at every deletion of an answer row, and both screens drop the row and never bring it back.
+- The null `run_finished` (a run that could not even start) is handled by both screens: they re-read the conversation and show "O concierge não conseguiu começar a resposta. Tente de novo."
+- A row alive in the other instance is not listed in `open_answer_ids`: the bus is in-process, so only turns this instance will publish the end of are listed.
+- Rule 3 of a re-read changed after the review of Task 4: a row the snapshot lacks is kept only when its `message` event reached the screen while the read was in flight, not when its `created_at` is newer than the snapshot's newest row (an answer is always newer than its question, so a deleted answer stayed on screen). The rows a merge drops are closed.
 
 ### Front 5: Concierge: project groups
 

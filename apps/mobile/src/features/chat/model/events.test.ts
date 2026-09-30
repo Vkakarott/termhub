@@ -1,5 +1,5 @@
 import { applyEvent, mergeMessage, mergeThread, type EventSlice } from './events';
-import { emptyFold, foldLive } from './live';
+import { applyLive, emptyFold, foldLive } from './live';
 import type { ChatAction, ChatEvent, ChatMessage, SubagentView, TabQuestion, TabSuggestion } from './types';
 
 const at = '2026-09-24T12:00:00.000Z';
@@ -52,40 +52,65 @@ describe('mergeMessage', () => {
 });
 
 describe('mergeThread', () => {
+  const NONE: ReadonlySet<string> = new Set();
   const later = '2026-09-24T12:00:05.000Z';
 
   it('merges the snapshot by id: server rows win, untouched rows keep their objects, and the same list comes back when nothing changed', () => {
     const a = row('a', { text: 'x' });
     const b = row('b', { text: 'y' });
     const current = [a, b];
-    expect(mergeThread(current, [row('a', { text: 'x' }), row('b', { text: 'y' })])).toBe(current);
-    const merged = mergeThread(current, [row('a', { text: 'x' }), row('b', { text: 'y', usage: { output: 3 } })]);
+    expect(mergeThread(current, [row('a', { text: 'x' }), row('b', { text: 'y' })], NONE, NONE)).toBe(current);
+    const merged = mergeThread(current, [row('a', { text: 'x' }), row('b', { text: 'y', usage: { output: 3 } })], NONE, NONE);
     expect(merged[0]).toBe(a);
     expect(merged[1]).toEqual(row('b', { text: 'y', usage: { output: 3 } }));
   });
 
-  it("keeps a row the snapshot lacks when it is newer than the snapshot (a message event that landed meanwhile) or this device's own, and drops the rest", () => {
+  // Rewritten on purpose (spec 2026-09-29 §5 rule 3): a row the snapshot lacks used to stay when it
+  // was newer than the snapshot's newest row, which kept a deleted answer for ever (an answer is
+  // always newer than its question). It now stays only when its `message` event arrived during the read.
+  it("keeps a row the snapshot lacks only when its message event arrived during the read, or when it is this device's own, and drops the rest", () => {
     const a = row('a', { text: 'x' });
     const landed = row('c', { text: 'oi', created_at: later });
     const local = row('local:1', { role: 'user', text: 'oi', local: 'sending' });
     const gone = row('old', { text: 'z', created_at: '2026-09-24T11:00:00.000Z' });
-    const merged = mergeThread([a, gone, landed, local], [a, row('b', { text: 'new' })]);
+    const deletedAnswer = row('d', { created_at: later });
+    const merged = mergeThread([a, gone, landed, deletedAnswer, local], [a, row('b', { text: 'new' })], NONE, new Set(['c']));
     expect(merged.map((m) => m.id)).toEqual(['a', 'c', 'local:1', 'b']);
     expect(merged[0]).toBe(a);
+  });
+
+  it('keeps a final row over the snapshot\'s empty version of it', () => {
+    const done = row('a', { text: 'pronto' });
+    const current = [done];
+    expect(mergeThread(current, [row('a')], NONE, NONE)).toBe(current);
+    const failed = [row('b', { error_code: 'HOST_GONE' })];
+    expect(mergeThread(failed, [row('b')], NONE, NONE)).toBe(failed);
+  });
+
+  it('leaves out a removed row of the snapshot, and never keeps a removed row as newer than the snapshot', () => {
+    const a = row('a', { role: 'user', text: 'oi' });
+    const gone = row('g', { created_at: later });
+    const merged = mergeThread([a, gone], [a, row('g')], new Set(['g']), new Set(['g']));
+    expect(merged.map((m) => m.id)).toEqual(['a']);
+    expect(mergeThread([a], [a, row('g')], new Set(['g']), NONE).map((m) => m.id)).toEqual(['a']);
   });
 
   it('a re-read corrects an attachment status the phone missed while backgrounded or offline', () => {
     const sent = row('m1', { role: 'user', attachments: [att] });
     const current = [sent];
-    const merged = mergeThread(current, [{ ...sent, attachments: [{ ...att, status: 'ready', meta: { pages: 2 } }] }]);
+    const merged = mergeThread(current, [{ ...sent, attachments: [{ ...att, status: 'ready', meta: { pages: 2 } }] }], NONE, NONE);
     expect(merged).not.toBe(current);
     expect(merged[0]!.attachments).toEqual([{ ...att, status: 'ready', meta: { pages: 2 } }]);
-    expect(mergeThread(merged, [{ ...sent, attachments: [{ ...att, status: 'ready', meta: { pages: 2 } }] }])).toBe(merged);
+    expect(mergeThread(merged, [{ ...sent, attachments: [{ ...att, status: 'ready', meta: { pages: 2 } }] }], NONE, NONE)).toBe(merged);
   });
 
-  it('an empty snapshot keeps every current row (nothing is older than it)', () => {
+  // Rewritten on purpose (spec 2026-09-29 §5 rule 3): an empty snapshot used to keep every row.
+  it('an empty snapshot keeps only the rows that arrived during the read and this device\'s own', () => {
     const current = [row('a', { text: 'x' })];
-    expect(mergeThread(current, [])).toBe(current);
+    expect(mergeThread(current, [], NONE, new Set(['a']))).toBe(current);
+    expect(mergeThread(current, [], NONE, NONE)).toEqual([]);
+    const local = [row('local:1', { role: 'user', text: 'oi', local: 'failed' })];
+    expect(mergeThread(local, [], NONE, NONE)).toBe(local);
   });
 });
 
@@ -101,7 +126,52 @@ it('an announced assistant row is marked started; its final row replaces it by i
 
   const final = applyEvent(streaming, { type: 'message', ...base, message: row('m1', { text: 'oi' }) });
   expect(final.messages).toEqual([row('m1', { text: 'oi' })]);
-  expect(final.live).toEqual(emptyFold());
+  // Changed on purpose (spec 2026-09-29 §5): the final row also closes m1, so nothing reopens it.
+  expect(final.live).toEqual({ ...emptyFold(), closed: new Set(['m1']) });
+});
+
+describe('run state events (spec 2026-09-29 §5)', () => {
+  it('mergeMessage keeps a final row over an empty one (text, and error code), returning the same list', () => {
+    const answered = [row('m1', { text: 'pronto' })];
+    expect(mergeMessage(answered, row('m1'))).toBe(answered);
+    const failed = [row('m2', { error_code: 'RUN_FAILED' })];
+    expect(mergeMessage(failed, row('m2'))).toBe(failed);
+  });
+
+  it('message_removed drops the row from messages and closes it in live', () => {
+    const slice = { ...empty, messages: [row('u1', { role: 'user', text: 'oi' }), row('m1')], live: foldLive([delta('m1', 'oi')]) };
+    const next = applyEvent(slice, { type: 'message_removed', ...base, message_id: 'm1' });
+    expect(next.messages.map((m) => m.id)).toEqual(['u1']);
+    expect(next.live.deltas.has('m1')).toBe(false);
+    expect(next.live.started.has('m1')).toBe(false);
+    expect(next.live.closed.has('m1')).toBe(true);
+    expect(next.live.removed.has('m1')).toBe(true);
+    expect(applyEvent(next, { type: 'message_removed', ...base, message_id: 'm1' })).toBe(next);
+  });
+
+  it('message_removed for a row the slice does not have keeps the same messages array, and remembers the id', () => {
+    const slice = { ...empty, messages: [row('u1', { role: 'user', text: 'oi' })] };
+    const next = applyEvent(slice, { type: 'message_removed', ...base, message_id: 'm9' });
+    expect(next.messages).toBe(slice.messages);
+    expect(next.live.removed.has('m9')).toBe(true);
+  });
+
+  it('run_started changes only live', () => {
+    const slice = { ...empty, messages: [row('m1')] };
+    const next = applyEvent(slice, { type: 'run_started', ...base, message_id: 'm1' });
+    expect(next.live.started.has('m1')).toBe(true);
+    expect(next.messages).toBe(slice.messages);
+    expect(next.actions).toBe(slice.actions);
+    expect(applyEvent(next, { type: 'run_started', ...base, message_id: 'm1' })).toBe(next);
+  });
+
+  it('run_finished with an id closes the row in live; with a null id the slice is the same', () => {
+    const slice = { ...empty, messages: [row('m1')], live: applyLive(emptyFold(), delta('m1', 'oi')) };
+    const done = applyEvent(slice, { type: 'run_finished', ...base, message_id: 'm1', ok: true, error_code: null });
+    expect(done.live.closed.has('m1')).toBe(true);
+    expect(done.messages).toBe(slice.messages);
+    expect(applyEvent(slice, { type: 'run_finished', ...base, message_id: null, ok: false, error_code: 'SETUP_FAILED' })).toBe(slice);
+  });
 });
 
 it('confirmations and decisions are idempotent', () => {
@@ -167,11 +237,18 @@ it('a decision only settles a pending card: a card that already ran is never mov
   expect(applyEvent(ran, { type: 'decision', ...base, action_id: 'a1', status: 'approved' }).actions).toBe(ran.actions);
 });
 
-it('a run_finished event neither crashes nor changes the thread', () => {
+// Rewritten on purpose (spec 2026-09-29 §5): `run_finished` with an id used to leave the slice
+// alone; it now closes the row in `live`. The thread itself still does not change.
+it('a run_finished event neither crashes nor changes the thread; with an id it closes the row in live', () => {
   const thread: EventSlice = { messages: [row('m1', { text: 'oi' })], actions: [action('a1')], live: foldLive([delta('m1', 'oi')]), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [] };
   const finished: ChatEvent = { type: 'run_finished', ...base, message_id: 'm1', ok: true, error_code: null };
   const failed: ChatEvent = { type: 'run_finished', ...base, message_id: null, ok: false, error_code: 'HOST_GONE' };
-  expect(applyEvent(thread, finished)).toBe(thread);
+  const closed = applyEvent(thread, finished);
+  expect(closed.messages).toBe(thread.messages);
+  expect(closed.actions).toBe(thread.actions);
+  expect(closed.live.closed.has('m1')).toBe(true);
+  expect(closed.live.deltas.has('m1')).toBe(false);
+  expect(applyEvent(closed, finished)).toBe(closed);
   expect(applyEvent(thread, failed)).toBe(thread);
 });
 
