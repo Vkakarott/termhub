@@ -117,4 +117,51 @@ describe('TerminalConnection', () => {
     vi.advanceTimersByTime(2000);
     expect(FakeSocket.all).toHaveLength(1);
   });
+
+  describe('wheel scroll', () => {
+    const scrollSent = (ws: FakeSocket) => ws.sent.filter((d) => typeof d === 'string' && d.includes('"scroll"'));
+
+    it('can scroll only once ready says so, and sends the lines as a scroll message', () => {
+      const { conn } = start();
+      const ws = last();
+      ws.open();
+      expect(conn.canScroll).toBe(false);
+      conn.sendScroll(-3); // not ready yet
+      ws.message({ type: 'ready', scroll: true });
+      expect(conn.canScroll).toBe(true);
+      conn.sendScroll(-3);
+      conn.sendScroll(0); // nothing to say
+      expect(scrollSent(ws)).toEqual([JSON.stringify({ type: 'scroll', lines: -3 })]);
+    });
+
+    it('an older server (no scroll in ready) keeps the wheel with xterm.js', () => {
+      const { conn } = start();
+      last().open();
+      last().message({ type: 'ready' });
+      expect(conn.canScroll).toBe(false);
+      conn.sendScroll(-3);
+      expect(scrollSent(last())).toEqual([]);
+    });
+
+    it('caps a message at 500 lines either way', () => {
+      const { conn } = start();
+      last().open();
+      last().message({ type: 'ready', scroll: true });
+      conn.sendScroll(-9000);
+      conn.sendScroll(9000);
+      expect(scrollSent(last())).toEqual([JSON.stringify({ type: 'scroll', lines: -500 }), JSON.stringify({ type: 'scroll', lines: 500 })]);
+    });
+
+    it('forgets canScroll when the socket drops, until the next ready', () => {
+      const { conn } = start();
+      last().open();
+      last().message({ type: 'ready', scroll: true });
+      last().serverClose(1012);
+      expect(conn.canScroll).toBe(false);
+      vi.advanceTimersByTime(1000);
+      last().open();
+      last().message({ type: 'ready', scroll: false });
+      expect(conn.canScroll).toBe(false);
+    });
+  });
 });

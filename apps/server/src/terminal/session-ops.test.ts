@@ -16,7 +16,17 @@ vi.mock('node:crypto', async (importOriginal) => {
   return { ...actual, randomUUID: () => 'fixed-uuid' };
 });
 
-const { ensureSession, INPUT_MAX_CHARS, sendKeyToSession, sendTextToSession, TERMINAL_PASTE_MIN_AGENT_VERSION, TERMINAL_RPC_MIN_AGENT_VERSION } = await import('./session-ops.js');
+const {
+  ensureSession,
+  INPUT_MAX_CHARS,
+  scrollSession,
+  sendKeyToSession,
+  sendTextToSession,
+  TERMINAL_PASTE_MIN_AGENT_VERSION,
+  TERMINAL_RPC_MIN_AGENT_VERSION,
+  TERMINAL_SCROLL_MIN_AGENT_VERSION,
+} = await import('./session-ops.js');
+const { buildScrollScript } = await import('@termhub/machine-ops');
 
 const machine = (type: Machine['type']): Machine => ({ id: 'm1', name: 'jarvis', type, os: 'linux', capabilities: ['tmux'], owner_id: 'u1' }) as Machine;
 
@@ -176,5 +186,48 @@ describe('local and ssh machines', () => {
   it('turns a non-zero exit from the paste script into an HttpError, same as any other failed remote command', async () => {
     runOnMachine.mockResolvedValue({ code: 1, stdout: '', stderr: "can't find pane\n", timedOut: false });
     await expect(sendTextToSession(machine('ssh'), 's1', 'linha um\nlinha dois', true, { paste: true })).rejects.toMatchObject({ statusCode: 502, message: expect.stringContaining("can't find pane") });
+  });
+});
+
+describe('scrollSession', () => {
+  it('pins the agent floor to 0.12.0, the first release with tmux.scroll', () => {
+    expect(TERMINAL_SCROLL_MIN_AGENT_VERSION).toBe('0.12.0');
+  });
+
+  it('agent: checks the scroll floor, then calls tmux.scroll', async () => {
+    agentRpc.mockResolvedValue({ done: true });
+    await scrollSession(machine('agent'), 's1', -3);
+    expect(requireAgentVersion).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), TERMINAL_SCROLL_MIN_AGENT_VERSION);
+    expect(agentRpc).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'tmux.scroll', { session: 's1', lines: -3 });
+    expect(runOnMachine).not.toHaveBeenCalled();
+  });
+
+  it('agent: an outdated agent never gets the RPC', async () => {
+    requireAgentVersion.mockImplementation(() => {
+      throw new HttpError(409, 'Atualize o agente desta máquina', 'AGENT_OUTDATED');
+    });
+    await expect(scrollSession(machine('agent'), 's1', 2)).rejects.toMatchObject({ code: 'AGENT_OUTDATED' });
+    expect(agentRpc).not.toHaveBeenCalled();
+  });
+
+  it('ssh and local: run the same script as the agent, behind the PATH prefix', async () => {
+    runOnMachine.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    for (const type of ['ssh', 'local'] as const) {
+      runOnMachine.mockClear();
+      await scrollSession(machine(type), 's1', 0);
+      const script = buildScrollScript('s1', 0);
+      expect(runOnMachine.mock.calls[0][1]).toEqual({ file: 'sh', args: ['-c', script] });
+      expect(runOnMachine.mock.calls[0][2]).toBe(`export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ${script}`);
+    }
+    expect(requireAgentVersion).not.toHaveBeenCalled();
+    expect(agentRpc).not.toHaveBeenCalled();
+  });
+
+  it('refuses a bad session name or line count before touching the machine', async () => {
+    await expect(scrollSession(machine('ssh'), "s1'; id; '", -1)).rejects.toBeInstanceOf(Error);
+    await expect(scrollSession(machine('ssh'), 's1', 501)).rejects.toBeInstanceOf(Error);
+    await expect(scrollSession(machine('agent'), 's1', 1.5)).rejects.toBeInstanceOf(Error);
+    expect(runOnMachine).not.toHaveBeenCalled();
+    expect(agentRpc).not.toHaveBeenCalled();
   });
 });

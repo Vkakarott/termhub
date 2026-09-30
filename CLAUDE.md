@@ -12,6 +12,13 @@
 
 npm workspaces: `apps/server` (`@termhub/server`), `apps/web` (`@termhub/web`), `apps/landing` (`@termhub/landing`, static site for termhub.dev), `apps/mobile` (`@termhub/mobile`, the Expo phone app — React Native, never part of the server image: the `Dockerfile` installs an explicit `-w` list of workspaces, so a workspace the server needs must be added there). Every workspace uses the same React version (root `overrides` pin it). Always address workspaces by package name (`-w @termhub/server`), never by path.
 
+## Impact on other users
+
+- termhub is a product, but many requests come out of the maintainer's own daily use. **Every change is assessed for its impact on other users** before it is built: who else gets this behavior, and would they want it?
+- What is specific to the maintainer never becomes default behavior. When it makes sense for other users too, it ships as a setting — opt-in per user, project or machine — never hard-coded.
+- Never assume the maintainer's setup. jarvis is the termhub server but also the maintainer's work computer, so nothing may assume the server machine is dedicated to termhub. Likewise, do not assume the termhub MCP is loaded in every session, that Claude accounts live in `~/.claude` or `~/.claude_pedrogoiania`, or that machines have names like `hulk`.
+- Specs, plans and PR descriptions carry a short **Impact on other users** section: what changes for someone who did not ask for this, and whether it is the default or opt-in (and at which level: user, project or machine). When nothing changes for them, say so in one line instead of dropping the section.
+
 ## Verifying before pushing
 
 - The host that holds this checkout (jarvis) has no Node. Run typecheck/build through Docker, and only push if it passes:

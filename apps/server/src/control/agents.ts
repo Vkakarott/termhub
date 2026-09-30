@@ -34,12 +34,22 @@ export function checkPrompt(prompt: string): string {
  * The account is chosen through the CLI's config-dir variable; gemini and antigravity are not wired yet.
  * No permission-bypass flag, ever.
  */
-const LAUNCH: Partial<Record<AiProvider, { binary: string; configEnv: string }>> = {
-  claude: { binary: 'claude', configEnv: 'CLAUDE_CONFIG_DIR' },
-  chatgpt: { binary: 'codex', configEnv: 'CODEX_HOME' },
+const LAUNCH: Partial<Record<AiProvider, Launcher>> = {
+  claude: { binary: 'claude', configEnv: 'CLAUDE_CONFIG_DIR', flags: '' },
+  // TER-465: in the alternate screen Codex keeps its messages off the pane history and turns no mouse
+  // tracking on, so the wheel had nothing to scroll (it walked the prompt history instead). Out of it,
+  // the transcript lands in the tmux history and the wheel scrolls it through copy-mode.
+  chatgpt: { binary: 'codex', configEnv: 'CODEX_HOME', flags: ' --no-alt-screen' },
 };
 
-function launcher(provider: AiProvider): { binary: string; configEnv: string } {
+/** `flags`: fixed options typed right after the binary (a leading space, or empty). */
+interface Launcher {
+  binary: string;
+  configEnv: string;
+  flags: string;
+}
+
+function launcher(provider: AiProvider): Launcher {
   const l = LAUNCH[provider];
   if (!l) throw new ControlError('PROVIDER_UNSUPPORTED', `Iniciar um agente ${provider} ainda não é suportado; por enquanto só claude e chatgpt (Codex)`);
   return l;
@@ -92,7 +102,8 @@ export const CODEX_TAB_MCP_ENABLED = true;
  * the machine that holds the token, never the token itself.
  */
 export function launchLine(provider: AiProvider, configDir: string | null, prompt: string, mcp?: { tabId: string; url: string } | null): string {
-  const { binary, configEnv } = launcher(provider);
+  const { binary: bin, configEnv, flags } = launcher(provider);
+  const binary = `${bin}${flags}`;
   const env = configDir ? `${configEnv}=${configDirArg(configDir)} ` : '';
   if (!mcp) return `${env}${binary} ${shellQuote(prompt)}`;
   if (!MCP_URL_RE.test(mcp.url)) throw new ControlError('INVALID_MCP_URL', 'MCP_URL inválido');

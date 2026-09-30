@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify from 'fastify';
@@ -11,6 +11,7 @@ import { config } from '../config.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { applyErrorHandler } from '../lib/errors.js';
 import { mcpRoutes } from './route.js';
+import { removeTempDir } from '../../test/temp-dir.js';
 
 vi.mock('../auth/permissions.js', async (orig) => ({ ...(await orig<typeof import('../auth/permissions.js')>()), canAccess: vi.fn(async () => true) }));
 
@@ -168,7 +169,7 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
     }
     process.env.PATH = path;
     process.env.HOME = homeEnv;
-    rmSync(home, { recursive: true, force: true });
+    removeTempDir(home);
   });
 
   beforeEach(() => {
@@ -287,8 +288,10 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
     expect(out.command).toBe('codex');
 
     const flat = await screenWith(app, out.tab_id, 'fake-cli args=');
-    expect(flat).toContain('fake-cli args=1');
-    expect(flat).toContain(`fake-cli prompt=[${flatten(withLessonsReminder(prompt))}]`);
+    // --no-alt-screen puts the transcript in the pane's history, where the wheel scrolls it (TER-465)
+    expect(flat).toContain('fake-cli args=2');
+    expect(flat).toContain('fake-cli prompt=[--no-alt-screen]');
+    expect(flat).toContain(`fake-cli last=[${flatten(withLessonsReminder(prompt))}]`);
     expect(flat).toContain(`fake-cli cfg=${cfg}`);
   }, 30_000);
 });

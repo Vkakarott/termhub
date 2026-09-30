@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { RpcParams, RpcResult } from '@termhub/agent-protocol';
-import { RpcFailure, run, tmuxPath, type RunResult } from '../exec.js';
+import { buildScrollScript, shellQuote } from '@termhub/machine-ops';
+import { RpcFailure, run, sh, tmuxPath, type RunResult } from '../exec.js';
 
 /** Pause between the typed text and the Enter that submits it (same value the server used before). */
 export const ENTER_PAUSE_MS = 300;
@@ -137,4 +138,16 @@ export async function sendKey(params: RpcParams<'tmux.sendKey'>): Promise<RpcRes
   if (failure) throw failure;
   if (r.code !== 0) throw new RpcFailure('notfound', why(r.stderr, 'session not found'));
   return { sent: true };
+}
+
+/**
+ * A mouse-wheel scroll over the tab (TER-465). The whole decision (copy-mode, alternate screen, Codex in
+ * front) is `buildScrollScript`, shared with the server's ssh/local path, so it runs as one `sh` script;
+ * the session name is checked by the RPC schema and quoted by the script builder, the tmux path here.
+ */
+export async function scroll(params: RpcParams<'tmux.scroll'>): Promise<RpcResult<'tmux.scroll'>> {
+  const r = await sh(buildScrollScript(params.session, params.lines, shellQuote(tmuxPath())));
+  if (r.timedOut) throw new RpcFailure('timeout', 'tmux timed out');
+  if (r.code !== 0) throw new RpcFailure('notfound', why(r.stderr, 'session not found'));
+  return { done: true };
 }

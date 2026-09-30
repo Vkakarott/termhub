@@ -11,11 +11,13 @@ import { AgentOfflineError } from '../agent/registry.js';
 import { AgentRpcError } from '../agent/connection.js';
 import { registerTerminalWs } from './ws.js';
 
-const { resolveUserMock, canAccessMock, createPtySessionMock, awaitAgentMock } = vi.hoisted(() => ({
+const { resolveUserMock, canAccessMock, createPtySessionMock, awaitAgentMock, agentInfoMock, scrollSessionMock } = vi.hoisted(() => ({
   resolveUserMock: vi.fn(),
   canAccessMock: vi.fn(),
   createPtySessionMock: vi.fn(),
   awaitAgentMock: vi.fn(),
+  agentInfoMock: vi.fn(),
+  scrollSessionMock: vi.fn(),
 }));
 
 // The router's cookie/permission plumbing isn't what this suite is about — stub it open,
@@ -31,8 +33,13 @@ vi.mock('./pty-session.js', () => ({ createPtySession: (...args: unknown[]) => c
 // Only awaitAgent is exercised here; keep the module's real exports (AgentOfflineError) otherwise.
 vi.mock('../agent/registry.js', async (orig) => {
   const mod = await orig<typeof import('../agent/registry.js')>();
-  return { ...mod, agents: { awaitAgent: (...a: unknown[]) => awaitAgentMock(...a) } };
+  return { ...mod, agents: { awaitAgent: (...a: unknown[]) => awaitAgentMock(...a), info: (...a: unknown[]) => agentInfoMock(...a) } };
 });
+// The wheel reaches tmux through scrollSession; what it runs on the machine is session-ops.test.ts's business.
+vi.mock('./session-ops.js', async (orig) => ({
+  ...(await orig<typeof import('./session-ops.js')>()),
+  scrollSession: (...a: unknown[]) => scrollSessionMock(...a),
+}));
 
 const machine: Machine = {
   id: 'm1',
@@ -150,6 +157,8 @@ describe('registerTerminalWs', () => {
     canAccessMock.mockReset().mockResolvedValue(true);
     createPtySessionMock.mockReset();
     awaitAgentMock.mockReset().mockResolvedValue(true);
+    agentInfoMock.mockReset().mockReturnValue({ agent_version: '0.12.0', os: 'macos', tools: [], connected_at: '' });
+    scrollSessionMock.mockReset().mockResolvedValue(undefined);
     server = http.createServer();
     const router = createUpgradeRouter(server, { auth: {} as AuthContext });
     wss = registerTerminalWs(router, { repos: fakeRepos(), log: fakeLog() });
@@ -308,5 +317,112 @@ describe('registerTerminalWs', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(createPtySessionMock).not.toHaveBeenCalled();
+  });
+
+  describe('mouse wheel', () => {
+    /** A connected client and the fake session's writes, as text. */
+    async function ready(): Promise<{ ws: WebSocket; messages: unknown[]; writes: string[] }> {
+      const writes: string[] = [];
+      createPtySessionMock.mockResolvedValue({ pid: null, write: (b: Buffer) => writes.push(b.toString()), resize: vi.fn(), kill: vi.fn() });
+      const { ws, messages } = await connectClient(port);
+      await waitForMessage(messages, 'ready');
+      return { ws, messages, writes };
+    }
+    /** A scrollSession call that only finishes when the test says so. */
+    function holdNextScroll(): () => void {
+      let release!: () => void;
+      scrollSessionMock.mockImplementationOnce(() => new Promise<void>((r) => (release = r)));
+      return () => release();
+    }
+    const scrollMsg = (lines: unknown) => JSON.stringify({ type: 'scroll', lines });
+    const tick = () => new Promise((r) => setTimeout(r, 50));
+
+    it('ready says whether the machine can scroll: an agent from 0.12.0 on', async () => {
+      const { ws, messages } = await ready();
+      expect(messages).toContainEqual({ type: 'ready', scroll: true });
+      ws.close();
+    });
+
+    it('ready says scroll: false for an older agent, and its scroll messages are ignored', async () => {
+      agentInfoMock.mockReturnValue({ agent_version: '0.11.0', os: 'macos', tools: [], connected_at: '' });
+      const { ws, messages, writes } = await ready();
+      expect(messages).toContainEqual({ type: 'ready', scroll: false });
+      ws.send(scrollMsg(-3));
+      ws.send(Buffer.from('a'), { binary: true });
+      await vi.waitFor(() => expect(writes).toEqual(['a']));
+      expect(scrollSessionMock).not.toHaveBeenCalled();
+      ws.close();
+    });
+
+    it('scrolls the tab session by the lines sent', async () => {
+      const { ws } = await ready();
+      ws.send(scrollMsg(-3));
+      await vi.waitFor(() => expect(scrollSessionMock).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'termhub-t1', -3));
+      ws.close();
+    });
+
+    it('ignores a scroll of 0, a fraction or more than 500 lines', async () => {
+      const { ws } = await ready();
+      for (const lines of [0, 1.5, 501, -501, '3']) ws.send(scrollMsg(lines));
+      await tick();
+      expect(scrollSessionMock).not.toHaveBeenCalled();
+      ws.close();
+    });
+
+    it('keeps one call in flight and adds up the deltas that arrive meanwhile', async () => {
+      const release = holdNextScroll();
+      const { ws } = await ready();
+      ws.send(scrollMsg(-1));
+      await vi.waitFor(() => expect(scrollSessionMock).toHaveBeenCalledTimes(1));
+      ws.send(scrollMsg(-2));
+      ws.send(scrollMsg(-4));
+      ws.send(scrollMsg(1));
+      await tick();
+      expect(scrollSessionMock).toHaveBeenCalledTimes(1);
+      release();
+      await vi.waitFor(() => expect(scrollSessionMock).toHaveBeenCalledTimes(2));
+      expect(scrollSessionMock.mock.calls[1][2]).toBe(-5);
+      await tick();
+      expect(scrollSessionMock).toHaveBeenCalledTimes(2);
+      ws.close();
+    });
+
+    it('leaves copy-mode before the first key after a scroll, keeping the keys in order', async () => {
+      const { ws, writes } = await ready();
+      ws.send(scrollMsg(-2));
+      await vi.waitFor(() => expect(scrollSessionMock).toHaveBeenCalledTimes(1));
+      const release = holdNextScroll();
+      ws.send(Buffer.from('a'), { binary: true });
+      ws.send(Buffer.from('b'), { binary: true });
+      await vi.waitFor(() => expect(scrollSessionMock).toHaveBeenCalledTimes(2));
+      expect(scrollSessionMock.mock.calls[1][2]).toBe(0);
+      await tick();
+      expect(writes).toEqual([]); // held until tmux left copy-mode
+      release();
+      await vi.waitFor(() => expect(writes).toEqual(['a', 'b']));
+      // only the first key after a scroll pays for it
+      ws.send(Buffer.from('c'), { binary: true });
+      await vi.waitFor(() => expect(writes).toEqual(['a', 'b', 'c']));
+      expect(scrollSessionMock).toHaveBeenCalledTimes(2);
+      ws.close();
+    });
+
+    it('still writes the keys when leaving copy-mode fails', async () => {
+      const { ws, writes } = await ready();
+      ws.send(scrollMsg(-2));
+      await vi.waitFor(() => expect(scrollSessionMock).toHaveBeenCalledTimes(1));
+      scrollSessionMock.mockRejectedValueOnce(new Error('tmux went away'));
+      ws.send(Buffer.from('x'), { binary: true });
+      await vi.waitFor(() => expect(writes).toEqual(['x']));
+      ws.close();
+    });
+
+    it('writes keys straight through when there was no scroll', async () => {
+      const { ws, writes } = await ready();
+      ws.send(Buffer.from('ls'), { binary: true });
+      await vi.waitFor(() => expect(writes).toEqual(['ls']));
+      expect(scrollSessionMock).not.toHaveBeenCalled();
+      ws.close();
+    });
   });
 });
