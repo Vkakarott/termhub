@@ -3,6 +3,7 @@ symptom: "Chat RUN_FAILED (\"O Claude parou no meio da resposta\") on every mess
 tags: [agent, concierge, chat, claude-cli, config-dir, spawn]
 evidence: fixed
 card: TER-613
+pr: https://github.com/engenhariainversa/termhub/pull/255
 agent: claude
 date: 2026-09-30
 ---
