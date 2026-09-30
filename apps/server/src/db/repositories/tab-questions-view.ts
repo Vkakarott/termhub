@@ -44,7 +44,8 @@ export function toTabQuestionView(r: TabQuestion, tabName: string | null): TabQu
     tab_name: tabName,
     kind: r.kind,
     // A suggestion always carries `context` on the wire (null for a row stored before TER-96).
-    payload: r.kind === 'suggestion' ? { text: (r.payload as SuggestionPayload).text, context: (r.payload as SuggestionPayload).context ?? null } : r.payload,
+    // `agent` travels only on a Codex reply card, so Claude's rows keep their exact shape.
+    payload: r.kind === 'suggestion' ? { text: (r.payload as SuggestionPayload).text, context: (r.payload as SuggestionPayload).context ?? null, ...((r.payload as SuggestionPayload).agent ? { agent: (r.payload as SuggestionPayload).agent } : {}) } : r.payload,
     status: r.status,
     answer: r.answer,
     // `QUEUED` is the server's own bookkeeping for the permission queue: clients read `error_code` only for
