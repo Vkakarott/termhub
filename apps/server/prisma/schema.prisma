@@ -751,6 +751,8 @@ model ChatMessage {
   text           String
   usage          Json?
   errorCode      String?          @map("error_code")
+  /// TER-588: the usage limit the answer hit, or the account that answered instead (ChatNotice).
+  notice         Json?
   createdAt      DateTime         @default(now()) @map("created_at")
   attachments    ChatAttachment[]
 

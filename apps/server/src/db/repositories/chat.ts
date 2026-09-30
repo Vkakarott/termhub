@@ -39,6 +39,17 @@ export interface ChatContextUsage {
 /** What dropping a CLI session drops with it: the fill belonged to that session. */
 const NO_SESSION = { cliSessionId: null, contextTokens: null, contextWindow: null } as const;
 
+/**
+ * What the chat says about an answer besides its text (TER-588). `usage_limit`: the account the run
+ * used hit its limit; `resets_at` is when it comes back, `fallback` why no other account answered
+ * (`auto_swap_off`: the machine did not opt in to the automatic swap, `machines.claude_auto_swap`).
+ * `account_swap`: the configured account was at its limit and `to` answered instead. Account labels
+ * are null for the machine's default login.
+ */
+export type ChatNotice =
+  | { kind: 'usage_limit'; account: string | null; resets_at: string | null; fallback: 'none_free' | 'no_other_account' | 'auto_swap_off' }
+  | { kind: 'account_swap'; from: string | null; to: string; resets_at: string | null };
+
 export interface ChatMessage {
   id: string;
   conversation_id: string;
@@ -46,6 +57,8 @@ export interface ChatMessage {
   text: string;
   usage: unknown | null;
   error_code: string | null;
+  /** Present only when there is one. */
+  notice?: ChatNotice;
   created_at: string;
   /** The files sent with a user message (spec 2026-09-26 §5.5). Present only when there is at least one. */
   attachments?: ChatAttachment[];
@@ -75,6 +88,7 @@ const mapMessage = (m: PrismaMessage): ChatMessage => ({
   text: m.text,
   usage: m.usage ?? null,
   error_code: m.errorCode,
+  ...(m.notice ? { notice: m.notice as ChatNotice } : {}),
   created_at: m.createdAt.toISOString(),
 });
 
@@ -254,13 +268,14 @@ export class ChatRepository {
     return mapMessage(message);
   }
 
-  async updateMessage(id: string, patch: { text?: string; usage?: unknown; error_code?: string | null }): Promise<ChatMessage> {
+  async updateMessage(id: string, patch: { text?: string; usage?: unknown; error_code?: string | null; notice?: ChatNotice | null }): Promise<ChatMessage> {
     const row = await this.db.chatMessage.update({
       where: { id },
       data: {
         ...(patch.text === undefined ? {} : { text: patch.text }),
         ...(patch.usage === undefined ? {} : { usage: patch.usage as never }),
         ...(patch.error_code === undefined ? {} : { errorCode: patch.error_code }),
+        ...(patch.notice === undefined ? {} : { notice: (patch.notice ?? Prisma.DbNull) as never }),
       },
     });
     return mapMessage(row);

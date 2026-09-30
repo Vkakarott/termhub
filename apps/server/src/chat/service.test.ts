@@ -1,4 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// The account fallback on a usage limit (TER-588) reads each account's usage and moves the session with
+// the agent: both are the machine's, stood in for here.
+const { getAccountUsage, linkClaudeSession } = vi.hoisted(() => ({ getAccountUsage: vi.fn(), linkClaudeSession: vi.fn() }));
+vi.mock('../ai/index.js', () => ({ getAccountUsage }));
+vi.mock('../ai/claude-session.js', () => ({ linkClaudeSession }));
 import type { Repositories } from '../db/repositories/index.js';
 import type { User } from '../db/repositories/types.js';
 import type { ChatAction } from '../db/repositories/chat-actions.js';
@@ -38,7 +44,7 @@ const action = (overrides: Partial<ChatAction> = {}): ChatAction => ({
   ...overrides,
 });
 
-function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActions?: ChatAction[]; tabQuestions?: TabQuestion[]; attachments?: AttachmentRow[]; subagents?: ChatSubagent[]; streaming?: boolean; groups?: ProjectGroup[]; projects?: { id: string; key: string; name: string; status: string; owner_id: string }[]; host?: { machines?: unknown[]; capabilities?: string[] | null; account?: { id: string; provider: string; machine_id: string; config_dir: string | null } } } = {}) {
+function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActions?: ChatAction[]; tabQuestions?: TabQuestion[]; attachments?: AttachmentRow[]; subagents?: ChatSubagent[]; streaming?: boolean; groups?: ProjectGroup[]; projects?: { id: string; key: string; name: string; status: string; owner_id: string }[]; host?: { machines?: unknown[]; capabilities?: string[] | null; account?: { id: string; provider: string; machine_id: string; config_dir: string | null; label?: string } }; accounts?: { id: string; provider: string; machine_id: string; config_dir: string | null; label: string }[] } = {}) {
   // The host pair every case but the host-specific ones takes for granted: one agent machine of this
   // user's own, online, with an agent that knows how to run a chat (see host.test.ts for the choice
   // itself). `configDirs` is gone — the account travels as the chosen `ai_account`'s config dir.
@@ -272,7 +278,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
     projects: { findByIdsForOwner: ownedBy(project), list: vi.fn(async (f: { owner?: string | null } = {}) => projectRows.filter((r) => !f.owner || r.owner_id === f.owner)) },
     projectMachines: { listByProject: vi.fn(async (): Promise<{ machine_id: string; cwd: string }[]> => [{ machine_id: 'm1', cwd: '/srv/app' }]) },
     machines: { findByIdsForOwner: ownedBy(machine), list: vi.fn(async (owner: string | null) => (owner === user.id ? (opts.host?.machines ?? [host]) : [])) },
-    aiAccounts: { findById: vi.fn(async () => opts.host?.account) },
+    aiAccounts: { findById: vi.fn(async () => opts.host?.account), list: vi.fn(async (owner: string) => (owner === user.id ? (opts.accounts ?? []) : [])) },
     chatGrants: { revokeForConversation: vi.fn(async () => 0), findActiveBySourceAction: vi.fn(async () => undefined) },
     chatProjectGrants: { revokeForConversation: vi.fn(async () => 0), findActiveBySourceAction: vi.fn(async () => undefined) },
     chatStandingGrants: { findActiveBySourceAction: vi.fn(async () => undefined), listActive: vi.fn(async () => []) },
@@ -3511,5 +3517,121 @@ describe('the project groups in the prompts (spec 2026-09-30)', () => {
     await vi.waitFor(() => expect(resumed.messages.find((m) => m.id === 'a1')?.text).toBe('r1'));
     again.end();
     await vi.waitFor(() => expect(resumed.liveRunsStore.has('c1')).toBe(false));
+  });
+});
+
+describe('usage limit (TER-588)', () => {
+  // What the CLI writes when the account is at its limit (Claude Code 2.1.285, recorded on jarvis).
+  const SID = 'ee7af5ab-976a-43f5-92e0-d1afd433c518';
+  const RESETS = new Date(1790749200 * 1000).toISOString();
+  const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: SID, memory_paths: { auto: '/home/u/.claude/projects/-srv/memory/' } });
+  const limitFrames = [
+    init,
+    JSON.stringify({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: 1790749200, rateLimitType: 'five_hour' } }),
+    JSON.stringify({ type: 'assistant', error: 'rate_limit', is_api_error_message: true, message: { content: [{ type: 'text', text: "You've hit your session limit" }] } }),
+    JSON.stringify({ type: 'result', is_error: true, api_error_status: 429, session_id: SID, result: "You've hit your session limit" }),
+    errorFrame('run_failed'),
+  ];
+  const jarvis = (over: Record<string, unknown> = {}) => ({ id: 'm1', name: 'jarvis', type: 'agent', agent_version: '0.7.0', owner_id: 'u1', claude_auto_swap: true, ...over });
+  const work = { id: 'acc_w', provider: 'claude', machine_id: 'm1', config_dir: '~/.claude-work', label: 'Trabalho' };
+  const usage = (peak: number) => ({ account_id: 'x', fetched_at: '', ok: true, plan: null, error: null, hint: null, windows: [{ key: 'five_hour', label: '', utilization: peak, resets_at: null }] });
+
+  beforeEach(() => {
+    getAccountUsage.mockResolvedValue(usage(10));
+    linkClaudeSession.mockResolvedValue('linked');
+  });
+
+  it('one-shot: answers on another account of the machine, resuming the session there, and says so', async () => {
+    const built = build([], { host: { machines: [jarvis()] }, accounts: [work] });
+    vi.mocked(built.runner.run).mockImplementationOnce(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield* limitFrames; } }));
+    vi.mocked(built.runner.run).mockImplementationOnce(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield delta('oi!'); yield done(SID); } }));
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    const final = await built.service.send(user, 'oi');
+    off();
+    expect(final).toMatchObject({ text: 'oi!', error_code: null });
+    expect(built.chat.updateMessage).toHaveBeenLastCalledWith(final.id, expect.objectContaining({ notice: { kind: 'account_swap', from: null, to: 'Trabalho', resets_at: RESETS } }));
+    expect(built.inputs()).toHaveLength(2);
+    expect(built.inputs()[1]).toMatchObject({ config_dir: '~/.claude-work', resume: true, session_id: built.inputs()[0].session_id });
+    expect(linkClaudeSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), { transcriptPath: `/home/u/.claude/projects/-srv/${built.inputs()[0].session_id}.jsonl`, sessionId: built.inputs()[0].session_id, configDir: '~/.claude-work' });
+    // the configured account is not changed: the next message starts on it again
+    expect(built.chat.setHost).not.toHaveBeenCalled();
+    expect(events.some((e) => e.type === 'reset' && e.message_id === final.id)).toBe(true);
+  });
+
+  it('one-shot: stores the limit with its reset time when no other account has room', async () => {
+    getAccountUsage.mockResolvedValue(usage(97));
+    const { service, runner, chat } = build([], { host: { machines: [jarvis()] }, accounts: [work] });
+    vi.mocked(runner.run).mockImplementation(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield* limitFrames; } }));
+    const final = await service.send(user, 'oi');
+    expect(final).toMatchObject({ error_code: 'USAGE_LIMIT' });
+    expect(chat.updateMessage).toHaveBeenLastCalledWith(final.id, expect.objectContaining({ notice: { kind: 'usage_limit', account: null, resets_at: RESETS, fallback: 'none_free' } }));
+    expect(runner.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('one-shot: never uses another account when the machine did not opt in, and says it is off', async () => {
+    const { service, runner, chat } = build([], { host: { machines: [jarvis({ claude_auto_swap: false })] }, accounts: [work] });
+    vi.mocked(runner.run).mockImplementation(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield* limitFrames; } }));
+    const final = await service.send(user, 'oi');
+    expect(final).toMatchObject({ error_code: 'USAGE_LIMIT' });
+    expect(chat.updateMessage).toHaveBeenLastCalledWith(final.id, expect.objectContaining({ notice: expect.objectContaining({ kind: 'usage_limit', fallback: 'auto_swap_off' }) }));
+    expect(getAccountUsage).not.toHaveBeenCalled();
+    expect(runner.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('one-shot: a machine with a single account says there is no other one', async () => {
+    const { service, runner, chat } = build([], { host: { machines: [jarvis()] }, accounts: [] });
+    vi.mocked(runner.run).mockImplementation(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield* limitFrames; } }));
+    const final = await service.send(user, 'oi');
+    expect(chat.updateMessage).toHaveBeenLastCalledWith(final.id, expect.objectContaining({ error_code: 'USAGE_LIMIT', notice: expect.objectContaining({ fallback: 'no_other_account' }) }));
+  });
+
+  it('one-shot: names a model the CLI does not know', async () => {
+    const { service } = build([JSON.stringify({ type: 'assistant', error: 'model_not_found', is_api_error_message: true, message: { content: [] } }), JSON.stringify({ type: 'result', is_error: true, api_error_status: 404, session_id: SID }), errorFrame('run_failed')]);
+    expect(await service.send(user, 'oi')).toMatchObject({ error_code: 'MODEL_UNAVAILABLE' });
+  });
+
+  it('streamed: the turn goes again on the other account in a new process, and its answer carries the notice', async () => {
+    const { service, runner, chat } = build([], { streaming: true, host: { machines: [jarvis()] }, accounts: [work] });
+    const lr = liveRunner();
+    vi.mocked(runner.run).mockImplementation(lr.run);
+    const started = await service.start(user, 'oi');
+    const first = await runAt(lr, 0);
+    first.push(replayOf(first.input.text.trim()));
+    for (const l of limitFrames.slice(0, 4)) first.push(l);
+    await settled();
+    first.push(errorFrame('run_failed'));
+    first.end();
+    const second = await runAt(lr, 1);
+    expect(second.input).toMatchObject({ config_dir: '~/.claude-work', resume: true, session_id: SID });
+    second.push(replayOf(second.input.text.trim()));
+    second.push(delta('oi!'));
+    second.push(done(SID));
+    await settled();
+    second.end();
+    const final = await started.done;
+    expect(final).toMatchObject({ text: 'oi!', error_code: null });
+    expect(chat.updateMessage).toHaveBeenLastCalledWith(final.id, expect.objectContaining({ notice: { kind: 'account_swap', from: null, to: 'Trabalho', resets_at: RESETS } }));
+  });
+
+  it('streamed: every account tried once, then the limit is stored', async () => {
+    const other = { ...work, id: 'acc_o', config_dir: '~/.claude-other', label: 'Outra' };
+    const { service, runner, chat } = build([], { streaming: true, host: { machines: [jarvis()] }, accounts: [work, other] });
+    const lr = liveRunner();
+    vi.mocked(runner.run).mockImplementation(lr.run);
+    const started = await service.start(user, 'oi');
+    for (let i = 0; i < 3; i++) {
+      const run = await runAt(lr, i);
+      run.push(replayOf(run.input.text.trim()));
+      for (const l of limitFrames) run.push(l);
+      await settled();
+      run.end();
+    }
+    const final = await started.done;
+    expect(lr.runs.map((r) => r.input.config_dir)).toEqual([null, '~/.claude-work', '~/.claude-other']);
+    expect(final).toMatchObject({ error_code: 'USAGE_LIMIT' });
+    expect(chat.updateMessage).toHaveBeenLastCalledWith(final.id, expect.objectContaining({ notice: expect.objectContaining({ kind: 'usage_limit', account: 'Outra', fallback: 'none_free' }) }));
+    await settled();
+    expect(lr.runs).toHaveLength(3);
   });
 });
