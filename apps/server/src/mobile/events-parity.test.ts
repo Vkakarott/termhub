@@ -44,7 +44,8 @@ const samples: { [K in ChatEvent['type']]: Extract<ChatEvent, { type: K }> } = {
   message: {
     type: 'message',
     ...base,
-    message: { id: 'm1', conversation_id: 'c1', role: 'assistant', text: 'oi', usage: null, error_code: null, created_at: '2026-09-24T12:00:00.000Z' },
+    // A reply (TER-447) whose original was deleted: the optional field and its nullable id both reach the app.
+    message: { id: 'm1', conversation_id: 'c1', role: 'user', text: 'oi', usage: null, error_code: null, created_at: '2026-09-24T12:00:00.000Z', reply_to: { id: null, role: 'assistant', excerpt: 'Abri a aba' } },
   },
   delta: { type: 'delta', ...base, message_id: 'm1', delta: 'o' },
   action: { type: 'action', ...base, message_id: 'm1', tool: 'list_tabs', tool_use_id: 't1', args: { machine: 'x' } },

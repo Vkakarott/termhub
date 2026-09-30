@@ -751,10 +751,19 @@ model ChatMessage {
   text           String
   usage          Json?
   errorCode      String?          @map("error_code")
+  /// The message this one answers (TER-447). The database nulls it when that row is deleted; the two
+  /// fields below keep what was quoted, and `replyToRole` being set is what says this is a reply.
+  replyToId      String?          @map("reply_to_id")
+  replyTo        ChatMessage?     @relation("ChatMessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies        ChatMessage[]    @relation("ChatMessageReply")
+  /// user | assistant
+  replyToRole    String?          @map("reply_to_role")
+  replyToExcerpt String?          @map("reply_to_excerpt")
   createdAt      DateTime         @default(now()) @map("created_at")
   attachments    ChatAttachment[]
 
   @@index([conversationId, createdAt])
+  @@index([replyToId])
   @@map("chat_messages")
 }
 

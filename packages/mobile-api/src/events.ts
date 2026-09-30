@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { chatAttachment } from './attachments.js';
 
+/** What a message answers (TER-447): a snapshot taken when the reply was sent. `id` is null once the
+ * quoted message was deleted; the role and the excerpt stay. */
+export const chatReplyRef = z.object({ id: z.string().nullable(), role: z.enum(['user', 'assistant']), excerpt: z.string() });
+
 /** Mirrors `ChatMessage` in `apps/server/src/db/repositories/chat.ts`. */
 export const chatMessage = z.object({
   id: z.string(),
@@ -12,6 +16,8 @@ export const chatMessage = z.object({
   created_at: z.string(),
   /** The files sent with a user message (spec 2026-09-26 §5.5); absent when there are none, and on older servers. */
   attachments: z.array(chatAttachment).optional(),
+  /** Present only on a reply (TER-447); absent on older servers. */
+  reply_to: chatReplyRef.optional(),
 });
 
 /** Mirrors `ChatActionClass` in `apps/server/src/db/repositories/chat-actions.ts`. */
