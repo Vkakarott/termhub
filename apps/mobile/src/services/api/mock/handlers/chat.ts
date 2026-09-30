@@ -1038,7 +1038,7 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     verifyAuth(state, { headers: ctx.headers, htm: 'POST', htu: ctx.htu, now: ctx.now() });
     const question = state.tabQuestions.find((q) => q.id === ctx.params.id);
     if (!question) throw new WireError(404, 'NOT_FOUND', 'Pergunta não encontrada');
-    if (question.status !== 'open') throw new WireError(409, 'TAB_PROMPT_CHANGED', 'A pergunta mudou na aba');
+    if (question.status !== 'open') throw new WireError(409, 'TAB_PROMPT_CHANGED', 'A aba já não mostra esta pergunta: nada foi enviado.');
     const body = tabQuestionAnswerBody.parse(ctx.body);
     if ((question.kind === 'choice') !== 'answers' in body) throw new WireError(400, 'VALIDATION', 'Dados inválidos');
     Object.assign(question, { status: 'answered', answer: body, answered_at: new Date(ctx.now()).toISOString() });
@@ -1066,7 +1066,7 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     verifyAuth(state, { headers: ctx.headers, htm: 'GET', htu: ctx.htu, now: ctx.now() });
     const question = state.tabQuestions.find((q) => q.id === ctx.params.id);
     if (!question) throw new WireError(404, 'NOT_FOUND', 'Pergunta não encontrada');
-    if (question.status !== 'open') throw new WireError(409, 'TAB_PROMPT_CHANGED', 'A pergunta mudou na aba');
+    if (question.status !== 'open') throw new WireError(409, 'TAB_PROMPT_CHANGED', 'A aba já não mostra esta pergunta: nada foi enviado.');
     return { status: 200, body: { text: tabQuestionScreenText(question) } };
   });
 
