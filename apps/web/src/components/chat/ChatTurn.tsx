@@ -4,7 +4,9 @@ import { decorateCodeBlocks } from '../../lib/code-blocks';
 import { renderMarkdown } from '../../lib/markdown';
 import { splitSettled } from '../../lib/markdown-split';
 import { limitSentence, swapSentence } from '../../lib/chat-notice';
+import { isReplyable } from '../../lib/chat-reply';
 import type { ChatErrorCode, ChatMessage } from '../../lib/types';
+import { ChatReplyQuote } from './ChatReplyQuote';
 import { MessageAttachments } from './MessageAttachments';
 
 const COPY_FEEDBACK_MS = 1500;
@@ -132,6 +134,25 @@ export interface ChatTurnProps {
   waiting: boolean;
   /** The page decided nothing will ever fill this row: say so instead of waiting for ever. */
   failed: boolean;
+  /** Show the message a quote points at; answers whether it was found (`ChatPanel` owns the thread). */
+  onOpenReply?: (id: string) => boolean;
+  /** "Responder" on this row (TER-447); absent, the button is not offered. */
+  onReply?: (message: ChatMessage) => void;
+  /** The row a quote just scrolled to: a ring for a moment. */
+  highlighted?: boolean;
+}
+
+/** "Responder" (TER-447): shown on hover and on keyboard focus, and always on a device with no hover. */
+function ReplyButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="shrink-0 rounded px-1.5 py-0.5 text-xs text-fg-dim opacity-0 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+    >
+      Responder
+    </button>
+  );
 }
 
 /**
@@ -147,7 +168,7 @@ export interface ChatTurnProps {
  * every delta, and parsing plus sanitising one message costs about 1 ms — a 50-message thread was
  * paying ~51 ms per delta, on the same main thread the answer is being written on.
  */
-export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, waiting, failed }: ChatTurnProps) {
+export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, waiting, failed, onOpenReply, onReply, highlighted = false }: ChatTurnProps) {
   const body = message.role === 'user' ? '' : message.text || streaming || (waiting ? 'pensando…' : '');
   /**
    * While the answer streams (nothing stored yet), the body is split at its last finished block: the
@@ -160,15 +181,21 @@ export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, wait
   const settledHtml = useMemo(() => toHtml(settled), [settled]);
   const tailHtml = useMemo(() => toHtml(tail), [tail]);
 
+  const reply = onReply && isReplyable(message) ? <ReplyButton onClick={() => onReply(message)} /> : null;
+  // The ring is always there, transparent until a quote scrolls here: showing it must not move the row.
+  const ring = highlighted ? 'ring-2 ring-accent/60' : 'ring-2 ring-transparent';
+
   if (message.role === 'user') {
     const attachments = message.attachments ?? [];
     return (
-      <li className="chat-enter flex justify-end">
+      <li data-message-id={message.id} className="chat-enter group flex items-center justify-end gap-1">
+        {reply}
         {/* `overflow-wrap: anywhere` so a pasted path or URL wraps instead of widening the column:
             `break-words` (`break-word`) wraps too, but keeps the token's min-content width, which is
             what made the whole thread scroll sideways (TER-402). A message may be attachments alone
             (spec §3): then there is no text line at all. */}
-        <div className="max-w-[85%] [overflow-wrap:anywhere] rounded-2xl bg-accent/10 px-4 py-2.5 text-sm leading-relaxed text-fg">
+        <div className={`max-w-[85%] [overflow-wrap:anywhere] rounded-2xl bg-accent/10 px-4 py-2.5 text-sm leading-relaxed text-fg transition-shadow ${ring}`}>
+          {message.reply_to && <ChatReplyQuote reply={message.reply_to} onOpen={onOpenReply} />}
           {message.text && <div className="whitespace-pre-wrap">{message.text}</div>}
           {attachments.length > 0 && <MessageAttachments attachments={attachments} />}
         </div>
@@ -177,7 +204,7 @@ export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, wait
   }
 
   return (
-    <li className="chat-enter text-fg">
+    <li data-message-id={message.id} className={`chat-enter group rounded-2xl text-fg transition-shadow ${ring}`}>
       {/* The one place in the chat that renders HTML, and only ever `renderMarkdown`'s output: this
        * text comes from an agent that reads real terminal screens, so `markdownOnly` keeps this to
        * the elements Markdown itself produces — nothing here can make the browser fetch a URL.
@@ -213,6 +240,7 @@ export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, wait
           ))}
         </div>
       )}
+      {reply && <div className="mt-1">{reply}</div>}
       {failed && <p className="mt-1 text-xs text-danger">{failureLine(message)}</p>}
     </li>
   );

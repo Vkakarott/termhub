@@ -51,6 +51,14 @@ describe('RateLimitBanner', () => {
     expect(screen.getByRole('button', { name: 'Trocar conta e retomar' })).toBeTruthy();
   });
 
+  // TER-587: with the automatic swap off nothing happens by itself; the banner must say so.
+  it('says when the automatic swap is off on the machine, and nothing when it is on', () => {
+    const { rerender } = render(<RateLimitBanner tab={tab()} canSwap autoSwap={false} />);
+    expect(screen.getByText('A troca automática está desligada nesta máquina.')).toBeTruthy();
+    rerender(<RateLimitBanner tab={tab()} canSwap autoSwap />);
+    expect(screen.queryByText('A troca automática está desligada nesta máquina.')).toBeNull();
+  });
+
   it('shows no button when canSwap is false', () => {
     render(<RateLimitBanner tab={tab()} canSwap={false} />);
     expect(screen.getByText('Limite de uso da conta atingido.')).toBeTruthy();

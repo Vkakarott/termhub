@@ -378,4 +378,24 @@ describe('ChatTurn', () => {
       expect(screen.getByText('A conta padrão do Claude desta máquina atingiu o limite de uso; a conta "Trabalho" assumiu esta resposta.')).toBeTruthy();
     });
   });
+
+  it('renders what a message answers above its text, and marks the row with its id (TER-447)', () => {
+    const { container } = render(
+      <ol>
+        <ChatTurn message={answer({ id: 'm9', role: 'user', text: 'faz de novo', reply_to: { id: 'm1', role: 'assistant', excerpt: 'Abri a aba' } })} waiting={false} failed={false} />
+      </ol>,
+    );
+    expect(container.querySelector('[data-message-id="m9"]')).not.toBeNull();
+    const quote = screen.getByRole('button', { name: 'Ver mensagem original: Concierge, Abri a aba' });
+    expect(quote.compareDocumentPosition(screen.getByText('faz de novo')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('offers "Responder" only on a row that can be answered (TER-447)', () => {
+    const onReply = vi.fn();
+    const { rerender } = render(<ol><ChatTurn message={answer()} waiting={false} failed={false} onReply={onReply} /></ol>);
+    fireEvent.click(screen.getByRole('button', { name: 'Responder' }));
+    expect(onReply).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }));
+    rerender(<ol><ChatTurn message={answer({ text: '' })} waiting failed={false} onReply={onReply} /></ol>);
+    expect(screen.queryByRole('button', { name: 'Responder' })).toBeNull();
+  });
 });
