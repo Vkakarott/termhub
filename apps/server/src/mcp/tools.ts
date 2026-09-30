@@ -95,7 +95,8 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'list_ai_accounts',
-    description: 'List the AI CLI accounts (Claude, Codex, Gemini, Antigravity) logged in on your machines: id, provider, label, machine.',
+    description:
+      "List the AI CLI accounts (Claude, Codex, Gemini, Antigravity) logged in on your machines: id, provider, label, machine and default. default: true is the machine's own login for that CLI (the one it uses with no config dir override); false is another login kept on the same machine.",
     scope: 'read', resource: 'ai_accounts', action: 'read',
     input: { machine_id: id.optional() },
     run: (ctx, a) => listAiAccounts(ctx, a as { machine_id?: string }),
@@ -195,7 +196,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'start_agent',
-    description: `Open a tab in a project and start Claude Code (account provider claude) or Codex (chatgpt) there under the chosen account, with prompt (max ${PROMPT_MAX_CHARS} chars) as its first message; the session stays interactive and visible in the app. With task_id (needs the tasks:update permission) the task is linked to the tab and moved to the project's agent column (a project setting; default the first doing column) unless it already sits in a doing column; a subtask is marked doing. The prompt cannot start with "-" or contain control characters other than newlines. Then use wait_for_state / read_screen / send_input to follow and answer it. Gemini and Antigravity accounts are not supported yet. machine_id picks the linked machine (required when the project has several).`,
+    description: `Open a tab in a project and start Claude Code (account provider claude) or Codex (chatgpt) there under the chosen account, with prompt (max ${PROMPT_MAX_CHARS} chars) as its first message; the session stays interactive and visible in the app. With task_id (needs the tasks:update permission) the task is linked to the tab and moved to the project's agent column (a project setting; default the first doing column) unless it already sits in a doing column; a subtask is marked doing. The prompt cannot start with "-" or contain control characters other than newlines. Then use wait_for_state / read_screen / send_input to follow and answer it. Gemini and Antigravity accounts are not supported yet. Pick the account with list_ai_accounts (default: true is the machine's own login). machine_id picks the linked machine (required when the project has several).`,
     scope: 'terminals', resource: 'terminals', action: 'write',
     input: { project_id: id, machine_id: id.optional(), account_id: id, prompt: z.string().min(1).max(PROMPT_MAX_CHARS), task_id: id.optional(), tab_name: z.string().trim().min(1).max(60).optional() },
     run: (ctx, a) => startAgent(ctx, a as { project_id: string; machine_id?: string; account_id: string; prompt: string; task_id?: string; tab_name?: string }),
