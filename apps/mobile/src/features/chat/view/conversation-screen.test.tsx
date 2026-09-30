@@ -842,3 +842,63 @@ describe('ConversationView (iPad, spec 2026-09-28 §2.3/§2.4)', () => {
     expect(StyleSheet.flatten(screen.getByTestId('conversation-composer-column').props.style)).toMatchObject({ width: '100%', maxWidth: 720, alignSelf: 'center' });
   });
 });
+
+describe('replies (TER-447)', () => {
+  it('answering a message quotes it in the composer and sends the reference; the preview goes with the text', async () => {
+    // Held open: the optimistic row is what shows the quote while the server has not answered.
+    const sent = jest.spyOn(stores.api, 'sendMessage').mockReturnValue(new Promise(() => undefined));
+    await render(<ConversationScreen />);
+    await screen.findByText(SEEDED_USER, undefined, LOAD);
+    const answer = useChatStore.getState().conversations['p-termhub']!.messages.find((m) => m.text === SEEDED_ASSISTANT)!;
+    const rows = screen.getAllByTestId('swipe-to-reply-row');
+    const row = rows.find((r) => within(r).queryAllByTestId('markdown').some((n) => n.props.children === SEEDED_ASSISTANT))!;
+    await fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'reply' } });
+    expect(screen.getByText('Respondendo a Concierge')).toBeTruthy();
+
+    await fireEvent.changeText(screen.getByLabelText('Mensagem'), 'roda de novo');
+    await fireEvent.press(screen.getByRole('button', { name: 'Enviar' }));
+    expect(sent).toHaveBeenCalledWith(expect.anything(), { text: 'roda de novo', project_id: 'p-termhub', reply_to_id: answer.id });
+    expect(screen.queryByText('Respondendo a Concierge')).toBeNull();
+    // The new row shows what it answers, above its text, from the moment it is sent.
+    expect(await screen.findByRole('button', { name: /^Ver mensagem original: Concierge,/ })).toBeTruthy();
+    useChatStore.setState({ sending: false });
+  });
+
+  it('a tap on a quote scrolls to the original; one that is not loaded says so', async () => {
+    const scroll = jest.spyOn(require('react-native').FlatList.prototype, 'scrollToIndex').mockImplementation(() => undefined);
+    await render(<ConversationScreen />);
+    await screen.findByText(SEEDED_USER, undefined, LOAD);
+    const original = useChatStore.getState().conversations['p-termhub']!.messages.find((m) => m.text === SEEDED_ASSISTANT)!;
+    await act(async () =>
+      addRows(
+        [
+          { id: 'r1', conversation_id: 'c-termhub', role: 'user', text: 'e isso?', usage: null, error_code: null, created_at: at(1), reply_to: { id: original.id, role: 'assistant', excerpt: 'A aba api está esperando' } },
+          { id: 'r2', conversation_id: 'c-termhub', role: 'user', text: 'e aquela?', usage: null, error_code: null, created_at: at(2), reply_to: { id: 'antiga', role: 'user', excerpt: 'uma antiga' } },
+        ],
+        [],
+      ),
+    );
+    await fireEvent.press(await screen.findByRole('button', { name: 'Ver mensagem original: Concierge, A aba api está esperando' }));
+    expect(scroll).toHaveBeenCalledWith(expect.objectContaining({ viewPosition: 0.5, animated: true }));
+    expect(screen.queryByText('Mensagem original indisponível')).toBeNull();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Ver mensagem original: Você, uma antiga' }));
+    expect(screen.getByText('Mensagem original indisponível')).toBeTruthy();
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+
+  it('✕ drops the reply, and so does leaving the conversation', async () => {
+    const { rerender } = await render(<ConversationView routeId="p-termhub" />);
+    await screen.findByText(SEEDED_USER, undefined, LOAD);
+    const row = screen.getAllByTestId('swipe-to-reply-row')[0]!;
+    await fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'reply' } });
+    expect(screen.getByLabelText('Cancelar resposta')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Cancelar resposta'));
+    expect(screen.queryByLabelText('Cancelar resposta')).toBeNull();
+
+    await fireEvent(screen.getAllByTestId('swipe-to-reply-row')[0]!, 'accessibilityAction', { nativeEvent: { actionName: 'reply' } });
+    expect(screen.getByLabelText('Cancelar resposta')).toBeTruthy();
+    await rerender(<ConversationView routeId="general" />);
+    await waitFor(() => expect(screen.queryByLabelText('Cancelar resposta')).toBeNull(), LOAD);
+  });
+});
