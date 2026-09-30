@@ -11,6 +11,11 @@ export type TabRowAnswer = ChoiceAnswer | PermissionAnswer | SuggestionAnswer;
 /** How a question leaves the screen when the chat did not answer it: the person answered in the tab
  * (or anything else happened there), or the tab is gone. */
 export type TabQuestionCloseStatus = 'answered_in_tab' | 'expired';
+/**
+ * Which rows a close reaches: one agent's (null is the main thread), or every row of the tab.
+ * `leavesQueue`: the agent has no dialog pending any more, so it also leaves the tab's permission queue.
+ */
+export type CloseScope = { agent: string | null; leavesQueue: boolean } | 'all';
 /** How a `choice` question got its `answer`: a click on the card, or the countdown sending it by
  * itself (spec 2026-09-26 concierge memory §3.2). */
 export type AnsweredVia = 'card' | 'auto';
@@ -76,15 +81,20 @@ export interface OpenTabQuestionInput {
   kind: TabRowKind;
   payload: TabRowPayload;
   tool_use_id: string | null;
+  /** The subagent that asked, or null for the main thread. */
+  agent_id: string | null;
 }
 
 const withOwner = { conversation: { select: { userId: true } } } as const;
 
 /**
  * `error_code` of a permission row closed because another permission arrived behind it: the tab is in
- * a permission queue (spec §9) until the next closing event, which clears it (`closeForTab`).
+ * a permission queue (spec 2026-09-30 tab questions per subagent §5). `queueAgents` keeps its
+ * members until all have left; an all-scope close or a choice clears it at once.
  */
 export const PERMISSION_QUEUED = 'QUEUED';
+
+const queueKey = (agent: string | null): string => agent ?? '';
 
 /** `listByConversation`'s windows, one per kind of row. */
 export const LIST_QUESTIONS_MAX = 200;
@@ -119,13 +129,13 @@ const mapQuestion = (q: Row): TabQuestion => ({
 });
 
 /**
- * Closes whatever of this tab is still on its screen: an `open` question becomes `status`, and one
+ * Closes the scope's rows still on this tab's screen: an `open` question becomes `status`, and one
  * the chat already answered keeps `answered` and only gets its `closed_at` (spec §5.2, "Mirror"). The
  * status filter sits in the UPDATE itself, so a claim racing this close either lands first (the row
  * stays `answered`) or finds the row closed and loses.
  */
-async function closeIn(tx: Prisma.TransactionClient, tabId: string, status: TabQuestionCloseStatus, now: Date): Promise<TabQuestion[]> {
-  const rows = await tx.tabQuestion.findMany({ where: { tabId, closedAt: null, status: { in: ['open', 'answered'] } }, select: { id: true } });
+async function closeIn(tx: Prisma.TransactionClient, tabId: string, status: TabQuestionCloseStatus, now: Date, scope: CloseScope = 'all'): Promise<TabQuestion[]> {
+  const rows = await tx.tabQuestion.findMany({ where: { tabId, closedAt: null, status: { in: ['open', 'answered'] }, ...(scope === 'all' ? {} : { agentId: scope.agent }) }, select: { id: true } });
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
   await tx.tabQuestion.updateMany({ where: { id: { in: ids }, status: 'open' }, data: { status, closedAt: now } });
@@ -157,15 +167,15 @@ export class TabQuestionsRepository {
    * A new question for a tab: whatever the tab still had open is closed first, in the same transaction.
    * A permission arriving while the tab already has an open permission is a queue in Claude Code (it
    * shows the first dialog, the card would show the last): the open one is closed, marked
-   * `PERMISSION_QUEUED`, and nothing opens. Until a closing event clears the mark, the tab stays in the
-   * queue — its newest row is that marked permission — and no permission opens a card: all of them are
-   * answered in the tab. A choice is never held, and being the newest row it ends the queue. The tab
+   * `PERMISSION_QUEUED` with both agents as members, and nothing opens. Further permissions add their
+   * agents to that list and open no card until all members have left (`closeForTab`): every queued
+   * permission is answered in the tab. A choice is never held and clears every queue mark and list. The tab
    * row is locked first (`lockTab`), so two hooks of one tab land in order. A suggestion row never counts
    * here: it is not part of Claude Code's permission queue (spec 2026-09-25 tab suggestions §6.1). A
    * suggestion is read seconds after the `Stop`, so it opens only if the tab, under that lock, still waits
    * for input and shows no question (open, or answered from the chat but still on screen): otherwise
    * nothing opens and nothing closes. With no conversation (spec 2026-09-26 §4.1) the same rules run and
-   * nothing is inserted; a choice then clears the queue marks, since it cannot become the newest row.
+   * nothing is inserted; a choice still clears every queue mark and list.
    */
   async open(input: OpenTabQuestionInput, now = new Date()): Promise<{ question: TabQuestion | null; closed: TabQuestion[] }> {
     return this.db.$transaction(async (tx) => {
@@ -177,21 +187,25 @@ export class TabQuestionsRepository {
       }
       let queued = false;
       if (input.kind === 'permission') {
-        const newest = await tx.tabQuestion.findFirst({ where: { tabId: input.tab_id, kind: { not: 'suggestion' } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { id: true, kind: true, status: true, errorCode: true } });
+        const newest = await tx.tabQuestion.findFirst({ where: { tabId: input.tab_id, kind: { not: 'suggestion' } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { id: true, kind: true, status: true, errorCode: true, agentId: true, queueAgents: true } });
         if (newest?.kind === 'permission' && newest.status === 'open') {
-          await tx.tabQuestion.update({ where: { id: newest.id }, data: { errorCode: PERMISSION_QUEUED } });
+          await tx.tabQuestion.update({ where: { id: newest.id }, data: { errorCode: PERMISSION_QUEUED, queueAgents: [...new Set([queueKey(newest.agentId), queueKey(input.agent_id)])] } });
           queued = true;
         } else if (newest?.kind === 'permission' && newest.errorCode === PERMISSION_QUEUED) {
+          const key = queueKey(input.agent_id);
+          if (!newest.queueAgents.includes(key)) {
+            await tx.tabQuestion.update({ where: { id: newest.id }, data: { queueAgents: [...newest.queueAgents, key] } });
+          }
           queued = true;
         }
       }
       const closed = await closeIn(tx, input.tab_id, 'answered_in_tab', now);
       if (queued) return { question: null, closed };
+      if (input.kind === 'choice') await tx.tabQuestion.updateMany({ where: { tabId: input.tab_id, errorCode: PERMISSION_QUEUED }, data: { errorCode: null, queueAgents: [] } });
       const conversationId = input.conversation_id;
       if (conversationId === null) {
         // No chat to show the card in. A permission that is not queued leaves no row behind, so a prompt
         // queued behind it cannot be recognised later — the one case this path cannot cover.
-        if (input.kind === 'choice') await tx.tabQuestion.updateMany({ where: { tabId: input.tab_id, errorCode: PERMISSION_QUEUED }, data: { errorCode: null } });
         return { question: null, closed };
       }
       const row = await tx.tabQuestion.create({
@@ -203,6 +217,7 @@ export class TabQuestionsRepository {
           kind: input.kind,
           payload: input.payload as never,
           toolUseId: input.tool_use_id,
+          agentId: input.agent_id,
           status: 'open',
           createdAt: now,
         },
@@ -213,22 +228,33 @@ export class TabQuestionsRepository {
   }
 
   /**
-   * A closing hook event (PreToolUse, Stop…) or a removed tab: closes what the tab still shows and ends a
-   * permission queue. Under the tab's lock (spec 2026-09-26 §4.1) — but only when there is something to
-   * close or clear: the pre-check below runs outside the transaction, so a tab with nothing committed
+   * A closing hook event or a removed tab: closes the scope's open and answered rows. Departing
+   * agents leave the permission queue; it ends when none remain. The default 'all' clears it at once,
+   * and a previous-release empty list clears on the first departing agent. Under the tab's lock
+   * (spec 2026-09-26 §4.1) — but only when there is something to close or clear: the pre-check below runs outside the transaction, so a tab with nothing committed
    * skips the lock and this call never waits for it. So it lands after an `open` that had already
    * committed, or one working on a tab that already had a row to close or a queue; a card opened
    * concurrently stays until the tab's next closing event — the live check refuses a stale answer.
    */
-  async closeForTab(tabId: string, status: TabQuestionCloseStatus, now = new Date()): Promise<TabQuestion[]> {
+  async closeForTab(tabId: string, status: TabQuestionCloseStatus, scope: CloseScope = 'all', now = new Date()): Promise<TabQuestion[]> {
     // Called for almost every hook event of every tab: the common case (nothing on screen, no queue)
     // is one indexed read, and only a tab with something to close or clear pays for the transaction.
-    const any = await this.db.tabQuestion.findFirst({ where: { tabId, OR: [{ closedAt: null, status: { in: ['open', 'answered'] } }, { errorCode: PERMISSION_QUEUED }] }, select: { id: true } });
+    const any = await this.db.tabQuestion.findFirst({ where: { tabId, OR: [{ closedAt: null, status: { in: ['open', 'answered'] }, ...(scope === 'all' ? {} : { agentId: scope.agent }) }, ...(scope === 'all' || scope.leavesQueue ? [{ errorCode: PERMISSION_QUEUED }] : [])] }, select: { id: true } });
     if (!any) return [];
     return this.db.$transaction(async (tx) => {
       await lockTab(tx, tabId);
-      const closed = await closeIn(tx, tabId, status, now);
-      await tx.tabQuestion.updateMany({ where: { tabId, errorCode: PERMISSION_QUEUED }, data: { errorCode: null } });
+      const closed = await closeIn(tx, tabId, status, now, scope);
+      if (scope === 'all') {
+        await tx.tabQuestion.updateMany({ where: { tabId, errorCode: PERMISSION_QUEUED }, data: { errorCode: null, queueAgents: [] } });
+      } else if (scope.leavesQueue) {
+        // The queue ends when every agent in it has left (spec 2026-09-30 tab questions per subagent §5):
+        // one agent's close must not end a queue another agent's dialog is still in.
+        const marked = await tx.tabQuestion.findMany({ where: { tabId, errorCode: PERMISSION_QUEUED }, select: { id: true, queueAgents: true } });
+        for (const row of marked) {
+          const left = row.queueAgents.filter((a) => a !== queueKey(scope.agent));
+          await tx.tabQuestion.update({ where: { id: row.id }, data: left.length === 0 ? { errorCode: null, queueAgents: [] } : { queueAgents: left } });
+        }
+      }
       return closed;
     });
   }

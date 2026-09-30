@@ -1,7 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { config } from '../config.js';
 import type { Repositories } from '../db/repositories/index.js';
-import type { TabQuestion, TabQuestionCloseStatus } from '../db/repositories/tab-questions.js';
+import type { CloseScope, TabQuestion, TabQuestionCloseStatus } from '../db/repositories/tab-questions.js';
 import { describeTabQuestions, type TabQuestionView } from '../db/repositories/tab-questions-view.js';
 import type { Tab } from '../db/repositories/types.js';
 import { monitorBus } from '../monitor/bus.js';
@@ -20,21 +20,27 @@ const silentLog: Pick<FastifyBaseLogger, 'info' | 'warn'> = { info() {}, warn() 
 export type TabQuestionEventType = 'tab_question' | 'tab_question_answered' | 'tab_question_closed';
 
 /**
- * Whether a hook event means the tab moved past its open question (spec 2026-09-25 §5.2). A
- * `Notification` never does: it only ever says the tab is still waiting — the `permission_prompt`
- * that follows every question, or a reminder a minute later. Nor does AskUserQuestion's own
- * `PermissionRequest`, the question's companion. Nor does a subagent's event (spec 2026-09-26 §4.5): a
- * subagent works while the main thread's dialog is still on screen; after the person answers a subagent's
- * own prompt in the tab, its card waits for the main thread's next closing event, and an answer from it
- * meanwhile fails the live check (409) and closes it. An event that opens a question closes the previous
- * one itself (`open`).
+ * Which rows a hook event closes, or null when it closes nothing (spec 2026-09-30 tab questions per
+ * subagent §5). An event closes its own agent's rows: a subagent's next tool call or its end closes that
+ * subagent's card and nobody else's, and the main thread's events leave a running subagent's card alone.
+ * Two main-thread events close every row, being proof that nothing runs: a session end, and a Stop with
+ * nothing left in the background. A subagent leaves the permission queue only when it ends: a tool call of
+ * its own may be a parallel call's, landing while its dialog is still pending.
+ * What never closes: an event that opens a question (it closes the previous one itself, `open`); a
+ * `Notification`, which only says the tab is still waiting; AskUserQuestion's own `PermissionRequest`, the
+ * question's companion; and a subagent's event from a script that does not name it (spec 2026-09-26 §4.5).
  */
-export function closesOpenQuestion(next: Interpreted): boolean {
-  if (next.question) return false;
-  if (next.meta.subagent === true) return false;
-  if (next.meta.event === 'Notification') return false;
-  if (next.meta.event === 'PermissionRequest' && next.meta.tool === 'AskUserQuestion') return false;
-  return true;
+export function closingScope(next: Interpreted): CloseScope | null {
+  if (next.question) return null;
+  const event = next.meta.event;
+  if (event === 'Notification') return null;
+  if (event === 'PermissionRequest' && next.meta.tool === 'AskUserQuestion') return null;
+  if (next.meta.subagent === true) {
+    return typeof next.meta.agent_id === 'string' ? { agent: next.meta.agent_id, leavesQueue: event === 'SubagentStop' } : null;
+  }
+  if (event === 'SessionEnd') return 'all';
+  if (event === 'Stop' && !next.backgroundTasks) return 'all';
+  return { agent: null, leavesQueue: true };
 }
 
 /**
@@ -53,9 +59,9 @@ export async function publishTabQuestions(repos: Pick<Repositories, 'tabs'>, typ
   return views;
 }
 
-/** Closes the tab's question (if any), ends a permission queue, and says so. */
-export async function closeTabQuestions(repos: Repositories, tabId: string, status: TabQuestionCloseStatus): Promise<TabQuestion[]> {
-  const closed = await repos.tabQuestions.closeForTab(tabId, status);
+/** Closes the scope's cards, removes departing queue members, and announces the closed rows. */
+export async function closeTabQuestions(repos: Repositories, tabId: string, status: TabQuestionCloseStatus, scope: CloseScope = 'all'): Promise<TabQuestion[]> {
+  const closed = await repos.tabQuestions.closeForTab(tabId, status, scope);
   await publishTabQuestions(repos, 'tab_question_closed', closed);
   return closed;
 }
@@ -98,13 +104,13 @@ export async function openTabQuestion(
   repos: Repositories,
   tab: Pick<Tab, 'id' | 'project_id' | 'name'>,
   input: TabQuestionInput,
-  deps?: { embedder?: Embedder | null; log?: Pick<FastifyBaseLogger, 'info' | 'warn'>; waker?: Waker },
+  deps?: { agentId?: string | null; embedder?: Embedder | null; log?: Pick<FastifyBaseLogger, 'info' | 'warn'>; waker?: Waker },
 ): Promise<TabQuestion | null> {
   // Only the owner's chat: another user's conversation left on the project (a former owner, or an
   // admin's) must not receive the card, which would let them answer a tab they no longer own.
   const owner = (await repos.projects.findById(tab.project_id))?.owner_id;
   const conversation = owner ? await repos.chat.findLatestActiveForProject(tab.project_id, owner) : undefined;
-  const { question, closed } = await repos.tabQuestions.open({ tab_id: tab.id, project_id: tab.project_id, conversation_id: conversation?.id ?? null, kind: input.kind, payload: input.payload, tool_use_id: input.tool_use_id });
+  const { question, closed } = await repos.tabQuestions.open({ tab_id: tab.id, project_id: tab.project_id, conversation_id: conversation?.id ?? null, kind: input.kind, payload: input.payload, tool_use_id: input.tool_use_id, agent_id: deps?.agentId ?? null });
   await publishTabQuestions(repos, 'tab_question_closed', closed);
   let shown = question;
   if (question?.kind === 'choice') {
@@ -140,8 +146,8 @@ export async function openTabQuestion(
 }
 
 /**
- * The ingest step's hand-off (spec §4.2): after the tab row is updated, a question opens and any
- * other event closes. Never throws — a hook event is already recorded, and bookkeeping for a card
+ * The ingest step's hand-off (spec §4.2): a question opens, or the event closes its scope when
+ * `closingScope` allows it. Close-only events skip the tab update. Never throws: bookkeeping for a card
  * must not turn it into a failed POST. Logs ids, kind and counts; never the question. `waker` is
  * optional (spec 2026-09-26 concierge memory §7): the ingest route (`ingestHookEvent`) passes the real
  * one down from `app.ts`, next to `repos` and `log` — there is no `ChatService` instance to build it
@@ -150,10 +156,11 @@ export async function openTabQuestion(
 export async function noteHookEvent(repos: Repositories, log: Pick<FastifyBaseLogger, 'info' | 'warn'>, tab: Tab, next: Interpreted, waker?: Waker): Promise<void> {
   try {
     if (next.question) {
-      const q = await openTabQuestion(repos, tab, next.question, { log, waker });
+      const q = await openTabQuestion(repos, tab, next.question, { log, waker, agentId: typeof next.meta.agent_id === 'string' ? next.meta.agent_id : null });
       if (q) log.info({ tabId: tab.id, tabQuestionId: q.id, kind: q.kind, questions: q.kind === 'choice' ? (q.payload as ChoicePayload).questions.length : 1 }, 'tab question opened');
-    } else if (closesOpenQuestion(next)) {
-      await closeTabQuestions(repos, tab.id, 'answered_in_tab');
+    } else {
+      const scope = closingScope(next);
+      if (scope !== null) await closeTabQuestions(repos, tab.id, 'answered_in_tab', scope);
     }
   } catch (err) {
     log.warn({ tabId: tab.id, code: failureLabel(err) }, 'tab question bookkeeping failed');

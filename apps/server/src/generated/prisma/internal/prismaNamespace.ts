@@ -4466,6 +4466,8 @@ export const TabQuestionScalarFieldEnum = {
   status: 'status',
   answer: 'answer',
   errorCode: 'errorCode',
+  agentId: 'agentId',
+  queueAgents: 'queueAgents',
   answeredBy: 'answeredBy',
   answeredAt: 'answeredAt',
   closedAt: 'closedAt',
