@@ -35,7 +35,7 @@ Read from the code at `30cdd6d0`.
 | Default | Ad consent **denied** until the person accepts; set natively in `firebase.json` so it holds before any JS runs. Analytics storage stays granted (today's screen views are unchanged). | Opt-in per device. |
 | iOS accept | "Permitir" opens the ATT prompt; only `authorized` grants consent. Any other answer stores `denied`. | ATT is the source of truth on iOS. |
 | Changing one's mind | Ajustes → "Privacidade" → "Medição de anúncios" switch. Android: toggles consent. iOS: turns it off directly; turning it on when ATT is `denied` opens the system settings (iOS never shows the ATT prompt twice). | A choice must be reversible. |
-| Notifications in Ajustes | Ajustes → "Notificações": shows the status; when denied, a button "Abrir Ajustes do sistema" (`Linking.openSettings()`). | The only way back after a refusal. |
+| Notifications in Ajustes | Ajustes → "Notificações": shows the status; when undetermined, "Ativar notificações" (the OS prompt); when denied, "Abrir Ajustes do sistema" (`Linking.openSettings()`). The status is re-read when the app returns to the foreground. | The only way back after a refusal. |
 | Mock mode | The primer and the card show as in http mode; permission calls go to the real OS modules (a simulator answers them), and push registration keeps sending the fake mock token. | Keeps the flows testable in the simulator. |
 | Session wipe | The prompt flags live in MMKV and are cleared with the other persisted stores; the OS status still wins (a decided status never shows a prompt). | A new enrolment is a new start; the OS remembers what matters. |
 | Logs and analytics | New events: none. Consent changes are not logged. | Nothing to measure yet; keep it minimal. |
@@ -105,8 +105,8 @@ Derived: `showAdCard(state)` = `adConsent === 'unknown'` and (Android, or ATT `u
   `requestNotifications()` wrap `getPermissionsAsync` / `requestPermissionsAsync` (the Android
   `default` channel is created before requesting, as today).
 - `src/services/tracking.ts` (new): wraps `expo-tracking-transparency`; `unavailable` on Android.
-- `src/services/analytics.ts`: `setAdConsent(granted)` → `setConsent(getAnalytics(), { adStorage,
-  adUserData, adPersonalization: granted, analyticsStorage: true })`; never throws.
+- `src/services/analytics.ts`: `setAdConsent(granted)` → `setConsent(getAnalytics(), { ad_storage,
+  ad_user_data, ad_personalization: granted, analytics_storage: true })`; never throws.
 
 ### 3.4 Views (pt-BR copy)
 
@@ -143,7 +143,7 @@ no-op. `Linking.openSettings()` failure is ignored.
 ## 5. Testing
 
 - Logic (`createPermissionsStore.test.ts`, fakes for every dep): primer opens after the first send
-  only when undetermined; never after two dismissals or once decided; accept grants and calls
+  only when undetermined; never after two dismissals or once decided; accept grants and
   emits `pushGranted`; `showAdCard` visibility; iOS accept with each ATT answer; Android
   accept; settings toggle on iOS with ATT denied opens settings; `syncAdConsent` downgrade;
   persisted fields survive a rehydrate; wipe clears them.
