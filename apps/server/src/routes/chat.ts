@@ -49,6 +49,8 @@ const messageBody = z
     project_id: z.string().min(1).max(64).nullish(),
     attachment_ids: z.array(z.string().min(1).max(64)).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
     wait: z.boolean().optional(),
+    /** The message this one answers (TER-447). */
+    reply_to_id: z.string().min(1).max(64).optional(),
   })
   .refine((b) => b.text.length > 0 || (b.attachment_ids?.length ?? 0) > 0, { message: 'Escreva uma mensagem ou anexe um arquivo', path: ['text'] });
 const scopeQuery = z.object({ project: z.string().min(1).max(64).optional() });
@@ -166,9 +168,9 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
 
   app.post('/messages', { config: { action: 'create' } }, async (request, reply) => {
     // `wait` is read and ignored: a page loaded before this release still sends it.
-    const { text, project_id, attachment_ids } = messageBody.parse(request.body);
-    // `attachmentIds` only when the body carried ids, so a plain message calls the service exactly as before.
-    const opts = { projectId: project_id ?? null, ...(attachment_ids ? { attachmentIds: attachment_ids } : {}) };
+    const { text, project_id, attachment_ids, reply_to_id } = messageBody.parse(request.body);
+    // Each only when the body carried it, so a plain message calls the service exactly as before.
+    const opts = { projectId: project_id ?? null, ...(attachment_ids ? { attachmentIds: attachment_ids } : {}), ...(reply_to_id ? { replyToId: reply_to_id } : {}) };
     // A refusal (host problem, archived conversation, an attachment that is not this user's) rejects
     // `start` itself and keeps its status. The answer streams over `/ws/chat`; a failure after this
     // point is logged by label, and a run that could not be attempted says so on the stream.

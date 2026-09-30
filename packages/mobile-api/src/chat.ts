@@ -9,8 +9,37 @@ export const mobileMessageBody = z
     text: z.string().trim().max(8000).default(''),
     project_id: z.string().min(1).max(64).nullish(),
     attachment_ids: z.array(z.string().min(1).max(64)).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
+    /** The message this one answers (TER-447). */
+    reply_to_id: z.string().min(1).max(64).optional(),
   })
   .refine((b) => b.text.length > 0 || (b.attachment_ids?.length ?? 0) > 0, { message: 'Escreva uma mensagem ou anexe um arquivo', path: ['text'] });
+/** How much of a quoted message a reply keeps and shows (TER-447). */
+export const REPLY_EXCERPT_MAX = 200;
+
+const cutExcerpt = (s: string): string => {
+  const chars = [...s];
+  return chars.length > REPLY_EXCERPT_MAX ? `${chars.slice(0, REPLY_EXCERPT_MAX).join('').trimEnd()}…` : s;
+};
+
+/**
+ * What a quote shows of the message it answers (TER-447): plain text on one line. An answer is
+ * markdown, so fence lines, leading `#` and `>`, `*`, backticks and link targets go. Underscores stay:
+ * here they are far more often part of an identifier than emphasis. A message of files alone is named
+ * by them. The server cuts the stored snapshot with this; the clients cut their previews with it.
+ */
+export function replyExcerpt(text: string, attachmentNames: readonly string[] = []): string {
+  const plain = text
+    .replace(/^[ \t]*```.*$/gm, ' ')
+    .replace(/^[ \t]*(?:#{1,6}|>)[ \t]*/gm, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[*`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (plain) return cutExcerpt(plain);
+  const names = attachmentNames.join(', ').replace(/\s+/g, ' ').trim();
+  return names ? cutExcerpt(`📎 ${names}`) : '';
+}
+
 export const sendAccepted = z.object({ conversation_id: z.string(), user_message_id: z.string(), assistant_message_id: z.string() });
 const proof = { challenge: z.string().min(1).max(128), pin_proof: z.string().min(1).max(128) };
 

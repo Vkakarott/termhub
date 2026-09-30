@@ -504,6 +504,14 @@ describe('POST /chat/messages', () => {
     expect((await app.inject({ method: 'POST', url: '/chat/messages', payload: { attachment_ids: [] } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi', attachment_ids: ['1', '2', '3', '4', '5', '6'] } })).statusCode).toBe(400);
   });
+
+  it('passes reply_to_id to start (TER-447)', async () => {
+    const { app, start } = build();
+    const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'faz de novo', reply_to_id: 'm7' } });
+    expect(res.statusCode).toBe(202);
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'faz de novo', { projectId: null, replyToId: 'm7' });
+    expect((await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi', reply_to_id: '' } })).statusCode).toBe(400);
+  });
 });
 
 describe('POST /chat/actions/:id/decision', () => {
