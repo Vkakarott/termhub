@@ -9,7 +9,8 @@ const note = vi.fn(async (..._args: unknown[]) => undefined);
 vi.mock('../chat/tab-questions.js', () => ({ noteHookEvent: (...a: unknown[]) => note(...a) }));
 const schedule = vi.fn();
 const cancel = vi.fn();
-vi.mock('../chat/tab-suggestions.js', () => ({ scheduleTabSuggestion: (...a: unknown[]) => schedule(...a), cancelTabSuggestion: (...a: unknown[]) => cancel(...a) }));
+const openReply = vi.fn(async (..._args: unknown[]) => undefined);
+vi.mock('../chat/tab-suggestions.js', () => ({ scheduleTabSuggestion: (...a: unknown[]) => schedule(...a), cancelTabSuggestion: (...a: unknown[]) => cancel(...a), openCodexReply: (...a: unknown[]) => openReply(...a) }));
 const autoSwapOnLimit = vi.fn();
 vi.mock('../control/account-swap.js', () => ({ autoSwapOnLimit: (...a: unknown[]) => autoSwapOnLimit(...a) }));
 
@@ -220,6 +221,30 @@ describe('ingestHookEvent — suggestions', () => {
     const { r } = repos(tab({ state: 'working' }));
     await ingestHookEvent(r, log, { machineId: 'm1', tool: 'codex', session: 'th-t1', event: { type: 'agent-turn-complete', 'last-assistant-message': 'ok' } });
     expect(schedule).not.toHaveBeenCalled();
+  });
+});
+
+describe('ingestHookEvent — a Codex Stop that asks a question', () => {
+  const stop = (extra: object = {}, tool: 'codex' | 'claude' = 'codex') => ({ machineId: 'm1', tool, session: 'th-t1', event: { hook_event_name: 'Stop', last_assistant_message: 'Rodo os testes?', ...extra } });
+
+  it('opens the reply card after noteHookEvent, with the tab and the message', async () => {
+    openReply.mockClear();
+    note.mockClear();
+    const { r } = repos(tab({ state: 'working' }));
+    await ingestHookEvent(r, log, stop());
+    expect(openReply).toHaveBeenCalledTimes(1);
+    expect(openReply).toHaveBeenCalledWith(r, log, 't1', 'Rodo os testes?');
+    expect(note.mock.invocationCallOrder[0]!).toBeLessThan(openReply.mock.invocationCallOrder[0]!);
+    expect(schedule).not.toHaveBeenCalled();
+  });
+
+  it('a subagent Stop, a Claude Stop and a Codex notify open no reply card', async () => {
+    openReply.mockClear();
+    const { r } = repos(tab({ state: 'working' }));
+    await ingestHookEvent(r, log, stop({ subagent: true }));
+    await ingestHookEvent(r, log, stop({}, 'claude'));
+    await ingestHookEvent(r, log, { machineId: 'm1', tool: 'codex', session: 'th-t1', event: { type: 'agent-turn-complete', 'last-assistant-message': 'Rodo os testes?' } });
+    expect(openReply).not.toHaveBeenCalled();
   });
 });
 

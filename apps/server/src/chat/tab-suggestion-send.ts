@@ -1,17 +1,25 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { z } from 'zod';
 import { agents } from '../agent/registry.js';
+import { captureScreen } from '../agent/screen.js';
 import type { ControlContext } from '../control/context.js';
 import { assertTerminal, offline } from '../control/screen.js';
 import { sendInput } from '../control/terminals.js';
 import { describeTabQuestions, toTabQuestionView, type TabQuestionView } from '../db/repositories/tab-questions-view.js';
 import { forbidden, HttpError, notFound } from '../lib/errors.js';
+import { lastNonBlankLines, permissionDialogVisible } from './permission-dialog.js';
 import { asHttp, codeOf, scopedTabOfRow } from './tab-question-answer.js';
 import { typedText, type SuggestionPayload } from './tab-question-payload.js';
 import { publishTabQuestions } from './tab-questions.js';
-import { readSuggestion } from './tab-suggestions.js';
+import { readSuggestion, SUGGESTION_CAPTURE_LINES } from './tab-suggestions.js';
 
 type Log = Pick<FastifyBaseLogger, 'info' | 'warn'>;
+
+/**
+ * Codex writes the Stop and its `notify` for one turn a moment apart, the second moving `state_at` after
+ * the card opened: only a change later than this counts as the tab having moved on.
+ */
+export const CODEX_PAIRED_EVENT_GRACE_MS = 10_000;
 
 export const suggestionChanged = () => new HttpError(409, 'A sugestão mudou na aba', 'TAB_PROMPT_CHANGED');
 
@@ -20,6 +28,16 @@ export const suggestionChanged = () => new HttpError(409, 'A sugestão mudou na 
  * (C0, DEL, C1), ≤ 2000, no leading "!" nor "/" (it lands at Claude Code's prompt).
  */
 export const suggestionSendBody = z.object({ text: typedText });
+
+/**
+ * The live check of a Codex reply card (there is no dimmed suggestion to compare): the tab still waits,
+ * nothing happened to it after the card, and the plain screen shows no dialog that would eat the text.
+ */
+function codexReplyStale(tab: { state: string | null; state_at: string | null }, row: { created_at: string }, screen: string): boolean {
+  if (tab.state !== 'waiting_input') return true;
+  if (tab.state_at !== null && Date.parse(tab.state_at) > Date.parse(row.created_at) + CODEX_PAIRED_EVENT_GRACE_MS) return true;
+  return permissionDialogVisible(screen) || /enter to submit/i.test(lastNonBlankLines(screen, 5));
+}
 
 const suggestionRow = async (ctx: ControlContext, id: string) => {
   const row = await ctx.repos.tabQuestions.findByIdForUser(id, ctx.scope.user.id);
@@ -41,22 +59,25 @@ export async function sendTabSuggestion(ctx: ControlContext, id: string, raw: un
   const row = await suggestionRow(ctx, id);
   const { text } = suggestionSendBody.parse(raw);
   const suggested = (row.payload as SuggestionPayload).text;
+  const isCodex = (row.payload as SuggestionPayload).agent === 'codex';
   const { tab, machine } = await scopedTabOfRow(ctx, row, deps.log);
   if (row.status !== 'open') throw suggestionChanged();
   const latest = await ctx.repos.tabQuestions.findOpenForTab(tab.id);
   if (latest?.id !== row.id) throw suggestionChanged();
 
-  let shown: string | null;
+  let stale: boolean;
   try {
     assertTerminal(tab);
     // an agent moving between instances (a deploy) gets a few seconds to attach before it is called offline
     if (!(await agents.awaitAgent(machine))) throw offline();
-    shown = await readSuggestion(machine, tab.tmux_session);
+    stale = isCodex
+      ? codexReplyStale(tab, row, await captureScreen(machine, tab.tmux_session, SUGGESTION_CAPTURE_LINES))
+      : (await readSuggestion(machine, tab.tmux_session)) !== suggested;
   } catch (err) {
     // agentRpc turns a connection that dropped mid-call into a bare 503 (toHttpError)
     throw asHttp(err instanceof HttpError && err.statusCode === 503 ? offline() : err);
   }
-  if (shown !== suggested) {
+  if (stale) {
     // The tab moved on without telling us: this card is stale, so it leaves the screens now (only this
     // row, only while still open). Best effort: the 409 is the answer either way.
     try {

@@ -1,6 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { noteHookEvent } from '../chat/tab-questions.js';
-import { cancelTabSuggestion, scheduleTabSuggestion } from '../chat/tab-suggestions.js';
+import { cancelTabSuggestion, openCodexReply, scheduleTabSuggestion } from '../chat/tab-suggestions.js';
 import type { Waker } from '../chat/wake.js';
 import { autoSwapOnLimit } from '../control/account-swap.js';
 import type { Repositories } from '../db/repositories/index.js';
@@ -44,6 +44,9 @@ export async function ingestHookEvent(
   // Claude Code draws its suggested next prompt shortly after the turn ends: look in a few seconds, with the
   // Stop's own message and background count (spec 2026-09-26 TER-203 §4.2).
   if (input.tool === 'claude' && interpreted.meta.event === 'Stop') scheduleTabSuggestion(repos, log, updated.id, { context: interpreted.text, backgroundTasks: interpreted.backgroundTasks ?? 0 });
+  // Codex has no suggestion to read: a Stop that ends in a question opens a reply card, after noteHookEvent
+  // (which closed the cards of the turn that just ended).
+  if (input.tool === 'codex' && interpreted.meta.event === 'Stop' && interpreted.meta.subagent !== true) await openCodexReply(repos, log, updated.id, interpreted.text);
   if (isRateLimit(interpreted)) autoSwapOnLimit(repos, log, updated);
   return { ok: true, tab: updated };
 }

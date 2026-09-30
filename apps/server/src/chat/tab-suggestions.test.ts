@@ -9,7 +9,7 @@ import { chatBus, type ChatEvent } from './bus.js';
 const captureStyledScreen = vi.fn();
 vi.mock('../agent/screen.js', async (orig) => ({ ...(await orig<typeof import('../agent/screen.js')>()), captureStyledScreen: (...a: unknown[]) => captureStyledScreen(...a) }));
 
-const { CLAUDE_IDLE_MESSAGE, SUGGESTION_DELAY_MS, cancelTabSuggestion, checkTabSuggestion, cleanContext, cleanSuggestion, scheduleTabSuggestion, stopTabSuggestions } = await import('./tab-suggestions.js');
+const { CLAUDE_IDLE_MESSAGE, SUGGESTION_DELAY_MS, cancelTabSuggestion, checkTabSuggestion, cleanContext, cleanSuggestion, openCodexReply, scheduleTabSuggestion, stopTabSuggestions } = await import('./tab-suggestions.js');
 
 const fx = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures/tab-suggestions', name), 'utf8');
 const screens = { suggestion: fx('screen-suggestion.ansi'), typed: fx('screen-typed.ansi') };
@@ -286,5 +286,55 @@ describe('the Stop decides (spec 2026-09-26 TER-203 §4.2)', () => {
     await settle();
     expect(repos.tabs.findById).not.toHaveBeenCalled();
     expect(repos.tabQuestions.open).not.toHaveBeenCalled();
+  });
+});
+
+describe('openCodexReply', () => {
+  const codexTab = { ...tab, state_tool: 'codex' };
+  const ask = 'Criei o notes.txt.\n\nQuer que eu faça o commit?';
+
+  it('opens a suggestion row with an empty text, the cleaned context and agent codex, and publishes it', async () => {
+    const r = fakeRepos({ tab: codexTab });
+    const l = log();
+    await openCodexReply(asRepos(r), l, 't1', ask);
+    expect(r.tabQuestions.open).toHaveBeenCalledWith({ tab_id: 't1', project_id: 'p1', conversation_id: 'c1', kind: 'suggestion', payload: { text: '', context: ask, agent: 'codex' }, tool_use_id: null });
+    expect(events).toEqual([expect.objectContaining({ type: 'tab_suggestion', conversation_id: 'c1' })]);
+    expect(captureStyledScreen).not.toHaveBeenCalled();
+    expect(l.info).toHaveBeenCalledWith(expect.objectContaining({ tabId: 't1', kind: 'suggestion' }), 'codex reply card opened');
+    expect(JSON.stringify(l.info.mock.calls)).not.toContain('commit');
+  });
+
+  it.each([
+    ['ends in a statement', 'Pronto, criei o arquivo.'],
+    ['asks in the middle only', 'Quer que eu rode?\n\nDepois eu aviso.'],
+    ['is blank', '   '],
+  ])('opens nothing when the message %s', async (_l, text) => {
+    const r = fakeRepos({ tab: codexTab });
+    await openCodexReply(asRepos(r), log(), 't1', text);
+    expect(r.tabQuestions.open).not.toHaveBeenCalled();
+  });
+
+  it('accepts a fullwidth question mark and trailing whitespace', async () => {
+    const r = fakeRepos({ tab: codexTab });
+    await openCodexReply(asRepos(r), log(), 't1', '実行しますか？  \n');
+    expect(r.tabQuestions.open).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens nothing without a conversation, or when the tab no longer waits', async () => {
+    const none = fakeRepos({ tab: codexTab, conversation: null });
+    await openCodexReply(asRepos(none), log(), 't1', ask);
+    expect(none.tabQuestions.open).not.toHaveBeenCalled();
+    const moved = fakeRepos({ tab: { ...codexTab, state: 'working' } });
+    await openCodexReply(asRepos(moved), log(), 't1', ask);
+    expect(moved.tabQuestions.open).not.toHaveBeenCalled();
+  });
+
+  it('never throws; logs the code only', async () => {
+    const r = fakeRepos({ tab: codexTab });
+    r.tabQuestions.open.mockRejectedValue(new Error('boom Quer que eu'));
+    const l = log();
+    await expect(openCodexReply(asRepos(r), l, 't1', ask)).resolves.toBeUndefined();
+    expect(l.warn).toHaveBeenCalledWith(expect.objectContaining({ tabId: 't1' }), 'codex reply card failed');
+    expect(JSON.stringify(l.warn.mock.calls)).not.toContain('Quer que');
   });
 });
