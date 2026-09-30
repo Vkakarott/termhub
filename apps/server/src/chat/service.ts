@@ -33,7 +33,7 @@ import { groupsOf, type GroupView } from '../control/groups.js';
 export type { ChatErrorCode } from './stream.js';
 
 /** What a run needs of its host: the machine, and the account it starts on. */
-type RunHost = Pick<Extract<HostChoice, { kind: 'ready' }>, 'machine' | 'configDir' | 'account'>;
+type RunHost = Pick<Extract<HostChoice, { kind: 'ready' }>, 'machine' | 'configDir' | 'account' | 'model'>;
 
 /** The account a run is on: its row (null for the machine's default login) and its label for the notices. */
 interface RunAccount {
@@ -59,8 +59,11 @@ class LimitFallback {
   private first: { label: string | null; resets_at: string | null } | null = null;
   account: RunAccount;
 
+  /** The run is on the project's account list (TER-589): the account that takes over becomes the project chat's own. */
+  private readonly projectRun: boolean;
+
   constructor(
-    private repos: Pick<Repositories, 'aiAccounts'>,
+    private repos: Pick<Repositories, 'aiAccounts' | 'chat'> & Partial<Pick<Repositories, 'projectSetup'>>,
     private machine: Machine,
     private projectId: string | null,
     private conversationId: string,
@@ -68,6 +71,7 @@ class LimitFallback {
   ) {
     this.account = runAccountOf(host);
     if (this.account.id) this.tried.add(this.account.id);
+    this.projectRun = host.account.kind === 'chosen' && host.account.via === 'project';
   }
 
   /** The next account, its session moved there when it can be, and the notice its answer carries. */
@@ -88,7 +92,9 @@ class LimitFallback {
     if (pick) {
       console.info('chat: usage limit, answering on another account', { conversation_id: this.conversationId, machine_id: this.machine.id, from: this.account.id, to: pick.account.id, resume: pick.resume });
       this.account = { id: pick.account.id, label: pick.account.label, configDir: pick.account.config_dir };
-      // TER-589: `pick.account` is the account that answers from here on.
+      // TER-589: `pick.account` answers from here on. In a project chat running on the project's list it
+      // becomes that chat's account, so the next message starts there instead of on the limited one.
+      if (this.projectRun) await this.repos.chat.setRunAccount(this.conversationId, pick.account.id).catch((err) => console.error('chat: could not keep the project account', { conversation_id: this.conversationId, error: failureLabel(err) }));
       return { pick, notice: { kind: 'account_swap', from: this.first.label, to: pick.account.label, resets_at: this.first.resets_at } };
     }
     const fallback = await fallbackShortfall(this.repos, this.machine, this.account.id).catch(() => 'none_free' as const);
@@ -459,7 +465,8 @@ export class ChatService {
     const ctx = { repos: this.deps.repos, agents: this.deps.agents };
     const wait = opts.wait ?? false;
     if (conversation === null || conversation.project_id === null) return resolveHost(ctx, user, conversation === null ? { wait } : { runSessionId: conversation.cli_session_id, wait });
-    return resolveHost(ctx, user, { requires: CAPABILITY_CLAUDE_SYSTEM_PROMPT, runSessionId: conversation.cli_session_id, wait });
+    // TER-589: a configured project runs its chat on its own accounts and model.
+    return resolveHost(ctx, user, { requires: CAPABILITY_CLAUDE_SYSTEM_PROMPT, runSessionId: conversation.cli_session_id, wait, project: { id: conversation.project_id, accountId: conversation.ai_account_id } });
   }
 
   /**
@@ -1328,7 +1335,8 @@ export class ChatService {
           resume: conversation.cli_session_id !== null,
           text,
           config_dir: fallback.account.configDir,
-          model: conversation.model,
+          // the conversation's own model, else the project's default (TER-589)
+          model: conversation.model ?? host.model ?? null,
           token,
           append_system_prompt: appendSystemPrompt,
         };
@@ -1499,7 +1507,8 @@ export class ChatService {
           resume,
           text: live.initialText(),
           config_dir: fallback.account.configDir,
-          model: conversation.model,
+          // the conversation's own model, else the project's default (TER-589)
+          model: conversation.model ?? host.model ?? null,
           token,
           append_system_prompt: appendSystemPrompt,
           stream_input: true,

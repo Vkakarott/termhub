@@ -1,6 +1,7 @@
 import { linkClaudeSession } from '../ai/claude-session.js';
 import { getAccountUsage, type AiAccountUsage } from '../ai/index.js';
 import { rankCandidates } from '../control/account-swap.js';
+import { accountsOn } from '../ai/project-accounts.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { AiAccount, Machine } from '../db/repositories/types.js';
 
@@ -24,18 +25,25 @@ async function otherAccounts(repos: Pick<Repositories, 'aiAccounts'>, machine: M
  * `projectId` is for TER-589, which orders a configured project's chat by the project's own priority.
  */
 export async function fallbackCandidates(
-  repos: Pick<Repositories, 'aiAccounts'>,
+  repos: Pick<Repositories, 'aiAccounts'> & Partial<Pick<Repositories, 'projectSetup'>>,
   machine: Machine,
   currentAccountId: string | null,
   tried: ReadonlySet<string>,
   projectId: string | null,
 ): Promise<AiAccount[]> {
-  void projectId;
   const pool = (await otherAccounts(repos, machine, currentAccountId)).filter((a) => !tried.has(a.id));
+  // A project that lists Claude accounts on this machine keeps its chat on them, in its order
+  // (TER-589, spec 2026-09-30 project AI accounts §7.1); any other chat ranks by room, as before.
+  let priority: string[] | undefined;
+  if (projectId !== null && repos.projectSetup) {
+    const { ai } = (await repos.projectSetup.get(projectId)).data;
+    const listed = accountsOn(ai, await repos.aiAccounts.list(machine.owner_id), machine.id, 'claude');
+    if (listed.length > 0) priority = listed.map((a) => a.id);
+  }
   const usage = new Map<string, AiAccountUsage>();
   // getAccountUsage never rejects: a failed reading comes back as `ok: false` and ranks last
   await Promise.all(pool.map(async (a) => usage.set(a.id, await getAccountUsage(a, machine, true))));
-  return rankCandidates(pool, usage, { explicit: false });
+  return rankCandidates(pool, usage, { explicit: false, priority });
 }
 
 /** Why no account could take over: there is none besides this one, or none has room left. */
@@ -75,7 +83,7 @@ export interface FallbackPick {
  * exhausted accounts).
  */
 export async function pickFallback(
-  repos: Pick<Repositories, 'aiAccounts'>,
+  repos: Pick<Repositories, 'aiAccounts'> & Partial<Pick<Repositories, 'projectSetup'>>,
   input: { machine: Machine; currentAccountId: string | null; tried: Set<string>; projectId: string | null; sessionDir: string | null; sessionId: string | null },
 ): Promise<FallbackPick | null> {
   const candidates = await fallbackCandidates(repos, input.machine, input.currentAccountId, input.tried, input.projectId);
