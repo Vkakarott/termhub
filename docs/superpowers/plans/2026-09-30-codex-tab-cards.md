@@ -10,6 +10,18 @@ approval or question never becomes a card in the project chat, so the concierge 
 watching the Codex window. Claude Code's questions and approvals already become cards answered straight in the
 tab (`chat/tab-questions.ts`, `chat/tab-question-answer.ts`).
 
+## Impact on other users
+
+- **Default, for everyone whose Codex hooks are trusted:** Codex approvals and `request_user_input` questions
+  open cards in the project owner's chat, as Claude Code's already do. Answering in the tab still works and
+  closes the card.
+- **Default:** the concierge follows a tab with at most one background subagent per request (waiting with
+  `wait_for_state`) instead of opening watchers.
+- **Opt-in per user (Settings, off by default):** the Codex reply card for a turn that ends in a prose question.
+- Nothing changes for Claude Code or Cursor tabs.
+- Agent 0.13.0 is needed only for question cards (its hook script forwards `request_user_input`); approval cards
+  work with agent 0.11.0 and later.
+
 ## What was verified on hulk (codex-cli 0.159.2, `--no-alt-screen` and alt screen alike)
 
 - **Approval menu** (fixture `apps/server/src/chat/fixtures/permission-dialogs/codex-reason.txt`):
