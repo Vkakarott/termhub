@@ -151,6 +151,21 @@ describe('answerTabQuestion', () => {
     expect(steps()).toEqual(['key:Down', 'key:Down', 'key:Tab', 'text:Roxo', 'key:Enter']);
   });
 
+  it('a Codex card on another Codex dialog is not seen (card stays open); on a Claude dialog it is stale', async () => {
+    const opt = (label: string) => ({ label, description: '', recommended: false });
+    const q = { question: 'Qual cor: azul ou verde?', header: 'Cor', multi_select: false, options: [opt('Azul'), opt('Verde')] };
+    const codexAsk = row({ payload: { agent: 'codex', questions: [q] } });
+    readScreen.mockResolvedValue({ tab_id: 't1', lines: 60, text: codexFx('permission-dialogs/codex-reason.txt'), styled: false });
+    const seen = ctxFor(codexAsk);
+    await rejects(answerTabQuestion(seen.ctx, 'q1', { answers: [{ selected: [0] }] }, { log: log(), sleep: noSleep, ...noEmbed }), 409, 'TAB_PROMPT_NOT_SEEN');
+    expect(seen.tabQuestions.closeOne).not.toHaveBeenCalled();
+    readScreen.mockResolvedValue({ tab_id: 't1', lines: 60, text: screens.permission, styled: false });
+    const stale = ctxFor(codexAsk);
+    await rejects(answerTabQuestion(stale.ctx, 'q1', { answers: [{ selected: [0] }] }, { log: log(), sleep: noSleep, ...noEmbed }), 409, 'TAB_PROMPT_CHANGED');
+    expect(stale.tabQuestions.closeOne).toHaveBeenCalledWith('q1', 'answered_in_tab');
+    expect(steps()).toEqual([]);
+  });
+
   it('404: not this user\'s question, or its tab is outside the scope — nothing claimed nor typed', async () => {
     await rejects(answerTabQuestion(ctxFor(undefined).ctx, 'q1', { answers: [{ selected: [0] }, { selected: [0] }] }, { log: log() }), 404, 'NOT_FOUND');
     const out = ctxFor(row(), { outOfScope: true });

@@ -88,6 +88,17 @@ export function dialogFooterVisible(screen: string): boolean {
 }
 
 /**
+ * Whether the tab shows some dialog of the row's own agent now, recognised or not: Codex's two footers
+ * for a Codex row (`payload.agent === 'codex'`), Claude Code's `DIALOG_FOOTER` otherwise. A Codex card
+ * on a Claude screen (or the reverse) is stale, not "not seen".
+ */
+export function rowDialogFooterVisible(screen: string, row: Pick<TabQuestion, 'payload'>): boolean {
+  if ((row.payload as { agent?: string }).agent !== 'codex') return dialogFooterVisible(screen);
+  const last = lastNonBlankLines(screen, 1).toLowerCase();
+  return last.includes(CODEX_APPROVAL_FOOTER) || last.includes(CODEX_QUESTION_FOOTER);
+}
+
+/**
  * The live check (spec §5.3): the question must be the dialog the tab is showing *now*. Two things,
  * both required. The last non-blank line is a dialog's footer (`DIALOG_FOOTER`), so a tab back at
  * its normal prompt never passes, whatever its scrollback says. And the marker sits within the last
