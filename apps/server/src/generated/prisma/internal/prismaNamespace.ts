@@ -408,6 +408,7 @@ export const ModelName = {
   ProjectMachine: 'ProjectMachine',
   Tab: 'Tab',
   TabEvent: 'TabEvent',
+  TabLastAnswer: 'TabLastAnswer',
   MachineHook: 'MachineHook',
   Ticket: 'Ticket',
   TaskColumn: 'TaskColumn',
@@ -457,7 +458,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "machineHook" | "ticket" | "taskColumn" | "task" | "taskPullRequest" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAttachment" | "chatAction" | "chatSubagent" | "chatLiveRun" | "chatGrant" | "chatProjectGrant" | "chatStandingGrant" | "tabQuestion" | "chatDecision" | "memoryItem" | "instanceSecret" | "projectGroup" | "projectGroupItem" | "deviceRequest" | "device" | "deviceToken" | "deviceChallenge" | "deviceEvent" | "userNotification"
+    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "tabLastAnswer" | "machineHook" | "ticket" | "taskColumn" | "task" | "taskPullRequest" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAttachment" | "chatAction" | "chatSubagent" | "chatLiveRun" | "chatGrant" | "chatProjectGrant" | "chatStandingGrant" | "tabQuestion" | "chatDecision" | "memoryItem" | "instanceSecret" | "projectGroup" | "projectGroupItem" | "deviceRequest" | "device" | "deviceToken" | "deviceChallenge" | "deviceEvent" | "userNotification"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1272,6 +1273,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.TabEventCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.TabEventCountAggregateOutputType> | number
+        }
+      }
+    }
+    TabLastAnswer: {
+      payload: Prisma.$TabLastAnswerPayload<ExtArgs>
+      fields: Prisma.TabLastAnswerFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TabLastAnswerFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLastAnswerPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TabLastAnswerFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLastAnswerPayload>
+        }
+        findFirst: {
+          args: Prisma.TabLastAnswerFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLastAnswerPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TabLastAnswerFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLastAnswerPayload>
+        }
+        findMany: {
+          args: Prisma.TabLastAnswerFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLastAnswerPayload>[]
+        }
+        create: {
+          args: Prisma.TabLastAnswerCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLastAnswerPayload>
+        }
+        createMany: {
+          args: Prisma.TabLastAnswerCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TabLastAnswerCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLastAnswerPayload>[]
+        }
+        delete: {
+          args: Prisma.TabLastAnswerDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLastAnswerPayload>
+        }
+        update: {
+          args: Prisma.TabLastAnswerUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLastAnswerPayload>
+        }
+        deleteMany: {
+          args: Prisma.TabLastAnswerDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TabLastAnswerUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TabLastAnswerUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLastAnswerPayload>[]
+        }
+        upsert: {
+          args: Prisma.TabLastAnswerUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLastAnswerPayload>
+        }
+        aggregate: {
+          args: Prisma.TabLastAnswerAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTabLastAnswer>
+        }
+        groupBy: {
+          args: Prisma.TabLastAnswerGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TabLastAnswerGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TabLastAnswerCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TabLastAnswerCountAggregateOutputType> | number
         }
       }
     }
@@ -4006,6 +4081,16 @@ export const TabEventScalarFieldEnum = {
 export type TabEventScalarFieldEnum = (typeof TabEventScalarFieldEnum)[keyof typeof TabEventScalarFieldEnum]
 
 
+export const TabLastAnswerScalarFieldEnum = {
+  tabId: 'tabId',
+  text: 'text',
+  tool: 'tool',
+  at: 'at'
+} as const
+
+export type TabLastAnswerScalarFieldEnum = (typeof TabLastAnswerScalarFieldEnum)[keyof typeof TabLastAnswerScalarFieldEnum]
+
+
 export const MachineHookScalarFieldEnum = {
   machineId: 'machineId',
   tokenHash: 'tokenHash',
@@ -5014,6 +5099,7 @@ export type GlobalOmitConfig = {
   projectMachine?: Prisma.ProjectMachineOmit
   tab?: Prisma.TabOmit
   tabEvent?: Prisma.TabEventOmit
+  tabLastAnswer?: Prisma.TabLastAnswerOmit
   machineHook?: Prisma.MachineHookOmit
   ticket?: Prisma.TicketOmit
   taskColumn?: Prisma.TaskColumnOmit

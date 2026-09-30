@@ -20,6 +20,18 @@ function eventName(meta: unknown): string | null {
   return typeof name === 'string' && name ? name : null;
 }
 
+/** A subagent's event carries `subagent: true` in its meta (monitor/state.ts). */
+const isSubagentEvent = (meta: unknown): boolean => metaOf(meta).subagent === true;
+
+/** The final message of the agent's last turn in a tab, as its hooks delivered it (spec 2026-09-30 last
+ *  answer). `stale`: a turn started after it, so it is an earlier turn's. */
+export interface LastAnswer {
+  text: string;
+  at: string;
+  tool: string;
+  stale: boolean;
+}
+
 /** A Claude Stop that left background tasks running writes their count in its meta. */
 function hasBackgroundTasks(meta: unknown): boolean {
   const count = metaOf(meta).background_tasks;
@@ -159,6 +171,8 @@ export class TabsRepository {
       activityVerb?: string | null;
       continuesWait?: boolean;
       keepsWaitText?: boolean;
+      /** The whole answer of the turn (monitor/state.ts `Interpreted.answer`), stored apart from the tab. */
+      answer?: string;
     },
   ): Promise<{ tab: Tab; event: TabEvent | null; rearm: Rearm | null }> {
     const [e, t, rearm] = await this.db.$transaction(async (tx) => {
@@ -211,6 +225,12 @@ export class TabsRepository {
           ...(outcome.seen === 'none' ? {} : { stateSeenAt: at }),
         },
       });
+      // The whole answer, when the event carries one (spec 2026-09-30 last answer): one row per tab,
+      // replaced at every turn. An event with none — a reminder, a permission prompt, a tool call —
+      // leaves the last one as it is. Never logged.
+      if (event.answer !== undefined) {
+        await tx.tabLastAnswer.upsert({ where: { tabId }, create: { tabId, text: event.answer, tool: event.tool, at }, update: { text: event.answer, tool: event.tool, at } });
+      }
       await tx.$executeRaw`DELETE FROM "tab_events" WHERE "tab_id" = ${tabId} AND "id" NOT IN (SELECT "id" FROM "tab_events" WHERE "tab_id" = ${tabId} ORDER BY "created_at" DESC LIMIT ${EVENTS_KEPT_PER_TAB})`;
       return [ev, updated, rearmOf(now, history, incoming, outcome)] as const;
     });
@@ -225,6 +245,24 @@ export class TabsRepository {
   /** Clears the monitor state (e.g. the tmux session is gone). */
   async clearState(tabId: string): Promise<void> {
     await this.db.tab.updateMany({ where: { id: tabId }, data: { state: null, stateText: null, stateTool: null, stateAt: null, stateSeenAt: null, activity: null, activityVerb: null } });
+  }
+
+  /**
+   * The agent's last whole answer of a tab, or null when none was ever recorded. Read on its own:
+   * it is never part of a `Tab` row, which every list carries. `stale` when a working event of the
+   * tab is newer than the answer: a turn started since (an Esc, an empty stop, a lost event). A
+   * `SessionStart` (Claude's /compact, /clear, a resume) and a subagent's event do not count: the
+   * person asked nothing new. The meta is read here, not in the query, so an event without those
+   * keys is never lost to JSON-path null semantics; the table keeps at most EVENTS_KEPT_PER_TAB rows.
+   * `gte`, not `gt`: an event that carries an answer is never a working one, so a working event in the
+   * same millisecond as the answer is a later one and must count.
+   */
+  async readLastAnswer(tabId: string): Promise<LastAnswer | null> {
+    const row = await this.db.tabLastAnswer.findUnique({ where: { tabId } });
+    if (!row) return null;
+    const newer = await this.db.tabEvent.findMany({ where: { tabId, kind: 'working', createdAt: { gte: row.at } }, select: { meta: true } });
+    const stale = newer.some((e) => eventName(e.meta) !== 'SessionStart' && !isSubagentEvent(e.meta));
+    return { text: row.text, at: row.at.toISOString(), tool: row.tool, stale };
   }
 
   /**

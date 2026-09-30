@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { STATE_TEXT_MAX, claudeSessionOf, interpretHookEvent, isRateLimit, needsYou, runningBackgroundTasks } from './state.js';
+import { LAST_ANSWER_MAX, STATE_TEXT_MAX, claudeSessionOf, interpretHookEvent, isRateLimit, needsYou, runningBackgroundTasks } from './state.js';
 import { activityOf } from './activity.js';
 
 describe('interpretHookEvent — claude', () => {
@@ -114,6 +114,7 @@ describe('interpretHookEvent — codex', () => {
       kind: 'waiting_input',
       text: 'Done. Want me to run the tests?',
       meta: { event: 'agent-turn-complete' },
+      answer: 'Done. Want me to run the tests?',
     });
   });
 
@@ -219,6 +220,7 @@ describe('interpretHookEvent — codex hooks', () => {
       kind: 'waiting_input',
       text: 'Pronto. Rodo os testes?',
       meta: { event: 'Stop' },
+      answer: 'Pronto. Rodo os testes?',
     });
     expect(interpretHookEvent('codex', { ...base, hook_event_name: 'Stop' })?.text).toBeNull();
   });
@@ -267,6 +269,7 @@ describe('interpretHookEvent — cursor', () => {
       text: 'Pronto. Posso seguir?',
       meta: { event: 'afterAgentResponse' },
       continuesWait: true,
+      answer: 'Pronto. Posso seguir?',
     });
     expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'afterAgentResponse', text: 'x'.repeat(5000) })?.text?.length).toBe(STATE_TEXT_MAX);
   });
@@ -462,5 +465,48 @@ describe('claude Stop background tasks (spec 2026-09-26 TER-203 §4.1)', () => {
     expect(runningBackgroundTasks(undefined)).toBe(0);
     expect(runningBackgroundTasks({ length: 3 })).toBe(0);
     expect(runningBackgroundTasks([{ status: 'running' }, { status: 'RUNNING' }])).toBe(1);
+  });
+});
+
+describe('the whole answer (spec 2026-09-30 last answer)', () => {
+  const long = 'x'.repeat(10_000);
+
+  it.each([
+    ['claude', { hook_event_name: 'Stop', last_assistant_message: long }],
+    ['codex', { hook_event_name: 'Stop', last_assistant_message: long }],
+    ['codex', { type: 'agent-turn-complete', 'last-assistant-message': long }],
+    ['cursor', { hook_event_name: 'afterAgentResponse', text: long }],
+  ] as const)('%s keeps the answer whole and the text capped', (tool, event) => {
+    const out = interpretHookEvent(tool, event)!;
+    expect(out.answer).toBe(long);
+    expect(out.text!.length).toBe(STATE_TEXT_MAX);
+    expect(out.text!.endsWith('…')).toBe(true);
+  });
+
+  it('keeps the answer of a Claude Stop with background tasks still running', () => {
+    const out = interpretHookEvent('claude', { hook_event_name: 'Stop', last_assistant_message: 'Pronto.', background_tasks: [{ status: 'running' }] })!;
+    expect(out).toMatchObject({ backgroundTasks: 1, answer: 'Pronto.' });
+  });
+
+  it.each([
+    ['claude', { hook_event_name: 'StopFailure', error: 'rate_limit', last_assistant_message: "You've hit your weekly limit · resets 1pm" }],
+    ['claude', { hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'Claude is waiting for your input' }],
+    ['claude', { hook_event_name: 'PreToolUse', tool_name: 'Bash' }],
+    ['claude', { hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: {} }],
+    ['claude', { hook_event_name: 'Stop', last_assistant_message: long, agent_id: 'a1' }],
+    ['codex', { hook_event_name: 'Stop', last_assistant_message: long, subagent: true }],
+    ['cursor', { hook_event_name: 'stop', status: 'completed' }],
+  ] as const)('%s events that carry no answer have none', (tool, event) => {
+    expect(interpretHookEvent(tool, event)?.answer).toBeUndefined();
+  });
+
+  it('cuts an answer longer than LAST_ANSWER_MAX', () => {
+    const out = interpretHookEvent('claude', { hook_event_name: 'Stop', last_assistant_message: 'y'.repeat(120_000) })!;
+    expect(out.answer!.length).toBe(LAST_ANSWER_MAX);
+    expect(out.answer!.endsWith('…')).toBe(true);
+  });
+
+  it('an empty answer is no answer', () => {
+    expect(interpretHookEvent('claude', { hook_event_name: 'Stop', last_assistant_message: '   ' })?.answer).toBeUndefined();
   });
 });

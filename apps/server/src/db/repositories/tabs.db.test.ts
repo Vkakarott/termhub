@@ -574,6 +574,62 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
       expect((await repo.findById(tabId))?.ai_account_id).toBeNull();
     });
   });
+  describe('the last answer (spec 2026-09-30)', () => {
+    it('recordEvent stores the answer an event carries, and leaves it when an event carries none', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, meta: { event: 'UserPromptSubmit' } });
+      expect(await repo.readLastAnswer(tabId)).toBeNull();
+
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'resposta…', meta: { event: 'Stop' }, answer: 'resposta inteira, de verdade' });
+      const first = await repo.readLastAnswer(tabId);
+      expect(first).toMatchObject({ text: 'resposta inteira, de verdade', tool: 'claude', stale: false });
+      expect(Date.parse(first!.at)).toBeGreaterThan(0);
+
+      // A reminder carries no answer: the stored one stays, time included, and it is not stale.
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'Claude is waiting for your input', meta: { event: 'Notification', type: 'idle_prompt' }, continuesWait: true, keepsWaitText: true });
+      expect(await repo.readLastAnswer(tabId)).toEqual(first);
+
+      // A new turn makes it stale; its answer replaces it.
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, meta: { event: 'UserPromptSubmit' } });
+      expect(await repo.readLastAnswer(tabId)).toMatchObject({ text: 'resposta inteira, de verdade', stale: true });
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'outra', meta: { event: 'Stop' }, answer: 'outra resposta' });
+      expect(await repo.readLastAnswer(tabId)).toMatchObject({ text: 'outra resposta', stale: false });
+    });
+
+    it('a dropped event writes no answer, even one it carries', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: 'r', meta: { event: 'afterAgentResponse' }, continuesWait: true, answer: 'r inteira' });
+      // The sequence pinned above as dropped: a Cursor sessionStart right after its own prompt.
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'cursor', text: null, meta: { event: 'beforeSubmitPrompt' } });
+      const { event } = await repo.recordEvent(tabId, { kind: 'idle', tool: 'cursor', text: null, meta: { event: 'sessionStart' }, answer: 'nova' });
+      expect(event).toBeNull();
+      expect(await repo.readLastAnswer(tabId)).toMatchObject({ text: 'r inteira', tool: 'cursor', stale: true });
+    });
+
+    it('a session end and clearState leave the answer; the Tab row never carries it; the tab takes it along', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: 'r', meta: { event: 'afterAgentResponse' }, continuesWait: true, answer: 'r inteira' });
+      await repo.recordEvent(tabId, { kind: 'idle', tool: 'cursor', text: null, meta: { event: 'sessionEnd' } });
+      await repo.clearState(tabId);
+      expect((await repo.readLastAnswer(tabId))!.text).toBe('r inteira');
+      const row = await repo.findById(tabId);
+      expect(JSON.stringify(row)).not.toContain('r inteira');
+      await db.tab.delete({ where: { id: tabId } });
+      expect(await db.tabLastAnswer.findUnique({ where: { tabId } })).toBeNull();
+    });
+
+    it('a SessionStart after the answer does not make it stale (/compact, /clear, a resume)', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'r', meta: { event: 'Stop' }, answer: 'r inteira' });
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, meta: { event: 'SessionStart' } });
+      expect(await repo.readLastAnswer(tabId)).toMatchObject({ text: 'r inteira', stale: false });
+    });
+
+    it("a subagent's working event after the answer does not make it stale (a background agent)", async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'r', meta: { event: 'Stop' }, answer: 'r inteira' });
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, meta: { event: 'PreToolUse', tool: 'Bash', subagent: true } });
+      expect(await repo.readLastAnswer(tabId)).toMatchObject({ text: 'r inteira', stale: false });
+      // The main agent's own tool call is a new turn's work: that one does.
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, meta: { event: 'PreToolUse', tool: 'Bash' } });
+      expect(await repo.readLastAnswer(tabId)).toMatchObject({ text: 'r inteira', stale: true });
+    });
+  });
 });
 
 describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.listOpenTerminals / listByMachine (Postgres)', () => {

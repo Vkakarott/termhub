@@ -62,6 +62,7 @@ export const ModelName = {
   ProjectMachine: 'ProjectMachine',
   Tab: 'Tab',
   TabEvent: 'TabEvent',
+  TabLastAnswer: 'TabLastAnswer',
   MachineHook: 'MachineHook',
   Ticket: 'Ticket',
   TaskColumn: 'TaskColumn',
@@ -288,6 +289,16 @@ export const TabEventScalarFieldEnum = {
 } as const
 
 export type TabEventScalarFieldEnum = (typeof TabEventScalarFieldEnum)[keyof typeof TabEventScalarFieldEnum]
+
+
+export const TabLastAnswerScalarFieldEnum = {
+  tabId: 'tabId',
+  text: 'text',
+  tool: 'tool',
+  at: 'at'
+} as const
+
+export type TabLastAnswerScalarFieldEnum = (typeof TabLastAnswerScalarFieldEnum)[keyof typeof TabLastAnswerScalarFieldEnum]
 
 
 export const MachineHookScalarFieldEnum = {

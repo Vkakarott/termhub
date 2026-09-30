@@ -74,6 +74,13 @@ export type Tab = Prisma.TabModel
  */
 export type TabEvent = Prisma.TabEventModel
 /**
+ * Model TabLastAnswer
+ * The final message of the agent's last turn in a tab, whole, as its hooks delivered it (spec
+ * 2026-09-30 last answer). One row per tab, overwritten at every turn; read only by the concierge's
+ * read_last_answer, never part of a tab row. stateText on the tab keeps the capped copy for the UI.
+ */
+export type TabLastAnswer = Prisma.TabLastAnswerModel
+/**
  * Model MachineHook
  * Hook install on a machine: the token its hook script posts with (sha256 only). Row = installed.
  */
