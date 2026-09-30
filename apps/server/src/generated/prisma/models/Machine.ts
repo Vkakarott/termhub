@@ -2018,7 +2018,7 @@ export type $MachinePayload<ExtArgs extends runtime.Types.Extensions.InternalArg
      */
     agentAutoUpdate: boolean
     /**
-     * Swap a tab's Claude to another account of this machine by itself when it hits a usage limit (opt-in).
+     * Swap a tab's Claude to another account of this machine by itself when it hits a usage limit (on by default, TER-587).
      */
     claudeAutoSwap: boolean
     /**

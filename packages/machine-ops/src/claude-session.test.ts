@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readlinkSync, lstatSync, writeFileSync, symlinkSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readlinkSync, lstatSync, renameSync, rmSync, utimesSync, writeFileSync, symlinkSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -67,7 +67,8 @@ describe('claudeLinkScript', () => {
   });
   it('answers no_transcript / no_config_dir', () => {
     const { h, src } = home();
-    expect(run(h, claudeLinkScript(src.replace('.jsonl', 'x.jsonl'), SID, null))).toBe('no_transcript');
+    const missing = '0e9c1d2a-0000-4000-8000-000000000000';
+    expect(run(h, claudeLinkScript(src.replace(SID, missing), missing, null))).toBe('no_transcript');
     expect(run(h, claudeLinkScript(src, SID, '~/.nope'))).toBe('no_config_dir');
   });
   it('never overwrites a different file (conflict)', () => {
@@ -77,6 +78,63 @@ describe('claudeLinkScript', () => {
     writeFileSync(path.join(dir, `${SID}.jsonl`), 'other');
     expect(run(h, claudeLinkScript(src, SID, null))).toBe('conflict');
     expect(readFileSync(path.join(dir, `${SID}.jsonl`), 'utf8')).toBe('other');
+  });
+  // TER-587: leaving a session whose worktree had no changes removes the worktree, and Claude Code moves
+  // the transcript to the main repository's project dir; the path the hook reported no longer exists.
+  it('finds the transcript moved to another project dir of the same account, and links it there', () => {
+    const { h, a, src } = home();
+    const main = path.join(a, 'projects', '-home-p');
+    mkdirSync(main, { recursive: true });
+    const moved = path.join(main, `${SID}.jsonl`);
+    renameSync(src, moved);
+    expect(run(h, claudeLinkScript(src, SID, null))).toBe('linked');
+    const t = path.join(h, '.claude', 'projects', '-home-p', `${SID}.jsonl`);
+    expect(readlinkSync(t)).toBe(moved);
+  });
+  it('with the session id in more than one project dir, takes the newest file', () => {
+    const { h, a, src } = home();
+    const stale = path.join(a, 'projects', '-a-old', `${SID}.jsonl`);
+    mkdirSync(path.dirname(stale), { recursive: true });
+    writeFileSync(stale, 'old');
+    utimesSync(stale, new Date(2020, 0, 1), new Date(2020, 0, 1));
+    const moved = path.join(a, 'projects', '-z-main', `${SID}.jsonl`);
+    mkdirSync(path.dirname(moved), { recursive: true });
+    renameSync(src, moved);
+    expect(run(h, claudeLinkScript(src, SID, null))).toBe('linked');
+    expect(readlinkSync(path.join(h, '.claude', 'projects', '-z-main', `${SID}.jsonl`))).toBe(moved);
+  });
+  it('replaces a link it left dangling (the transcript moved after the first link)', () => {
+    const { h, src } = home();
+    run(h, claudeLinkScript(src, SID, null));
+    const t = path.join(h, '.claude', 'projects', SLUG, `${SID}.jsonl`);
+    const other = path.join(h, 'elsewhere.jsonl');
+    rmSync(t);
+    symlinkSync(other, t); // points nowhere
+    expect(run(h, claudeLinkScript(src, SID, null))).toBe('linked');
+    expect(readlinkSync(t)).toBe(src);
+  });
+  // TER-587 (seen with TER-447): a session that went through this account before left a copy there,
+  // which is an older prefix of the transcript. It is kept aside, never deleted, and replaced by the link.
+  it('moves aside an older copy that is a prefix of the transcript, then links', () => {
+    const { h, src } = home();
+    writeFileSync(src, '{"type":"user"}\n{"type":"assistant"}\n');
+    const dir = path.join(h, '.claude', 'projects', SLUG);
+    mkdirSync(dir, { recursive: true });
+    const t = path.join(dir, `${SID}.jsonl`);
+    writeFileSync(t, '{"type":"user"}\n');
+    expect(run(h, claudeLinkScript(src, SID, null))).toBe('linked');
+    expect(readlinkSync(t)).toBe(src);
+    const aside = readdirSync(dir).filter((f) => f.startsWith(`${SID}.jsonl.termhub-old-`));
+    expect(aside).toHaveLength(1);
+    expect(readFileSync(path.join(dir, aside[0]), 'utf8')).toBe('{"type":"user"}\n');
+  });
+  it('a copy that is not a prefix stays a conflict, untouched', () => {
+    const { h, src } = home();
+    const dir = path.join(h, '.claude', 'projects', SLUG);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, `${SID}.jsonl`), '{"type":"user"}\n{"type":"other"}\n{"more":1}\n');
+    expect(run(h, claudeLinkScript(src, SID, null))).toBe('conflict');
+    expect(readdirSync(dir)).toEqual([`${SID}.jsonl`]);
   });
   it('swapping back (B → A) through B\'s symlink is linked, not a conflict', () => {
     const { h, a, src } = home();
