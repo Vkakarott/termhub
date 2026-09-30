@@ -223,7 +223,7 @@ describe('sendTabSuggestion — a Codex reply card', () => {
   });
 
   it.each([
-    ['an approval menu', '  Would you like to run the following command?\n  $ ls\n› 1. Yes, proceed (y)\n  3. No, and tell Codex what to do differently (esc)\n  Press enter to confirm or esc to cancel\n'],
+    ['an approval menu', readFileSync(new URL('./fixtures/permission-dialogs/codex-reason.txt', import.meta.url), 'utf8')],
     ['a question dialog', '  Qual cor: azul ou verde?\n› 1. Azul\n  tab to add notes | enter to submit answer | esc to interrupt\n'],
   ])('409 and closes while the screen shows %s', async (_l, screen) => {
     captureScreen.mockResolvedValue(screen);
