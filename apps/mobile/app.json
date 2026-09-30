@@ -2,7 +2,7 @@
   "expo": {
     "name": "termhub",
     "slug": "termhub",
-    "owner": "pedrogoiania",
+    "owner": "engenharia-inversa",
     "scheme": "termhub",
     "version": "0.4.0",
     "orientation": "portrait",
@@ -107,6 +107,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0614ffa1-2d38-4d03-beb9-c3e0dd8a8d24"
+      }
     }
   }
 }
