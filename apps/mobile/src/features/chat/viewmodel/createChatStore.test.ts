@@ -69,6 +69,51 @@ it('loadProjects fills the three projects', async () => {
   expect(loadingProjects).toBe(false);
 });
 
+describe('setFavorite (TER-541)', () => {
+  const place = (chat: ChatStore, id: string) => chat.getState().projects.find((p) => p.id === id)!.favorite_position;
+
+  it('pins at once, before the server answers, and the server keeps it', async () => {
+    const { chat, api, store } = await setup();
+    await chat.getState().loadProjects();
+    const pending = chat.getState().setFavorite('p-termhub', true);
+    expect(place(chat, 'p-termhub')).toBe(0);
+    await pending;
+    const { projects } = await api.chatProjects(store.getState().auth());
+    expect(projects.find((p) => p.id === 'p-termhub')!.favorite_position).toBe(0);
+  });
+
+  it('puts a second pin after the first, and unpinning clears the place', async () => {
+    const { chat } = await setup();
+    await chat.getState().loadProjects();
+    await chat.getState().setFavorite('p-termhub', true);
+    await chat.getState().setFavorite('p-opapingou', true);
+    expect(place(chat, 'p-opapingou')).toBe(1);
+    await chat.getState().setFavorite('p-termhub', false);
+    expect(place(chat, 'p-termhub')).toBeNull();
+  });
+
+  it('puts the row back and says why when the server refuses', async () => {
+    const { chat, api } = await setup();
+    await chat.getState().loadProjects();
+    jest.spyOn(api, 'setProjectFavorite').mockRejectedValueOnce(new ApiError(404, 'NOT_FOUND', 'Projeto não encontrado'));
+    await chat.getState().setFavorite('p-termhub', true);
+    expect(place(chat, 'p-termhub')).toBeNull();
+    expect(chat.getState().error).toBe('Projeto não encontrado');
+  });
+
+  it('a pin that fails after a later unpin does not undo the unpin', async () => {
+    const { chat, api } = await setup();
+    await chat.getState().loadProjects();
+    let failPin!: (e: unknown) => void;
+    jest.spyOn(api, 'setProjectFavorite').mockImplementationOnce(() => new Promise<void>((_, reject) => (failPin = reject)));
+    const pin = chat.getState().setFavorite('p-termhub', true);
+    await chat.getState().setFavorite('p-termhub', false);
+    failPin(new ApiError(503, 'UNAVAILABLE', 'Fora do ar'));
+    await pin;
+    expect(place(chat, 'p-termhub')).toBeNull();
+  });
+});
+
 it('loadProjects({ quiet }) refreshes the list in the background: no spinner, and the banner is left alone (spec 2026-09-28 iPad §2.3)', async () => {
   const { chat, api } = await setup();
   const spun: boolean[] = [];

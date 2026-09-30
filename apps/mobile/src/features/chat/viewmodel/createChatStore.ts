@@ -108,6 +108,9 @@ export interface ChatState {
    * never spins the pull-to-refresh nor touches `error` — the banner may be the open pane's, and a
    * failed refresh behind the person's back has nothing to tell them. */
   loadProjects(opts?: { quiet?: boolean }): Promise<void>;
+  /** Pins or unpins a project in Favoritos (TER-541): the row changes at once, and goes back with the
+   * banner when the server refuses. */
+  setFavorite(projectId: string, favorite: boolean): Promise<void>;
   open(projectId: string | null): Promise<void>;
   /** The `app/chat/[id]` param: a conversation id (deep links), a project id, or `general`. */
   openByRoute(id: string): Promise<void>;
@@ -499,6 +502,23 @@ export function createChatStore(deps: ChatDeps) {
                 // Silent, but a session-ending answer still ends the session.
                 session().handleApiError(e);
               }
+            }
+          },
+
+          async setFavorite(projectId, favorite) {
+            const gen = generation;
+            const placeOf = (id: string) => get().projects.find((p) => p.id === id)?.favorite_position ?? null;
+            const before = placeOf(projectId);
+            const places = get().projects.map((p) => p.favorite_position ?? -1);
+            const next = favorite ? (before ?? Math.max(-1, ...places) + 1) : null;
+            const put = (value: number | null) => set((s) => ({ projects: s.projects.map((p) => (p.id === projectId ? { ...p, favorite_position: value } : p)) }));
+            put(next);
+            try {
+              await api.setProjectFavorite(session().auth(), projectId, favorite);
+            } catch (e) {
+              // A later tap on the same row owns it now: this failure must not undo it.
+              if (gen === generation && placeOf(projectId) === next) put(before);
+              fail(gen, e);
             }
           },
 
