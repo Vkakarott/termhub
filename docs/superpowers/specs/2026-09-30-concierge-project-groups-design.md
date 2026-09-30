@@ -78,8 +78,7 @@ Project chat, one line after "Its machines and directories: …":
 Its sidebar groups, with the related projects in each: "Triunfo" (with "notify", "painel-triunfo", "speedbike-app"); "Clientes" (no other project).
 ```
 
-A project in no group gets no line. When the names do not fit in 600 characters, the last ones are
-dropped and the line ends with "…" before its full stop. A name is quoted as a JSON string.
+A project in no group gets no line. When the names do not fit in 600 characters, the ones that do not fit are dropped, whole, and "…" takes their place; a long name in the middle of a list goes while the shorter ones after it stay. A name is quoted as a JSON string.
 
 Account-wide chat, after the orchestrator's rules:
 
