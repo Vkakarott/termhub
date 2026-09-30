@@ -8,6 +8,8 @@ import { monitorBus } from '../monitor/bus.js';
 import { applyState } from '../monitor/ingest.js';
 import { sendKeyToSession, sendTextToSession } from '../terminal/session-ops.js';
 import { RESUME_PROMPT, resumeLine } from './agents.js';
+import { projectAccountsOn } from '../ai/project-accounts.js';
+import { notifyLimitInChat } from '../chat/tab-limits.js';
 import { ControlError } from './context.js';
 import { offline } from './screen.js';
 
@@ -41,28 +43,41 @@ export function peakUtilization(u: AiAccountUsage | undefined): number | null {
 /**
  * Most room first (lowest peak); accounts at SWAP_MAX_UTILIZATION or more are dropped unless the person
  * picked one; unknown usage goes last. Stable: ties keep the list order.
+ *
+ * With `priority` (the project's accounts, TER-589) the order is the project's, not the usage: only the
+ * accounts it lists, in its order, the full ones still dropped and unknown usage kept in place — the owner
+ * chose "the next one in the order", not "the emptiest".
  */
-export function rankCandidates(accounts: AiAccount[], usage: Map<string, AiAccountUsage>, opts: { explicit: boolean }): AiAccount[] {
+export function rankCandidates(accounts: AiAccount[], usage: Map<string, AiAccountUsage>, opts: { explicit: boolean; priority?: string[] }): AiAccount[] {
+  const room = (a: AiAccount) => {
+    const peak = peakUtilization(usage.get(a.id));
+    return opts.explicit || peak === null || peak < SWAP_MAX_UTILIZATION;
+  };
+  if (opts.priority) {
+    const byId = new Map(accounts.map((a) => [a.id, a]));
+    return opts.priority.map((id) => byId.get(id)).filter((a): a is AiAccount => !!a && room(a));
+  }
   const scored = accounts.map((a, i) => ({ a, i, peak: peakUtilization(usage.get(a.id)) }));
   return scored
-    .filter((s) => opts.explicit || s.peak === null || s.peak < SWAP_MAX_UTILIZATION)
+    .filter((s) => room(s.a))
     .sort((x, y) => (x.peak === null ? 1 : 0) - (y.peak === null ? 1 : 0) || (x.peak ?? 0) - (y.peak ?? 0) || x.i - y.i)
     .map((s) => s.a);
 }
 
 /**
- * What the tab's project says about swapping (TER-589 fills this in): `priority` orders the candidate
- * accounts (ids) and `model` is passed to the resumed session. Nothing is configured today: `{}` keeps
- * the ranking by free room and the account's own default model. Whether the swap happens by itself is
- * the machine's setting alone.
+ * What the tab's project says about swapping (TER-589): `priority` orders the candidate accounts (the
+ * project's Claude accounts on the tab's machine, ids) and `model` is passed to the resumed session. A
+ * project that lists none leaves `{}` or only its model: the ranking by free room, as before. Whether the
+ * swap happens by itself is the machine's setting alone (owner decision 2026-09-30).
  */
 export interface SwapPreferences {
   priority?: string[];
   model?: string | null;
 }
 
-export async function swapPreferences(_repos: Repositories, _tab: Tab): Promise<SwapPreferences> {
-  return {};
+export async function swapPreferences(repos: Repositories, tab: Tab, machine: Machine): Promise<SwapPreferences> {
+  const { ai, listed } = await projectAccountsOn(repos, tab.project_id, machine.owner_id, machine.id, 'claude');
+  return { ...(listed.length > 0 ? { priority: listed.map((a) => a.id) } : {}), ...(ai.models.claude ? { model: ai.models.claude } : {}) };
 }
 
 /** Tabs with a swap running: one at a time per tab (in-process, like the monitor bus). */
@@ -132,12 +147,12 @@ export async function swapAccount(
     } else {
       pool = here.filter((a) => a.id !== tab.ai_account_id);
     }
-    // TER-589 extension point: load `swapPreferences(repos, tab)` here; its `priority` goes to
-    // rankCandidates below and its `model` to resumeLine.
+    // The project's order and model (TER-589). An account the person picked is taken as is, listed or not.
+    const prefs = await swapPreferences(repos, tab, machine);
     // getAccountUsage never rejects: a failed reading comes back as `ok: false` and ranks last
     const usage = new Map<string, AiAccountUsage>();
     await Promise.all(pool.map(async (a) => usage.set(a.id, await getAccountUsage(a, machine, true))));
-    const ranked = rankCandidates(pool, usage, { explicit: !!opts.accountId });
+    const ranked = rankCandidates(pool, usage, { explicit: !!opts.accountId, ...(opts.accountId ? {} : { priority: prefs.priority }) });
 
     // Link before touching the tab: a candidate that is the current account under another name
     // (same_account) or whose dir already holds something else (conflict) is skipped.
@@ -164,7 +179,7 @@ export async function swapAccount(
     // a tab started with its memory MCP keeps it: the config file is still on the machine while the
     // token lives (spec 2026-09-27 agent tab MCP D11); a failed lookup just resumes without it
     const hasTabMcp = await repos.apiTokens.hasLiveForTab(tab.id).catch(() => false);
-    const line = resumeLine(to.config_dir, sessionId, RESUME_PROMPT, hasTabMcp ? tab.id : null);
+    const line = resumeLine(to.config_dir, sessionId, RESUME_PROMPT, hasTabMcp ? tab.id : null, prefs.model);
 
     // Claude waits for the reset on a usage limit (it does not exit): cancel that wait and leave.
     // Already idle means it ended on its own: the tab is at the shell and must not get these keys.
@@ -239,7 +254,13 @@ const scheduled = new Set<string>();
 export function autoSwapOnLimit(repos: Repositories, log: FastifyBaseLogger, tab: Tab): void {
   void (async () => {
     const machine = await repos.machines.findById(tab.machine_id);
-    if (!machine?.claude_auto_swap) return;
+    if (!machine) return;
+    // Turned off on purpose: the project never overrides it; its chat gets a card offering the manual
+    // swap instead (TER-589, owner decision 2026-09-30).
+    if (!machine.claude_auto_swap) {
+      await notifyLimitInChat(repos, log, tab, machine);
+      return;
+    }
     // On by default everywhere: a machine with a single Claude login has nowhere to go, and its tabs
     // must not get a failure notice on every limit.
     if (claudeLoginCount(machine, await repos.aiAccounts.list(machine.owner_id)) < 2) {

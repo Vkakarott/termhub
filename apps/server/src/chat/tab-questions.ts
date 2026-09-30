@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
+import { expireTabLimits } from './tab-limits.js';
 import { config } from '../config.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { CloseScope, TabQuestion, TabQuestionCloseStatus } from '../db/repositories/tab-questions.js';
@@ -173,10 +174,12 @@ export async function noteHookEvent(repos: Repositories, log: Pick<FastifyBaseLo
 }
 
 /** A removed tab (closed from the UI, by the concierge, or with its machine) expires its question. */
-export function startTabQuestionExpiry(repos: Repositories, log: Pick<FastifyBaseLogger, 'warn'>): () => void {
+export function startTabQuestionExpiry(repos: Repositories, log: Pick<FastifyBaseLogger, 'info' | 'warn'>): () => void {
   return monitorBus.subscribeLifecycle((event) => {
     if (event.kind !== 'removed') return;
     void closeTabQuestions(repos, event.tab_id, 'expired').catch((err) => log.warn({ tabId: event.tab_id, code: failureLabel(err) }, 'tab question expiry failed'));
+    // and its usage-limit card (TER-589)
+    void expireTabLimits(repos, log, event.tab_id);
   });
 }
 

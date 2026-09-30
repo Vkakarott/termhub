@@ -252,6 +252,14 @@ export type ChatProjectGrant = Prisma.ChatProjectGrantModel
  */
 export type ChatStandingGrant = Prisma.ChatStandingGrantModel
 /**
+ * Model TabLimitNotice
+ * A project tab stuck on a usage limit whose machine does not swap accounts by itself (TER-589): a card in
+ * the project's chat saying so and offering the manual swap to the project's other accounts. One per
+ * incident (`tab_id`, `limited_at` = the tab's `rate_limited_at`). Kept out of `tab_questions` on purpose:
+ * an installed phone app parses that list strictly.
+ */
+export type TabLimitNotice = Prisma.TabLimitNoticeModel
+/**
  * Model TabQuestion
  * A question an agent in a tab put to the person — Claude Code's AskUserQuestion (`choice`) or a
  * permission prompt (`permission`) — shown as a card in the project's chat (spec 2026-09-25 §5).

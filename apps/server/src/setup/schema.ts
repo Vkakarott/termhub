@@ -73,6 +73,29 @@ export const approvalsSchema = z.object({
   questions: decisionMode.default('ask'),
 });
 
+/**
+ * A model id as the CLI takes it after `--model`/`-m` (TER-589): an alias (`opus`, `sonnet[1m]`) or a full
+ * id (`claude-opus-5-5`, `gpt-5-codex`). Nothing the shell could read is allowed, even though the line
+ * quotes it anyway; nor a leading `-`, which the CLI would read as another option.
+ */
+export const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
+const modelSchema = z.string().trim().regex(MODEL_RE, 'Modelo inválido').nullable().default(null);
+
+/**
+ * The project's AI accounts and default models (spec 2026-09-30 project AI accounts §3). `accounts` are
+ * `ai_accounts` ids in priority order; an id whose account is gone is skipped when read, never rewritten.
+ * Empty = not configured: every path behaves as before this block existed.
+ */
+export const aiSchema = z
+  .object({
+    accounts: z.array(z.string().min(1).max(64)).max(20).default([]),
+    models: z.object({ claude: modelSchema, chatgpt: modelSchema }).default({}),
+  })
+  .superRefine((d, ctx) => {
+    if (new Set(d.accounts).size !== d.accounts.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['accounts'], message: 'Conta repetida' });
+  });
+export type ProjectAi = z.infer<typeof aiSchema>;
+
 export const setupSchema = z.object({
   repo: repoSchema.nullable().default(null),
   tickets: ticketsSchema.nullable().default(null),
@@ -81,6 +104,7 @@ export const setupSchema = z.object({
   agent: agentSchema.default({}),
   verify: verifySchema.default({}),
   approvals: approvalsSchema.default({}),
+  ai: aiSchema.default({}),
 });
 
 export type ProjectSetupData = z.infer<typeof setupSchema>;

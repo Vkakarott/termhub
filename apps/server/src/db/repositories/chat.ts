@@ -260,6 +260,15 @@ export class ChatRepository {
     });
   }
 
+  /**
+   * The project account a project chat last answered on (TER-589): written on that project conversation's
+   * own row only, never the account-wide host, and without touching its session — the run that moved
+   * accounts already moved the session with it.
+   */
+  async setRunAccount(id: string, aiAccountId: string): Promise<void> {
+    await this.db.chatConversation.update({ where: { id }, data: { aiAccountId } });
+  }
+
   async addMessage(input: { conversation_id: string; role: ChatRole; text: string; usage?: unknown; error_code?: string | null; reply_to?: { id: string; role: ChatRole; excerpt: string } }): Promise<ChatMessage> {
     const [message] = await this.db.$transaction([
       this.db.chatMessage.create({

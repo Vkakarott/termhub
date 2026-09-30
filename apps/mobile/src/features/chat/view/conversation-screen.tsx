@@ -20,6 +20,7 @@ import { MessageBubble } from './message-bubble';
 import { PendingBar } from './pending-bar';
 import { SwipeToReply } from './swipe-to-reply';
 import { SubagentsSheet } from './subagents-sheet';
+import { TabLimitCard } from './tab-limit-card';
 import { TabQuestionCard } from './tab-question-card';
 import { TabSuggestionCard } from './tab-suggestion-card';
 
@@ -37,7 +38,9 @@ const entryKey = (entry: ChatEntry) =>
         ? `g:${entry.actions[0]!.id}`
         : entry.kind === 'tab_suggestion'
           ? `s:${entry.suggestion.id}`
-          : `q:${entry.question.id}`;
+          : entry.kind === 'tab_limit'
+            ? `l:${entry.limit.id}`
+            : `q:${entry.question.id}`;
 
 /** Whether `entry` is the card of the action or question `id` — a group holds several actions. */
 const holds = (entry: ChatEntry, id: string): boolean =>
@@ -109,6 +112,9 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
   const forgetDecision = useChatStore((s) => s.forgetDecision);
   const sendTabSuggestion = useChatStore((s) => s.sendTabSuggestion);
   const dismissTabSuggestion = useChatStore((s) => s.dismissTabSuggestion);
+  const busyLimitIds = useChatStore((s) => s.busyLimitIds);
+  const limitErrors = useChatStore((s) => s.limitErrors);
+  const answerTabLimit = useChatStore((s) => s.answerTabLimit);
   const reset = useChatStore((s) => s.reset);
   const cancelSubagent = useChatStore((s) => s.cancelSubagent);
   const [confirmingReset, setConfirmingReset] = useState(false);
@@ -177,6 +183,7 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
   );
   const tabQuestions = slot?.tabQuestions;
   const tabSuggestions = slot?.tabSuggestions;
+  const tabLimits = slot?.tabLimits;
 
   // The grants still in force, by the card that created them: built when `grants`/`projectGrants`
   // change and every 30 s while there are any (a grant runs out on its own), never inside a row's render.
@@ -205,10 +212,14 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
   const onForget = useCallback((decisionId: string) => forgetDecision(decisionId), [forgetDecision]);
   const onSendSuggestion = useCallback((id: string, text: string) => void sendTabSuggestion(id, text), [sendTabSuggestion]);
   const onDismissSuggestion = useCallback((id: string) => void dismissTabSuggestion(id), [dismissTabSuggestion]);
+  const onAnswerLimit = useCallback((id: string, accountId: string | null) => void answerTabLimit(id, accountId), [answerTabLimit]);
   // "Propor de novo" (TER-477): a plain chat message; the concierge proposes a fresh card through the gate.
   const onRepropose = useCallback((action: ChatAction) => void send(`Proponha de novo: ${action.summary}`), [send]);
   const onApproveWrites = useCallback((ids: string[]) => void decideMany(ids.map((id) => ({ id, decision: 'approve' as const }))), [decideMany]);
-  const timeline = useMemo(() => chatTimeline(messages ?? [], actions ?? [], tabQuestions ?? [], tabSuggestions ?? []), [messages, actions, tabQuestions, tabSuggestions]);
+  const timeline = useMemo(
+    () => chatTimeline(messages ?? [], actions ?? [], tabQuestions ?? [], tabSuggestions ?? [], tabLimits ?? []),
+    [messages, actions, tabQuestions, tabSuggestions, tabLimits],
+  );
   const pendingKey = (actions ?? [])
     .filter((a) => a.status === 'pending')
     .map((a) => a.id)
@@ -264,6 +275,8 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
           onSend={onSendSuggestion}
           onDismiss={onDismissSuggestion}
         />
+      ) : item.kind === 'tab_limit' ? (
+        <TabLimitCard limit={item.limit} busy={busyLimitIds.includes(item.limit.id)} error={limitErrors[item.limit.id] ?? null} onAnswer={onAnswerLimit} />
       ) : item.kind === 'tab_question' ? (
         <TabQuestionCard
           question={item.question}
@@ -296,6 +309,8 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
       questionErrors,
       busySuggestionIds,
       suggestionErrors,
+      busyLimitIds,
+      limitErrors,
       decidingId,
       grantIndex,
       projectGrantIndex,
@@ -305,6 +320,7 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
       onOpenReply,
       onReply,
       onAnswer,
+      onAnswerLimit,
       onCancelAutoAnswer,
       onDecide,
       onForget,
@@ -318,8 +334,8 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
     ],
   );
   const extra = useMemo(
-    () => ({ decidingId, grantIndex, projectGrantIndex, standingGrantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors, highlightId }),
-    [decidingId, grantIndex, projectGrantIndex, standingGrantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors, highlightId],
+    () => ({ decidingId, grantIndex, projectGrantIndex, standingGrantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors, busyLimitIds, limitErrors, highlightId }),
+    [decidingId, grantIndex, projectGrantIndex, standingGrantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors, busyLimitIds, limitErrors, highlightId],
   );
 
   const title = activeProject ? (projects.find((p) => p.id === activeProject)?.name ?? 'Conversa') : 'Chat geral';
@@ -357,9 +373,11 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
             {activeGrantCount > 0 ? <Button label={activeGrantsLabel(activeGrantCount)} variant="ghost" onPress={() => router.push('/chat-grants')} /> : null}
             <Button label="Nova conversa" variant="ghost" onPress={() => setConfirmingReset(true)} />
           </View>
-          {/* Only when something stands in the way (offline, no machine, none chosen, an old agent): where a
-              ready chat runs, and switching it, live in Ajustes. */}
-          {slot?.host && slot.host.kind !== 'ready' ? <HostLine host={slot.host} canChange={activeProject === null} /> : null}
+          {/* The account-wide chat shows it only when something stands in the way (offline, no machine, none
+              chosen, an old agent): where a ready chat runs, and switching it, live in Ajustes. A project
+              chat always shows it: it is the way to the project's accounts and model (spec 2026-09-30
+              project AI accounts §8). */}
+          {slot?.host && (slot.host.kind !== 'ready' || activeProject) ? <HostLine host={slot.host} canChange={activeProject === null} projectId={activeProject ?? null} /> : null}
           {shownError ? (
             <View className="px-4 pt-3">
               <Banner tone="danger" text={shownError} />

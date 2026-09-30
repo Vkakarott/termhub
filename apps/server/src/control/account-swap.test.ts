@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getAccountUsage, linkClaudeSession, sendKeyToSession, sendTextToSession, awaitAgent, applyState } = vi.hoisted(() => ({
+const { getAccountUsage, linkClaudeSession, sendKeyToSession, sendTextToSession, awaitAgent, applyState, notifyLimitInChat } = vi.hoisted(() => ({
+  notifyLimitInChat: vi.fn(async () => undefined),
   getAccountUsage: vi.fn(),
   linkClaudeSession: vi.fn(),
   sendKeyToSession: vi.fn(),
@@ -13,12 +14,14 @@ vi.mock('../ai/claude-session.js', () => ({ linkClaudeSession }));
 vi.mock('../terminal/session-ops.js', () => ({ sendKeyToSession, sendTextToSession }));
 vi.mock('../agent/registry.js', () => ({ agents: { awaitAgent } }));
 vi.mock('../monitor/ingest.js', () => ({ applyState }));
+vi.mock('../chat/tab-limits.js', () => ({ notifyLimitInChat }));
 
 import type { FastifyBaseLogger } from 'fastify';
 import type { AiAccountUsage } from '../ai/index.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { AiAccount, Machine, Tab } from '../db/repositories/types.js';
 import { monitorBus } from '../monitor/bus.js';
+import { normalizeSetup } from '../setup/schema.js';
 import { RESUME_PROMPT, resumeLine } from './agents.js';
 import {
   AUTO_SWAP_COOLDOWN_MS,
@@ -64,6 +67,10 @@ const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() } as 
 
 /** The tab as the repository sees it (the swap re-reads it). */
 let stored: Tab;
+/** The tab's project setup (TER-589): nothing configured unless a test says so. */
+let projectSetup: Record<string, unknown> = {};
+/** Machines linked to the tab's project. */
+let linked: string[] = ['m1'];
 function makeRepos() {
   const repos = {
     tabs: {
@@ -76,6 +83,8 @@ function makeRepos() {
     aiAccounts: { list: vi.fn(async () => accounts) },
     machines: { findById: vi.fn(async () => machine()) },
     apiTokens: { hasLiveForTab: vi.fn(async () => false) },
+    projectSetup: { get: vi.fn(async (projectId: string) => ({ project_id: projectId, version: 2, data: normalizeSetup(projectSetup, 2), updated_at: null })) },
+    projectMachines: { find: vi.fn(async (_p: string, m: string) => (linked.includes(m) ? { machine_id: m } : undefined)) },
   };
   return { repos, r: repos as unknown as Repositories };
 }
@@ -95,6 +104,8 @@ function exitGoesIdle() {
 beforeEach(() => {
   vi.clearAllMocks();
   stored = baseTab();
+  projectSetup = {};
+  linked = ['m1'];
   awaitAgent.mockResolvedValue(true);
   getAccountUsage.mockImplementation(async (a: AiAccount) => usage(a.id, USAGE[a.id] ?? null));
   linkClaudeSession.mockResolvedValue('linked');
@@ -124,6 +135,14 @@ describe('rankCandidates', () => {
     const accs = ['a2', 'a3', 'a4', 'a5'].map((id) => account({ id, machine_id: 'm1' }));
     expect(rankCandidates(accs, map, { explicit: false }).map((a) => a.id)).toEqual(['a3', 'a2', 'a5']);
     expect(rankCandidates(accs, map, { explicit: true }).map((a) => a.id)).toEqual(['a3', 'a2', 'a4', 'a5']);
+  });
+
+  it('with a project priority, keeps that order over usage and drops the accounts it does not list (TER-589)', () => {
+    const map = new Map([['a1', usage('a1', [50])], ['a2', usage('a2', [5])], ['a3', usage('a3', [95])], ['a4', usage('a4', null)], ['a5', usage('a5', [1])]]);
+    const accs = ['a1', 'a2', 'a3', 'a4', 'a5'].map((id) => account({ id, machine_id: 'm1' }));
+    expect(rankCandidates(accs, map, { explicit: false, priority: ['a3', 'a4', 'a1', 'a2'] }).map((a) => a.id)).toEqual(['a4', 'a1', 'a2']);
+    expect(rankCandidates(accs, map, { explicit: true, priority: ['a3', 'a1'] }).map((a) => a.id)).toEqual(['a3', 'a1']);
+    expect(rankCandidates(accs, map, { explicit: false, priority: ['gone', 'a2'] }).map((a) => a.id)).toEqual(['a2']);
   });
 
   it('keeps list order on ties and drops exactly 90', () => {
@@ -462,6 +481,43 @@ describe('swapAccount', () => {
   });
 });
 
+describe('swapAccount with the project setup (TER-589)', () => {
+  it('follows the project order over free room, and resumes with the project model', async () => {
+    vi.useFakeTimers();
+    projectSetup = { ai: { accounts: ['a1', 'a2', 'a3'], models: { claude: 'opus' } } };
+    const { r } = makeRepos();
+    const result = await drive(swapAccount(r, log, stored, machine(), { auto: true }));
+    // a3 has more room (5/20) than a2 (10/60), but the project lists a2 first; a1 is the tab's own
+    expect(result.to.id).toBe('a2');
+    expect(sendTextToSession).toHaveBeenLastCalledWith(expect.anything(), 'th-t1', resumeLine('~/.claude_b', SID, RESUME_PROMPT, null, 'opus'), true);
+  });
+
+  it('never goes to an account the project does not list', async () => {
+    vi.useFakeTimers();
+    projectSetup = { ai: { accounts: ['a1', 'a3'] } };
+    const { r } = makeRepos();
+    expect((await drive(swapAccount(r, log, stored, machine(), { auto: true }))).to.id).toBe('a3');
+    expect(linkClaudeSession).toHaveBeenCalledTimes(2); // a3, then the relink after /exit — a2 never tried
+    expect(linkClaudeSession.mock.calls.every(([, o]) => (o as { configDir: string | null }).configDir === null)).toBe(true);
+  });
+
+  it('an account the person picks is taken even when the project does not list it', async () => {
+    vi.useFakeTimers();
+    projectSetup = { ai: { accounts: ['a1', 'a3'] } };
+    const { r } = makeRepos();
+    expect((await drive(swapAccount(r, log, stored, machine(), { auto: false, accountId: 'a2' }))).to.id).toBe('a2');
+  });
+
+  it('keeps ranking by room with only a model configured', async () => {
+    vi.useFakeTimers();
+    projectSetup = { ai: { models: { claude: 'sonnet' } } };
+    const { r } = makeRepos();
+    const result = await drive(swapAccount(r, log, stored, machine(), { auto: true }));
+    expect(result.to.id).toBe('a3');
+    expect(sendTextToSession).toHaveBeenLastCalledWith(expect.anything(), 'th-t1', resumeLine(null, SID, RESUME_PROMPT, null, 'sonnet'), true);
+  });
+});
+
 describe('autoSwapOnLimit', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -474,6 +530,8 @@ describe('autoSwapOnLimit', () => {
     await vi.advanceTimersByTimeAsync(AUTO_SWAP_DELAY_MS);
     expect(repos.machines.findById).toHaveBeenCalledWith('m1');
     expect(linkClaudeSession).not.toHaveBeenCalled();
+    // TER-589: the project's chat gets the card offering the manual swap instead
+    expect(notifyLimitInChat).toHaveBeenCalledWith(r, log, expect.objectContaining({ id: 'auto1' }), expect.objectContaining({ id: 'm1' }));
   });
 
   it('swaps with auto: true after AUTO_SWAP_DELAY_MS when the machine opted in', async () => {
@@ -566,9 +624,14 @@ describe('autoSwapOnLimit', () => {
     expect(linkClaudeSession).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ configDir: '~/.claude_b' }));
   });
 
-  it('swapPreferences is the TER-589 seam: nothing configured today', async () => {
+  it('swapPreferences: nothing for a project without configuration, else its Claude accounts on the machine and its model (TER-589)', async () => {
     const { r } = makeRepos();
-    await expect(swapPreferences(r, baseTab())).resolves.toEqual({});
+    await expect(swapPreferences(r, baseTab(), machine())).resolves.toEqual({});
+    projectSetup = { ai: { accounts: ['x1', 'c1', 'a3', 'gone', 'a1'], models: { claude: 'opus', chatgpt: 'gpt-5' } } };
+    await expect(swapPreferences(r, baseTab(), machine())).resolves.toEqual({ priority: ['a3', 'a1'], model: 'opus' });
+    // a machine no longer linked to the project: its accounts are not the project's any more
+    linked = [];
+    await expect(swapPreferences(r, baseTab(), machine())).resolves.toEqual({ model: 'opus' });
   });
 
   it('records a failed automatic swap on the tab and never throws', async () => {

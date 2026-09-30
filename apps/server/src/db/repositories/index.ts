@@ -28,6 +28,7 @@ import { ChatStandingGrantsRepository } from './chat-standing-grants.js';
 import { ChatSubagentsRepository } from './chat-subagents.js';
 import { ChatLiveRunsRepository } from './chat-live-runs.js';
 import { TabQuestionsRepository } from './tab-questions.js';
+import { TabLimitNoticesRepository } from './tab-limit-notices.js';
 import { ChatAttachmentsRepository, type ChatAttachmentsRepo } from './chat-attachments.js';
 import { ChatDecisionsRepository } from './chat-decisions.js';
 import { MemoryItemsRepository } from './memory-items.js';
@@ -70,6 +71,7 @@ export interface Repositories {
   chatSubagents: ChatSubagentsRepository;
   chatLiveRuns: ChatLiveRunsRepository;
   tabQuestions: TabQuestionsRepository;
+  tabLimitNotices: TabLimitNoticesRepository;
   chatAttachments: ChatAttachmentsRepo;
   chatDecisions: ChatDecisionsRepository;
   memoryItems: MemoryItemsRepository;
@@ -116,6 +118,7 @@ export function createRepositories(db: PrismaClient): Repositories {
     chatSubagents: new ChatSubagentsRepository(db),
     chatLiveRuns: new ChatLiveRunsRepository(db),
     tabQuestions: new TabQuestionsRepository(db),
+    tabLimitNotices: new TabLimitNoticesRepository(db),
     chatAttachments: new ChatAttachmentsRepository(db),
     chatDecisions: new ChatDecisionsRepository(db),
     memoryItems: new MemoryItemsRepository(db),

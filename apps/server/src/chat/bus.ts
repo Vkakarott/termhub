@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import type { TabLimitView } from './tab-limits.js';
 import type { ChatMessage } from '../db/repositories/chat.js';
 import type { ChatActionClass } from '../db/repositories/chat-actions.js';
 import type { ChatActionCard, ChatGrantView, ChatProjectGrantView, ChatStandingGrantView } from '../db/repositories/chat-actions-view.js';
@@ -98,6 +99,11 @@ export type ChatEvent =
   | { type: 'tab_suggestion'; user_id: string; conversation_id: string; suggestion: TabQuestionView }
   /** It was sent (`answered`, or `failed`), dismissed, or left the tab's screen. */
   | { type: 'tab_suggestion_closed'; user_id: string; conversation_id: string; suggestion: TabQuestionView }
+  /** A project tab is stuck on a usage limit and its machine does not swap by itself (TER-589): the card
+   * offering the project's other accounts. Its own events and list: older apps parse `tab_question*`. */
+  | { type: 'tab_limit'; user_id: string; conversation_id: string; notice: TabLimitView }
+  /** It was answered (swapped or dismissed), or the limit ended / the tab went away (expired). */
+  | { type: 'tab_limit_closed'; user_id: string; conversation_id: string; notice: TabLimitView }
   /** An attachment's extraction finished or failed (spec 2026-09-26 §5.5): the public row, never its text. */
   | { type: 'attachment_status'; user_id: string; conversation_id: string; attachment: ChatAttachment }
   /** A subagent of the conversation started, changed status or was interrupted (spec 2026-09-26 panel

@@ -399,6 +399,42 @@ export interface ConnectionInfo {
 
 export type DecisionMode = 'ask' | 'auto';
 
+/** The project's AI accounts (priority order) and default model per CLI (TER-589); mirrors `@termhub/mobile-api` project-ai.ts. */
+export interface ProjectAi {
+  accounts: string[];
+  models: { claude: string | null; chatgpt: string | null };
+}
+export interface ProjectAiOption {
+  id: string;
+  label: string;
+  provider: 'claude' | 'chatgpt';
+  machine_id: string;
+  machine_name: string;
+  /** the machine's own login (no config dir override) */
+  default: boolean;
+}
+export interface ProjectAiView {
+  ai: ProjectAi;
+  available: ProjectAiOption[];
+}
+
+/** A usage-limit card in a project's chat (TER-589): a tab stuck on its account's limit. */
+export interface TabLimit {
+  id: string;
+  tab_id: string;
+  tab_name: string | null;
+  payload: {
+    account: { id: string; label: string } | null;
+    machine: { id: string; name: string };
+    resets_at: string | null;
+    candidates: { id: string; label: string }[];
+  };
+  status: 'open' | 'swapped' | 'dismissed' | 'expired' | 'failed';
+  result: string | null;
+  created_at: string;
+  closed_at: string | null;
+}
+
 export interface ProjectSetupData {
   repo: {
     integration_id: string | null;
@@ -880,7 +916,8 @@ export type ChatHostAiAccount = Pick<AiAccount, 'id' | 'label'>;
  * degrades to the machine's default login, which is the right thing to run and the wrong thing to do
  * without saying so.
  */
-export type ChatHostAccount = { kind: 'chosen'; id: string; label: string } | { kind: 'default' } | { kind: 'lost' };
+/** `via: 'project'` (TER-589): the project's setup chose this account for the project chat, not the person. */
+export type ChatHostAccount = { kind: 'chosen'; id: string; label: string; via?: 'project' } | { kind: 'default' } | { kind: 'lost' };
 
 /**
  * `GET /api/chat`'s `host`: which machine and account run this conversation — the "terminal geral" of
@@ -1272,6 +1309,8 @@ export type ChatEvent =
   | { type: 'tab_question' | 'tab_question_answered' | 'tab_question_closed'; question: TabQuestion; conversation_id?: string; resurfaced?: true }
   /** A tab shows a suggestion, or it was sent, dismissed or left the screen: the whole card each time. */
   | { type: 'tab_suggestion' | 'tab_suggestion_closed'; suggestion: TabSuggestion; conversation_id?: string }
+  /** A project tab stuck on a usage limit (TER-589): the card, or its closing. */
+  | { type: 'tab_limit' | 'tab_limit_closed'; notice: TabLimit; conversation_id?: string }
   /** An attachment finished extracting or failed: update the chip by its id. */
   | { type: 'attachment_status'; attachment: ChatAttachment; conversation_id?: string }
   /** A subagent of the conversation started, changed status or was interrupted (spec 2026-09-26

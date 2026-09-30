@@ -11,6 +11,7 @@ import { ChatThread } from './ChatThread';
 import { ChatTurn } from './ChatTurn';
 import { TabQuestionCard } from './TabQuestionCard';
 import { TabSuggestionCard } from './TabSuggestionCard';
+import { TabLimitCard } from './TabLimitCard';
 import { ConfirmDialog } from '../Modal';
 import { api, ApiError } from '../../lib/api';
 import { patchMessageAttachment } from '../../lib/attachments';
@@ -26,7 +27,7 @@ import { isActive, upsertSubagent } from '../../lib/subagents';
 import { PROMPT_CHANGED_TEXT, upsertTabQuestion } from './tab-question-text';
 import { SUGGESTION_CHANGED_TEXT, upsertTabSuggestion } from './tab-suggestion-text';
 import { useAuth } from '../../lib/auth';
-import type { AiAccount, ChatAction, ChatAttachment, ChatDecisionWord, ChatEvent, ChatGrant, ChatHostMachine, ChatHostState, ChatMessage, ChatProjectGrant, ChatStandingGrant, SubagentView, TabQuestion, TabQuestionAnswer, TabSuggestion } from '../../lib/types';
+import type { AiAccount, ChatAction, ChatAttachment, ChatDecisionWord, ChatEvent, ChatGrant, ChatHostMachine, ChatHostState, ChatMessage, ChatProjectGrant, ChatStandingGrant, SubagentView, TabQuestion, TabLimit, TabQuestionAnswer, TabSuggestion } from '../../lib/types';
 
 /** How often the panel's elapsed labels ("há N min") refresh while it is open. */
 const SUBAGENTS_REFRESH_MS = 30_000;
@@ -61,6 +62,11 @@ const upsertStandingGrant = (prev: ChatStandingGrant[], grant: ChatStandingGrant
 
 /** A Claude account of one of the user's machines, as the host picker needs it. */
 type HostAccountRow = Pick<AiAccount, 'id' | 'label' | 'machine_id'>;
+
+/** Replaces the card with the same id, or appends it: the server sends the whole card each time. */
+function upsertById<T extends { id: string }>(prev: T[], next: T): T[] {
+  return prev.some((x) => x.id === next.id) ? prev.map((x) => (x.id === next.id ? next : x)) : [...prev, next];
+}
 
 /**
  * `TabSuggestionCard` takes `onSend(text)` and `onDismiss()` with no id (its body belongs to TER-96 and
@@ -137,6 +143,9 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   const [tabSuggestions, setTabSuggestions] = useState<TabSuggestion[]>([]);
   const [busySuggestionId, setBusySuggestionId] = useState<string | null>(null);
   const [suggestionErrors, setSuggestionErrors] = useState<Record<string, string>>({});
+  const [tabLimits, setTabLimits] = useState<TabLimit[]>([]);
+  const [busyLimitId, setBusyLimitId] = useState<string | null>(null);
+  const [limitErrors, setLimitErrors] = useState<Record<string, string>>({});
   /** The subagents panel (spec 2026-09-26 §4): sourced from `GET /api/chat` like `actions`, kept live
    *  by `subagent` events. Recently-ended rows stay for a while (the server's own window), so the list
    *  can be non-empty with the toolbar button gone — only `active` (running/stopping) counts for that. */
@@ -247,7 +256,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
     // `request<...>('GET', '/chat')` exactly — a server that predates project chats knows nothing else.
     const arrived = new Set<string>();
     reads.current.add(arrived);
-    const { conversation, messages, open_answer_ids, actions, host, grants, project_grants, standing_grants, tab_questions, tab_suggestions, subagents, compacting } = await (projectId ? api.chat(projectId) : api.chat()).finally(() => reads.current.delete(arrived));
+    const { conversation, messages, open_answer_ids, actions, host, grants, project_grants, standing_grants, tab_questions, tab_suggestions, tab_limits, subagents, compacting } = await (projectId ? api.chat(projectId) : api.chat()).finally(() => reads.current.delete(arrived));
     // The same conversation: the snapshot merges into the thread, so a row that ended or was removed
     // while this read was in flight is not brought back, and a row the server deleted leaves and is
     // closed (its started mark must not outlive it). Another one (a reset, another project) replaces
@@ -270,6 +279,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
     setStandingGrants(standing_grants ?? []);
     setTabQuestions(tab_questions ?? []);
     setTabSuggestions(tab_suggestions ?? []);
+    setTabLimits(tab_limits ?? []);
     setSubagents(subagents ?? []);
     setHost(host ?? null);
     setHostAccountId(conversation.ai_account_id ?? null);
@@ -373,6 +383,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
       else if (e.type === 'granted_action') setActions((prev) => (prev.some((a) => a.id === e.action.id) ? prev.map((a) => (a.id === e.action.id ? e.action : a)) : [...prev, e.action]));
       else if (e.type === 'tab_question' || e.type === 'tab_question_answered' || e.type === 'tab_question_closed') setTabQuestions((prev) => upsertTabQuestion(prev, e.question));
       else if (e.type === 'tab_suggestion' || e.type === 'tab_suggestion_closed') setTabSuggestions((prev) => upsertTabSuggestion(prev, e.suggestion));
+      else if (e.type === 'tab_limit' || e.type === 'tab_limit_closed') setTabLimits((prev) => upsertById(prev, e.notice));
       else if (e.type === 'attachment_status') {
         // Into the message that carries it (no refetch: only that row gets a new object) and into the
         // composer's chips, for a file uploaded but not yet sent.
@@ -546,6 +557,21 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   const sendSuggestion = useCallback((id: string, text: string) => void actOnSuggestion(id, () => api.sendTabSuggestion(id, text), 'Não foi possível enviar'), [actOnSuggestion]);
   const dismissSuggestion = useCallback((id: string) => void actOnSuggestion(id, () => api.dismissTabSuggestion(id), 'Não foi possível dispensar'), [actOnSuggestion]);
 
+  /** A usage-limit card (TER-589): "Trocar para X" swaps the tab, "Esperar" closes the card. A failed swap keeps it open. */
+  const answerLimit = useCallback(async (id: string, accountId: string | null) => {
+    setBusyLimitId(id);
+    setLimitErrors(({ [id]: _dropped, ...rest }) => rest);
+    try {
+      const { tab_limit } = await api.answerTabLimit(id, accountId);
+      setTabLimits((prev) => upsertById(prev, tab_limit));
+    } catch (e) {
+      setLimitErrors((prev) => ({ ...prev, [id]: e instanceof ApiError ? e.message : 'Não foi possível trocar a conta' }));
+    } finally {
+      setBusyLimitId(null);
+    }
+  }, []);
+  const onAnswerLimit = useCallback((id: string, accountId: string | null) => void answerLimit(id, accountId), [answerLimit]);
+
   /**
    * "Cancelar" on a subagent's row (spec 2026-09-26 §4): a 409 (already at rest) re-reads the trail,
    * since the server publishes no `subagent` event for that case. Any other failure (404 gone, 5xx, a
@@ -667,7 +693,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   };
 
   /** Messages, gate cards and tab questions as one chronological thread, so a card reads where it was proposed. */
-  const timeline = useMemo(() => chatTimeline(messages, actions, tabQuestions, tabSuggestions), [messages, actions, tabQuestions, tabSuggestions]);
+  const timeline = useMemo(() => chatTimeline(messages, actions, tabQuestions, tabSuggestions, tabLimits), [messages, actions, tabQuestions, tabSuggestions, tabLimits]);
   /** "Ver separadas" holds only for the cards it was clicked on: a new or decided card groups again. */
   const pendingKey = actions
     .filter((a) => a.status === 'pending')
@@ -998,6 +1024,10 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
         {entries.map((entry) => {
           if (entry.kind === 'action_group') {
             return <ChatActionGroup key={`g:${entry.actions[0]!.id}`} actions={entry.actions} deciding={batchDeciding} onDecide={onDecideBatch} onShowSeparately={onShowSeparately} />;
+          }
+          if (entry.kind === 'tab_limit') {
+            const l = entry.limit;
+            return <TabLimitCard key={`l:${l.id}`} limit={l} busy={busyLimitId === l.id} error={limitErrors[l.id]} onAnswer={onAnswerLimit} />;
           }
           if (entry.kind === 'tab_suggestion') {
             const s = entry.suggestion;

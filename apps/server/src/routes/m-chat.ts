@@ -1,4 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { answerTabLimit, describeTabLimits } from '../chat/tab-limits.js';
+import { tabLimitAnswerBody } from '@termhub/mobile-api';
 import { z } from 'zod';
 import { chatGrantListQuery, chatGrantListResponse, chatProjectsResponse, decisionProofMessage, deviceSelf, hostOptionsResponse, mobileBatchDecisionBody, projectFavoriteBody, mobileDecisionBody, mobileMessageBody, sendAccepted, type PinDecision } from '@termhub/mobile-api';
 import type { ChatAction } from '../db/repositories/chat-actions.js';
@@ -111,7 +113,7 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
     const projectId = project ?? null;
     const user = request.scope.user;
     const conversation = await deps.chat.conversationFor(user, projectId);
-    const [messages, rows, host, grants, project_grants, standing_grants, questionRows, subagents, open] = await Promise.all([
+    const [messages, rows, host, grants, project_grants, standing_grants, questionRows, subagents, open, limitRows] = await Promise.all([
       repos.chat.listMessages(conversation.id),
       repos.chatActions.listByConversation(conversation.id),
       deps.chat.hostFor(user, projectId),
@@ -124,6 +126,8 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
       // The subagents panel (spec 2026-09-26 §4), same as the web's GET /api/chat.
       deps.chat.subagentsFor(conversation.id),
       deps.chat.openAnswerIds(conversation.id),
+      // Usage-limit cards (TER-589): their own list, like suggestions, for the apps that parse tab_questions strictly.
+      repos.tabLimitNotices.listByConversation(conversation.id),
     ]);
     const actions = await describeActions(repos, rows, user.id);
     const { tab_questions, tab_suggestions } = splitTabRows(await describeTabQuestions(repos, questionRows, user.id));
@@ -137,6 +141,7 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
       standing_grants,
       tab_questions,
       tab_suggestions,
+      tab_limits: await describeTabLimits(repos, limitRows, user.id),
       subagents,
       // The rows a screen opened in the middle of a run shows as being answered (spec 2026-09-29).
       open_answer_ids: openAnswersIn(messages, open),
@@ -441,6 +446,16 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
   app.post('/tab-suggestions/:id/send', { config: { action: 'create' } }, async (request) => {
     const { id } = tabQuestionIdParam.parse(request.params);
     return { tab_suggestion: await sendTabSuggestion(controlContextFor(repos, request.scope.user), id, request.body, { log: request.log }) };
+  });
+
+  /**
+   * A usage-limit card (TER-589): an account swaps the tab to it, `null` ("Esperar") closes the card.
+   * `create`, like answering a tab's question; swapping also needs `terminals:update`.
+   */
+  app.post('/tab-limits/:id/answer', { config: { action: 'create' } }, async (request) => {
+    const { id } = tabQuestionIdParam.parse(request.params);
+    const { account_id } = tabLimitAnswerBody.parse(request.body);
+    return { tab_limit: await answerTabLimit(controlContextFor(repos, request.scope.user), request.log, id, account_id) };
   });
 
   /** "Dispensar" from the phone: the card closes, the tab is not touched. */

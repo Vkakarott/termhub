@@ -9,6 +9,7 @@ import { canAccess } from '../auth/permissions.js';
 import { withLessonsReminder } from '../control/agents.js';
 import { config } from '../config.js';
 import type { Repositories } from '../db/repositories/index.js';
+import { normalizeSetup } from '../setup/schema.js';
 import { applyErrorHandler } from '../lib/errors.js';
 import { mcpRoutes } from './route.js';
 import { removeTempDir } from '../../test/temp-dir.js';
@@ -74,6 +75,8 @@ function build(cwd: string) {
       listByProject: vi.fn(async () => [link]),
     },
     aiAccounts: { findById: vi.fn(async (id: string) => accounts.find((a) => a.id === id)), list: vi.fn(async () => accounts) },
+    // no project AI accounts configured (TER-589): start_agent behaves as before
+    projectSetup: { get: vi.fn(async (projectId: string) => ({ project_id: projectId, version: 2, data: normalizeSetup({}, 2), updated_at: null })) },
     tabs: {
       listByProject: vi.fn(async () => [...tabs.values()]),
       countOpenByToken: vi.fn(async () => 0),

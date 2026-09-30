@@ -4,8 +4,9 @@
 import type { TChatAttachment } from '@/services/api/contract';
 import { applyLive, type LiveFold } from './live';
 import { upsertSubagent } from './subagents';
+import { upsertTabLimit } from './tab-limit-text';
 import { upsertTabSuggestion } from './tab-suggestion-text';
-import type { ChatAction, ChatEvent, ChatGrant, ChatMessage, ChatProjectGrant, ChatStandingGrant, SubagentView, TabQuestion, TabSuggestion } from './types';
+import type { ChatAction, ChatEvent, ChatGrant, ChatMessage, ChatProjectGrant, ChatStandingGrant, SubagentView, TabLimit, TabQuestion, TabSuggestion } from './types';
 
 export interface EventSlice {
   messages: ChatMessage[];
@@ -21,6 +22,8 @@ export interface EventSlice {
   tabQuestions: TabQuestion[];
   /** The tabs' suggestions pushed into this conversation (spec 2026-09-25 tab suggestions §6.4). */
   tabSuggestions: TabSuggestion[];
+  /** The usage-limit cards of the project's tabs (spec 2026-09-30 project AI accounts §7.2). */
+  tabLimits: TabLimit[];
   /** The subagents panel of this conversation, newest first (spec 2026-09-26 panel §4). */
   subagents: SubagentView[];
   /** Ids whose "Cancelar" came back with `subagent_cancel_failed`, or any other cancel failure the
@@ -195,6 +198,9 @@ export function applyEvent(slice: EventSlice, e: ChatEvent): EventSlice {
     case 'tab_suggestion':
     case 'tab_suggestion_closed':
       return { ...slice, tabSuggestions: upsertTabSuggestion(slice.tabSuggestions, e.suggestion) };
+    case 'tab_limit':
+    case 'tab_limit_closed':
+      return { ...slice, tabLimits: upsertTabLimit(slice.tabLimits, e.notice) };
     case 'attachment_status': {
       const messages = patchMessageAttachment(slice.messages, e.attachment);
       return messages === slice.messages ? slice : { ...slice, messages };

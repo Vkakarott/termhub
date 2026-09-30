@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
+import { expireTabLimits } from '../chat/tab-limits.js';
 import { noteHookEvent } from '../chat/tab-questions.js';
 import { cancelTabSuggestion, openCodexReply, scheduleTabSuggestion } from '../chat/tab-suggestions.js';
 import type { Waker } from '../chat/wake.js';
@@ -36,7 +37,11 @@ export async function ingestHookEvent(
   // nothing (spec 2026-09-25 tab suggestions §6.1).
   cancelTabSuggestion(tab.id);
   let current = tab;
-  if (input.tool === 'claude') current = await noteClaudeSession(repos, current, input.event, interpreted);
+  if (input.tool === 'claude') {
+    current = await noteClaudeSession(repos, current, input.event, interpreted);
+    // The limit ended: a usage-limit card still offering a swap expires (TER-589).
+    if (tab.rate_limited_at && !current.rate_limited_at) await expireTabLimits(repos, log, tab.id);
+  }
   if (!interpreted) return { ok: false, reason: 'ignored' };
   const recorded = await recordInterpretation(repos, log, current, input.tool, interpreted);
   // Dropped by the wait rule (a Cursor session start that arrived after its own prompt, a Codex

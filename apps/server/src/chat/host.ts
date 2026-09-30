@@ -1,4 +1,5 @@
 import { CAPABILITY_CLAUDE } from '@termhub/agent-protocol';
+import { projectAccountsOn } from '../ai/project-accounts.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, User } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
@@ -23,7 +24,7 @@ export interface HostAgents {
 /** Everything `resolveHost` needs, so it can be exercised without a server: the owner-scoped reads
  *  and the live registry, both as narrow interfaces. */
 export interface HostContext {
-  repos: Pick<Repositories, 'chat' | 'machines' | 'aiAccounts'>;
+  repos: Pick<Repositories, 'chat' | 'machines' | 'aiAccounts'> & Partial<Pick<Repositories, 'projectSetup' | 'projectMachines'>>;
   agents: HostAgents;
 }
 
@@ -36,8 +37,11 @@ export interface HostContext {
  * degrades the run to the machine's own default login. That is the right thing to run, and the wrong
  * thing to do quietly — so it is told apart from `default`, where nothing was ever chosen and there is
  * nothing to say.
+ *
+ * `via: 'project'` (TER-589): the account comes from the project's list, not from the person's pick. Still
+ * `chosen` on the wire: an installed phone app parses `kind` strictly, and ignores the extra field.
  */
-export type HostAccount = { kind: 'chosen'; id: string; label: string } | { kind: 'default' } | { kind: 'lost' };
+export type HostAccount = { kind: 'chosen'; id: string; label: string; via?: 'project' } | { kind: 'default' } | { kind: 'lost' };
 
 /**
  * Which machine and which account run this user's conversation — the "terminal geral" of spec §3 —
@@ -56,7 +60,7 @@ export type HostChoice =
    * not hear less because they had two. A run pins the host it used (`pinHostMachine`), which is what
    * keeps this false for the ordinary single-machine conversation that never chose anything.
    */
-  | { kind: 'ready'; machine: Machine; configDir: string | null; account: HostAccount; sessionAtStake: boolean }
+  | { kind: 'ready'; machine: Machine; configDir: string | null; account: HostAccount; sessionAtStake: boolean; model?: string | null }
   | { kind: 'no_machine' }
   /**
    * `sessionAtStake` is what tells the two ways of reaching this apart, because they deserve different
@@ -89,7 +93,11 @@ export type HostProblem = Exclude<HostChoice, { kind: 'ready' }>;
  * list is owner-scoped in SQL, so a chosen id that belongs to someone else is simply not in it. That
  * is what makes `ready` unreachable for a machine the user does not own.
  */
-export async function resolveHost(ctx: HostContext, user: User, opts: { requires?: string; runSessionId?: string | null; wait?: boolean | 'handover' } = {}): Promise<HostChoice> {
+export async function resolveHost(
+  ctx: HostContext,
+  user: User,
+  opts: { requires?: string; runSessionId?: string | null; wait?: boolean | 'handover'; project?: { id: string; accountId: string | null } } = {},
+): Promise<HostChoice> {
   const [conversation, machines] = await Promise.all([ctx.repos.chat.getOrCreateForUser(user.id), ctx.repos.machines.list(user.id)]);
   const candidates = machines.filter((m) => m.type === 'agent');
   if (candidates.length === 0) return { kind: 'no_machine' };
@@ -136,6 +144,18 @@ export async function resolveHost(ctx: HostContext, user: User, opts: { requires
     return { kind: 'agent_too_old', machine, version: ctx.agents.info(machine.id)?.agent_version ?? machine.agent_version ?? '' };
   }
 
+  if (opts.project && ctx.repos.projectSetup && ctx.repos.projectMachines) {
+    const { ai, listed } = await projectAccountsOn({ ...ctx.repos, projectSetup: ctx.repos.projectSetup, projectMachines: ctx.repos.projectMachines }, opts.project.id, user.id, machine.id, 'claude');
+    const model = ai.models.claude;
+    if (listed.length > 0) {
+      // The project's account (spec 2026-09-30 project AI accounts §7.1): the one this project chat last
+      // answered on while it is still listed, else the first in the project's order. The person's own
+      // pick on the account-wide row keeps ruling every other chat.
+      const sticky = listed.find((a) => a.id === opts.project!.accountId) ?? listed[0];
+      return { kind: 'ready', machine, sessionAtStake, configDir: sticky.config_dir, account: { kind: 'chosen', id: sticky.id, label: sticky.label, via: 'project' }, model };
+    }
+    return { kind: 'ready', machine, sessionAtStake, ...(await accountFor(ctx, conversation.ai_account_id, machine)), model };
+  }
   return { kind: 'ready', machine, sessionAtStake, ...(await accountFor(ctx, conversation.ai_account_id, machine)) };
 }
 

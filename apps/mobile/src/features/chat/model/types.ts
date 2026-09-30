@@ -3,7 +3,7 @@
 // `copy.ts`) is a line-for-line copy of the web's own modules, and matching its type names is what
 // keeps that copy readable side by side with the source it was copied from. Delete this file once
 // `@termhub/mobile-api` exports these types directly (design spec §6).
-import type { TChatAction, TChatConversation, TChatDecision, TChatEvent, TChatGrant, TChatHostState, TChatMemory, TChatMessage, TChatProjectGrant, TChatStandingGrant, TSubagentView, TTabQuestion, TTabQuestionSuggestion, TTabSuggestion } from '@/services/api/contract';
+import type { TChatAction, TChatConversation, TChatDecision, TChatEvent, TChatGrant, TChatHostState, TChatMemory, TChatMessage, TChatProjectGrant, TChatStandingGrant, TSubagentView, TTabLimit, TTabQuestion, TTabQuestionSuggestion, TTabSuggestion } from '@/services/api/contract';
 
 /**
  * A message row, plus what only this device knows about a row it inserted before the server echoed
@@ -42,6 +42,9 @@ export type TabQuestionAutoAnswer = NonNullable<TabQuestion['auto_answer']>;
 export type TabQuestionItem = Extract<TabQuestion, { kind: 'choice' }>['payload']['questions'][number];
 /** Claude Code's dimmed next prompt in a tab (spec 2026-09-25 tab suggestions). */
 export type TabSuggestion = TTabSuggestion;
+/** A project tab stuck on its account's usage limit, on a machine that does not swap by itself (spec
+ * 2026-09-30 project AI accounts §7.2). */
+export type TabLimit = TTabLimit;
 
 /** One row of the subagents panel (spec 2026-09-26 panel §4): its description and type, never its
  * prompt nor its work. */

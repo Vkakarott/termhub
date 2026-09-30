@@ -982,7 +982,7 @@ it('persists projects and each conversation, never live or transient state', asy
 
   const saved = JSON.parse(mmkv.getString('chat')!).state;
   expect(Object.keys(saved).sort()).toEqual(['conversations', 'projects']);
-  expect(Object.keys(saved.conversations['p-termhub']).sort()).toEqual(['actions', 'conversation', 'grants', 'host', 'messages', 'projectGrants', 'standingGrants', 'subagents', 'tabQuestions', 'tabSuggestions']);
+  expect(Object.keys(saved.conversations['p-termhub']).sort()).toEqual(['actions', 'conversation', 'grants', 'host', 'messages', 'projectGrants', 'standingGrants', 'subagents', 'tabLimits', 'tabQuestions', 'tabSuggestions']);
 
   // A cold start shows the thread before any fetch.
   const again = createChatStore({ api, session: () => ({ phase: 'locked', auth: () => { throw new Error('LOCKED'); }, handleApiError: () => false, requestPinProof: async () => { throw new Error('CANCELLED'); }, requestPinProofs: async () => { throw new Error('CANCELLED'); }, tokenStale: () => true, renewToken: async () => null }) });
@@ -1184,6 +1184,46 @@ it('suggestions too: per card busy, per card error', async () => {
   await sending;
   expect(chat.getState().busySuggestionIds).toEqual([]);
   expect(chat.getState().error).toBeNull();
+});
+
+it('answerTabLimit swaps over the mock: the card arrives, then reads as swapped; a second answer is that card\'s error (TER-589)', async () => {
+  const { chat } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  await chat.getState().send('bateu o limite?');
+  await jest.advanceTimersByTimeAsync(5000);
+  const l = slot(chat, 'p-termhub').tabLimits.find((x) => x.status === 'open')!;
+  expect(l).toMatchObject({ tab_name: 'api', payload: { account: { label: 'Claude Pedro' }, candidates: [{ id: 'acc-2', label: 'Claude Trabalho' }] } });
+
+  await chat.getState().answerTabLimit(l.id, 'acc-2');
+  await jest.advanceTimersByTimeAsync(0);
+  await flush();
+  expect(slot(chat, 'p-termhub').tabLimits.find((x) => x.id === l.id)).toMatchObject({ status: 'swapped', result: 'acc-2' });
+  expect(chat.getState().busyLimitIds).toEqual([]);
+
+  await chat.getState().answerTabLimit(l.id, null);
+  expect(chat.getState().limitErrors[l.id]).toBe('Este aviso já foi respondido ou expirou');
+  expect(chat.getState().error).toBeNull();
+});
+
+it('usage-limit cards: per card busy, a failed swap keeps the card open with its error, a later try clears it', async () => {
+  const { chat, api } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  let release!: () => void;
+  const gate = new Promise<never>((_resolve, reject) => (release = () => reject(new ApiError(409, 'CONFLICT', 'A máquina jarvis está offline'))));
+  const answer = jest.spyOn(api, 'answerTabLimit').mockImplementation(() => gate);
+  const swapping = chat.getState().answerTabLimit('l1', 'acc-2');
+  expect(chat.getState().busyLimitIds).toEqual(['l1']);
+  await chat.getState().answerTabLimit('l1', null); // the same card: ignored
+  expect(answer).toHaveBeenCalledTimes(1);
+  release();
+  await swapping;
+  expect(chat.getState().busyLimitIds).toEqual([]);
+  expect(chat.getState().limitErrors).toEqual({ l1: 'A máquina jarvis está offline' });
+  expect(chat.getState().error).toBeNull();
+
+  answer.mockRejectedValueOnce(new Error('network down'));
+  await chat.getState().answerTabLimit('l2', null);
+  expect(chat.getState().limitErrors.l2).toBe('Não foi possível falar com o servidor. Tente de novo.');
 });
 
 it('GET chat fills subagents; a message that starts one is reflected there too (spec 2026-09-26 panel §4)', async () => {

@@ -35,7 +35,10 @@ export async function setupRoutes(app: FastifyInstance, repos: Repositories) {
     }
     if (data.repo?.integration_id && !(await exists(s.integration(data.repo.integration_id)))) throw badRequest('Integração do repositório inexistente');
     if (data.runner.machine_id && !(await exists(s.machine(data.runner.machine_id)))) throw badRequest('Máquina do runner inexistente');
-    const before = (await repos.projectSetup.get(id)).data.ticket_sources;
+    const stored = (await repos.projectSetup.get(id)).data;
+    const before = stored.ticket_sources;
+    // The ai block has its own endpoint (TER-589): a form loaded before it, or before the phone's edit, keeps it.
+    if (stored.ai) data.ai = stored.ai;
     const kept = new Set(data.ticket_sources.map(sourceIdentity));
     const saved = await repos.projectSetup.save(id, data);
     for (const gone of before.filter((b) => !kept.has(sourceIdentity(b)))) {

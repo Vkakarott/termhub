@@ -280,3 +280,11 @@ it('cannot be clicked twice while the change is in flight', async () => {
 
   for (const name of ['macbook', 'jarvis']) expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
 });
+
+it('says the project chose the account, and offers no account to pick (TER-589)', () => {
+  const host: ChatHostState = { kind: 'ready', machine: machine('m1', 'jarvis'), configDir: null, account: { kind: 'chosen', id: 'a2', label: 'trabalho', via: 'project' }, sessionAtStake: false };
+  show(host, { picking: true, accounts: [{ id: 'a1', label: 'pessoal', machine_id: 'm1' } as never] });
+  expect(screen.getByText('Esta conversa roda na máquina jarvis, na conta trabalho, definida pelo projeto.')).toBeTruthy();
+  expect(screen.getByText('A conta deste chat vem do setup do projeto (Contas de IA e modelo), na ordem definida lá.')).toBeTruthy();
+  expect(screen.queryByText('Conta do Claude em jarvis')).toBeNull();
+});

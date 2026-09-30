@@ -1,11 +1,12 @@
-import type { ChatAction, ChatMessage, TabQuestion, TabSuggestion } from './types';
+import type { ChatAction, ChatMessage, TabLimit, TabQuestion, TabSuggestion } from './types';
 
 export type ChatEntry =
   | { kind: 'message'; at: string; message: ChatMessage }
   | { kind: 'action'; at: string; action: ChatAction }
   | { kind: 'action_group'; at: string; actions: ChatAction[] }
   | { kind: 'tab_question'; at: string; question: TabQuestion }
-  | { kind: 'tab_suggestion'; at: string; suggestion: TabSuggestion };
+  | { kind: 'tab_suggestion'; at: string; suggestion: TabSuggestion }
+  | { kind: 'tab_limit'; at: string; limit: TabLimit };
 
 /** Where a card sits in the thread: when it was last brought back to the end (TER-477), else when it was made. */
 const cardAt = (card: { created_at: string; surfaced_at?: string | null }): string => card.surfaced_at ?? card.created_at;
@@ -17,7 +18,7 @@ const cardAt = (card: { created_at: string; surfaced_at?: string | null }): stri
  * reconnect, and sorting them in place would be a re-render bug that only shows up under
  * StrictMode.
  */
-export function chatTimeline(messages: ChatMessage[], actions: ChatAction[], tabQuestions: TabQuestion[] = [], tabSuggestions: TabSuggestion[] = []): ChatEntry[] {
+export function chatTimeline(messages: ChatMessage[], actions: ChatAction[], tabQuestions: TabQuestion[] = [], tabSuggestions: TabSuggestion[] = [], tabLimits: TabLimit[] = []): ChatEntry[] {
   /**
    * `GET /api/chat` reads two independent windows: the newest 200 messages and the newest 200
    * actions. Only gated writes ever land in the action trail, so past 200 messages the message
@@ -36,6 +37,7 @@ export function chatTimeline(messages: ChatMessage[], actions: ChatAction[], tab
   const visibleActions = actions.filter(inWindow);
   const visibleQuestions = tabQuestions.filter(inWindow);
   const visibleSuggestions = tabSuggestions.filter(inWindow);
+  const visibleLimits = tabLimits.filter(inWindow);
 
   // Actions first, deliberately: a stable sort with no tiebreak would just preserve this
   // concatenation order, so putting actions ahead of messages here means the "message before
@@ -46,6 +48,7 @@ export function chatTimeline(messages: ChatMessage[], actions: ChatAction[], tab
     ...messages.map((message): ChatEntry => ({ kind: 'message', at: message.created_at, message })),
     ...visibleQuestions.map((question): ChatEntry => ({ kind: 'tab_question', at: cardAt(question), question })),
     ...visibleSuggestions.map((suggestion): ChatEntry => ({ kind: 'tab_suggestion', at: cardAt(suggestion), suggestion })),
+    ...visibleLimits.map((limit): ChatEntry => ({ kind: 'tab_limit', at: limit.created_at, limit })),
   ];
 
   return entries.sort((a, b) => {

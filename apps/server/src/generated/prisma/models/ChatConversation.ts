@@ -322,6 +322,7 @@ export type ChatConversationWhereInput = {
   grants?: Prisma.ChatGrantListRelationFilter
   projectGrants?: Prisma.ChatProjectGrantListRelationFilter
   tabQuestions?: Prisma.TabQuestionListRelationFilter
+  tabLimitNotices?: Prisma.TabLimitNoticeListRelationFilter
   attachments?: Prisma.ChatAttachmentListRelationFilter
   chatDecisions?: Prisma.ChatDecisionListRelationFilter
   subagents?: Prisma.ChatSubagentListRelationFilter
@@ -355,6 +356,7 @@ export type ChatConversationOrderByWithRelationInput = {
   grants?: Prisma.ChatGrantOrderByRelationAggregateInput
   projectGrants?: Prisma.ChatProjectGrantOrderByRelationAggregateInput
   tabQuestions?: Prisma.TabQuestionOrderByRelationAggregateInput
+  tabLimitNotices?: Prisma.TabLimitNoticeOrderByRelationAggregateInput
   attachments?: Prisma.ChatAttachmentOrderByRelationAggregateInput
   chatDecisions?: Prisma.ChatDecisionOrderByRelationAggregateInput
   subagents?: Prisma.ChatSubagentOrderByRelationAggregateInput
@@ -391,6 +393,7 @@ export type ChatConversationWhereUniqueInput = Prisma.AtLeast<{
   grants?: Prisma.ChatGrantListRelationFilter
   projectGrants?: Prisma.ChatProjectGrantListRelationFilter
   tabQuestions?: Prisma.TabQuestionListRelationFilter
+  tabLimitNotices?: Prisma.TabLimitNoticeListRelationFilter
   attachments?: Prisma.ChatAttachmentListRelationFilter
   chatDecisions?: Prisma.ChatDecisionListRelationFilter
   subagents?: Prisma.ChatSubagentListRelationFilter
@@ -464,6 +467,7 @@ export type ChatConversationCreateInput = {
   grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
@@ -493,6 +497,7 @@ export type ChatConversationUncheckedCreateInput = {
   grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
@@ -522,6 +527,7 @@ export type ChatConversationUpdateInput = {
   grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
@@ -551,6 +557,7 @@ export type ChatConversationUncheckedUpdateInput = {
   grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
@@ -998,6 +1005,20 @@ export type ChatConversationUpdateOneWithoutStandingGrantsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.ChatConversationUpdateToOneWithWhereWithoutStandingGrantsInput, Prisma.ChatConversationUpdateWithoutStandingGrantsInput>, Prisma.ChatConversationUncheckedUpdateWithoutStandingGrantsInput>
 }
 
+export type ChatConversationCreateNestedOneWithoutTabLimitNoticesInput = {
+  create?: Prisma.XOR<Prisma.ChatConversationCreateWithoutTabLimitNoticesInput, Prisma.ChatConversationUncheckedCreateWithoutTabLimitNoticesInput>
+  connectOrCreate?: Prisma.ChatConversationCreateOrConnectWithoutTabLimitNoticesInput
+  connect?: Prisma.ChatConversationWhereUniqueInput
+}
+
+export type ChatConversationUpdateOneRequiredWithoutTabLimitNoticesNestedInput = {
+  create?: Prisma.XOR<Prisma.ChatConversationCreateWithoutTabLimitNoticesInput, Prisma.ChatConversationUncheckedCreateWithoutTabLimitNoticesInput>
+  connectOrCreate?: Prisma.ChatConversationCreateOrConnectWithoutTabLimitNoticesInput
+  upsert?: Prisma.ChatConversationUpsertWithoutTabLimitNoticesInput
+  connect?: Prisma.ChatConversationWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ChatConversationUpdateToOneWithWhereWithoutTabLimitNoticesInput, Prisma.ChatConversationUpdateWithoutTabLimitNoticesInput>, Prisma.ChatConversationUncheckedUpdateWithoutTabLimitNoticesInput>
+}
+
 export type ChatConversationCreateNestedOneWithoutTabQuestionsInput = {
   create?: Prisma.XOR<Prisma.ChatConversationCreateWithoutTabQuestionsInput, Prisma.ChatConversationUncheckedCreateWithoutTabQuestionsInput>
   connectOrCreate?: Prisma.ChatConversationCreateOrConnectWithoutTabQuestionsInput
@@ -1049,6 +1070,7 @@ export type ChatConversationCreateWithoutUserInput = {
   grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
@@ -1077,6 +1099,7 @@ export type ChatConversationUncheckedCreateWithoutUserInput = {
   grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
@@ -1152,6 +1175,7 @@ export type ChatConversationCreateWithoutMachineInput = {
   grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
@@ -1180,6 +1204,7 @@ export type ChatConversationUncheckedCreateWithoutMachineInput = {
   grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
@@ -1234,6 +1259,7 @@ export type ChatConversationCreateWithoutProjectInput = {
   grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
@@ -1262,6 +1288,7 @@ export type ChatConversationUncheckedCreateWithoutProjectInput = {
   grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
@@ -1316,6 +1343,7 @@ export type ChatConversationCreateWithoutAiAccountInput = {
   grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
@@ -1344,6 +1372,7 @@ export type ChatConversationUncheckedCreateWithoutAiAccountInput = {
   grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
@@ -1398,6 +1427,7 @@ export type ChatConversationCreateWithoutApiTokensInput = {
   grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
@@ -1426,6 +1456,7 @@ export type ChatConversationUncheckedCreateWithoutApiTokensInput = {
   grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
@@ -1470,6 +1501,7 @@ export type ChatConversationUpdateWithoutApiTokensInput = {
   grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
@@ -1498,6 +1530,7 @@ export type ChatConversationUncheckedUpdateWithoutApiTokensInput = {
   grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
@@ -1526,6 +1559,7 @@ export type ChatConversationCreateWithoutMessagesInput = {
   grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
@@ -1554,6 +1588,7 @@ export type ChatConversationUncheckedCreateWithoutMessagesInput = {
   grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
@@ -1598,6 +1633,7 @@ export type ChatConversationUpdateWithoutMessagesInput = {
   grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
@@ -1626,6 +1662,7 @@ export type ChatConversationUncheckedUpdateWithoutMessagesInput = {
   grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
@@ -1655,6 +1692,7 @@ export type ChatConversationCreateWithoutAttachmentsInput = {
   grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
   liveRun?: Prisma.ChatLiveRunCreateNestedOneWithoutConversationInput
@@ -1683,6 +1721,7 @@ export type ChatConversationUncheckedCreateWithoutAttachmentsInput = {
   grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
   liveRun?: Prisma.ChatLiveRunUncheckedCreateNestedOneWithoutConversationInput
@@ -1727,6 +1766,7 @@ export type ChatConversationUpdateWithoutAttachmentsInput = {
   grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
   liveRun?: Prisma.ChatLiveRunUpdateOneWithoutConversationNestedInput
@@ -1755,6 +1795,7 @@ export type ChatConversationUncheckedUpdateWithoutAttachmentsInput = {
   grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
   liveRun?: Prisma.ChatLiveRunUncheckedUpdateOneWithoutConversationNestedInput
@@ -1782,6 +1823,7 @@ export type ChatConversationCreateWithoutActionsInput = {
   grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
@@ -1810,6 +1852,7 @@ export type ChatConversationUncheckedCreateWithoutActionsInput = {
   grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
@@ -1854,6 +1897,7 @@ export type ChatConversationUpdateWithoutActionsInput = {
   grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
@@ -1882,6 +1926,7 @@ export type ChatConversationUncheckedUpdateWithoutActionsInput = {
   grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
@@ -1911,6 +1956,7 @@ export type ChatConversationCreateWithoutSubagentsInput = {
   grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
   liveRun?: Prisma.ChatLiveRunCreateNestedOneWithoutConversationInput
@@ -1939,6 +1985,7 @@ export type ChatConversationUncheckedCreateWithoutSubagentsInput = {
   grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
   liveRun?: Prisma.ChatLiveRunUncheckedCreateNestedOneWithoutConversationInput
@@ -1983,6 +2030,7 @@ export type ChatConversationUpdateWithoutSubagentsInput = {
   grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
   liveRun?: Prisma.ChatLiveRunUpdateOneWithoutConversationNestedInput
@@ -2011,6 +2059,7 @@ export type ChatConversationUncheckedUpdateWithoutSubagentsInput = {
   grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
   liveRun?: Prisma.ChatLiveRunUncheckedUpdateOneWithoutConversationNestedInput
@@ -2039,6 +2088,7 @@ export type ChatConversationCreateWithoutLiveRunInput = {
   grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
@@ -2067,6 +2117,7 @@ export type ChatConversationUncheckedCreateWithoutLiveRunInput = {
   grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
@@ -2111,6 +2162,7 @@ export type ChatConversationUpdateWithoutLiveRunInput = {
   grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
@@ -2139,6 +2191,7 @@ export type ChatConversationUncheckedUpdateWithoutLiveRunInput = {
   grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
@@ -2166,6 +2219,7 @@ export type ChatConversationCreateWithoutGrantsInput = {
   actions?: Prisma.ChatActionCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
@@ -2194,6 +2248,7 @@ export type ChatConversationUncheckedCreateWithoutGrantsInput = {
   actions?: Prisma.ChatActionUncheckedCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
@@ -2238,6 +2293,7 @@ export type ChatConversationUpdateWithoutGrantsInput = {
   actions?: Prisma.ChatActionUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
@@ -2266,6 +2322,7 @@ export type ChatConversationUncheckedUpdateWithoutGrantsInput = {
   actions?: Prisma.ChatActionUncheckedUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
@@ -2294,6 +2351,7 @@ export type ChatConversationCreateWithoutProjectGrantsInput = {
   actions?: Prisma.ChatActionCreateNestedManyWithoutConversationInput
   grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
@@ -2322,6 +2380,7 @@ export type ChatConversationUncheckedCreateWithoutProjectGrantsInput = {
   actions?: Prisma.ChatActionUncheckedCreateNestedManyWithoutConversationInput
   grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
@@ -2366,6 +2425,7 @@ export type ChatConversationUpdateWithoutProjectGrantsInput = {
   actions?: Prisma.ChatActionUpdateManyWithoutConversationNestedInput
   grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
@@ -2394,6 +2454,7 @@ export type ChatConversationUncheckedUpdateWithoutProjectGrantsInput = {
   actions?: Prisma.ChatActionUncheckedUpdateManyWithoutConversationNestedInput
   grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
@@ -2423,6 +2484,7 @@ export type ChatConversationCreateWithoutStandingGrantsInput = {
   grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
@@ -2451,6 +2513,7 @@ export type ChatConversationUncheckedCreateWithoutStandingGrantsInput = {
   grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
@@ -2495,6 +2558,7 @@ export type ChatConversationUpdateWithoutStandingGrantsInput = {
   grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
@@ -2523,10 +2587,143 @@ export type ChatConversationUncheckedUpdateWithoutStandingGrantsInput = {
   grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
   liveRun?: Prisma.ChatLiveRunUncheckedUpdateOneWithoutConversationNestedInput
+}
+
+export type ChatConversationCreateWithoutTabLimitNoticesInput = {
+  id: string
+  title?: string | null
+  cliSessionId?: string | null
+  model?: string | null
+  archivedAt?: Date | string | null
+  tabId?: string | null
+  reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
+  lastMessageAt?: Date | string | null
+  createdAt?: Date | string
+  user: Prisma.UserCreateNestedOneWithoutChatConversationsInput
+  machine?: Prisma.MachineCreateNestedOneWithoutChatConversationsInput
+  aiAccount?: Prisma.AiAccountCreateNestedOneWithoutChatConversationsInput
+  project?: Prisma.ProjectCreateNestedOneWithoutChatConversationsInput
+  apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutChatConversationInput
+  messages?: Prisma.ChatMessageCreateNestedManyWithoutConversationInput
+  actions?: Prisma.ChatActionCreateNestedManyWithoutConversationInput
+  grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
+  projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
+  tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
+  chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
+  subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
+  liveRun?: Prisma.ChatLiveRunCreateNestedOneWithoutConversationInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutConversationInput
+}
+
+export type ChatConversationUncheckedCreateWithoutTabLimitNoticesInput = {
+  id: string
+  userId: string
+  title?: string | null
+  cliSessionId?: string | null
+  model?: string | null
+  machineId?: string | null
+  aiAccountId?: string | null
+  projectId?: string | null
+  archivedAt?: Date | string | null
+  tabId?: string | null
+  reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
+  lastMessageAt?: Date | string | null
+  createdAt?: Date | string
+  apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutChatConversationInput
+  messages?: Prisma.ChatMessageUncheckedCreateNestedManyWithoutConversationInput
+  actions?: Prisma.ChatActionUncheckedCreateNestedManyWithoutConversationInput
+  grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
+  projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
+  tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
+  chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
+  subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
+  liveRun?: Prisma.ChatLiveRunUncheckedCreateNestedOneWithoutConversationInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutConversationInput
+}
+
+export type ChatConversationCreateOrConnectWithoutTabLimitNoticesInput = {
+  where: Prisma.ChatConversationWhereUniqueInput
+  create: Prisma.XOR<Prisma.ChatConversationCreateWithoutTabLimitNoticesInput, Prisma.ChatConversationUncheckedCreateWithoutTabLimitNoticesInput>
+}
+
+export type ChatConversationUpsertWithoutTabLimitNoticesInput = {
+  update: Prisma.XOR<Prisma.ChatConversationUpdateWithoutTabLimitNoticesInput, Prisma.ChatConversationUncheckedUpdateWithoutTabLimitNoticesInput>
+  create: Prisma.XOR<Prisma.ChatConversationCreateWithoutTabLimitNoticesInput, Prisma.ChatConversationUncheckedCreateWithoutTabLimitNoticesInput>
+  where?: Prisma.ChatConversationWhereInput
+}
+
+export type ChatConversationUpdateToOneWithWhereWithoutTabLimitNoticesInput = {
+  where?: Prisma.ChatConversationWhereInput
+  data: Prisma.XOR<Prisma.ChatConversationUpdateWithoutTabLimitNoticesInput, Prisma.ChatConversationUncheckedUpdateWithoutTabLimitNoticesInput>
+}
+
+export type ChatConversationUpdateWithoutTabLimitNoticesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cliSessionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  model?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneRequiredWithoutChatConversationsNestedInput
+  machine?: Prisma.MachineUpdateOneWithoutChatConversationsNestedInput
+  aiAccount?: Prisma.AiAccountUpdateOneWithoutChatConversationsNestedInput
+  project?: Prisma.ProjectUpdateOneWithoutChatConversationsNestedInput
+  apiTokens?: Prisma.ApiTokenUpdateManyWithoutChatConversationNestedInput
+  messages?: Prisma.ChatMessageUpdateManyWithoutConversationNestedInput
+  actions?: Prisma.ChatActionUpdateManyWithoutConversationNestedInput
+  grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
+  projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
+  tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
+  chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
+  subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
+  liveRun?: Prisma.ChatLiveRunUpdateOneWithoutConversationNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutConversationNestedInput
+}
+
+export type ChatConversationUncheckedUpdateWithoutTabLimitNoticesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  userId?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cliSessionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  model?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  machineId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  aiAccountId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  projectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutChatConversationNestedInput
+  messages?: Prisma.ChatMessageUncheckedUpdateManyWithoutConversationNestedInput
+  actions?: Prisma.ChatActionUncheckedUpdateManyWithoutConversationNestedInput
+  grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
+  projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
+  tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
+  chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
+  subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
+  liveRun?: Prisma.ChatLiveRunUncheckedUpdateOneWithoutConversationNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutConversationNestedInput
 }
 
 export type ChatConversationCreateWithoutTabQuestionsInput = {
@@ -2550,6 +2747,7 @@ export type ChatConversationCreateWithoutTabQuestionsInput = {
   actions?: Prisma.ChatActionCreateNestedManyWithoutConversationInput
   grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
@@ -2578,6 +2776,7 @@ export type ChatConversationUncheckedCreateWithoutTabQuestionsInput = {
   actions?: Prisma.ChatActionUncheckedCreateNestedManyWithoutConversationInput
   grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
@@ -2622,6 +2821,7 @@ export type ChatConversationUpdateWithoutTabQuestionsInput = {
   actions?: Prisma.ChatActionUpdateManyWithoutConversationNestedInput
   grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
@@ -2650,6 +2850,7 @@ export type ChatConversationUncheckedUpdateWithoutTabQuestionsInput = {
   actions?: Prisma.ChatActionUncheckedUpdateManyWithoutConversationNestedInput
   grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
@@ -2679,6 +2880,7 @@ export type ChatConversationCreateWithoutChatDecisionsInput = {
   grants?: Prisma.ChatGrantCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentCreateNestedManyWithoutConversationInput
   liveRun?: Prisma.ChatLiveRunCreateNestedOneWithoutConversationInput
@@ -2707,6 +2909,7 @@ export type ChatConversationUncheckedCreateWithoutChatDecisionsInput = {
   grants?: Prisma.ChatGrantUncheckedCreateNestedManyWithoutConversationInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedCreateNestedManyWithoutConversationInput
   tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutConversationInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedCreateNestedManyWithoutConversationInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutConversationInput
   subagents?: Prisma.ChatSubagentUncheckedCreateNestedManyWithoutConversationInput
   liveRun?: Prisma.ChatLiveRunUncheckedCreateNestedOneWithoutConversationInput
@@ -2751,6 +2954,7 @@ export type ChatConversationUpdateWithoutChatDecisionsInput = {
   grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
   liveRun?: Prisma.ChatLiveRunUpdateOneWithoutConversationNestedInput
@@ -2779,6 +2983,7 @@ export type ChatConversationUncheckedUpdateWithoutChatDecisionsInput = {
   grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
   liveRun?: Prisma.ChatLiveRunUncheckedUpdateOneWithoutConversationNestedInput
@@ -2823,6 +3028,7 @@ export type ChatConversationUpdateWithoutUserInput = {
   grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
@@ -2851,6 +3057,7 @@ export type ChatConversationUncheckedUpdateWithoutUserInput = {
   grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
@@ -2913,6 +3120,7 @@ export type ChatConversationUpdateWithoutMachineInput = {
   grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
@@ -2941,6 +3149,7 @@ export type ChatConversationUncheckedUpdateWithoutMachineInput = {
   grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
@@ -3003,6 +3212,7 @@ export type ChatConversationUpdateWithoutProjectInput = {
   grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
@@ -3031,6 +3241,7 @@ export type ChatConversationUncheckedUpdateWithoutProjectInput = {
   grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
@@ -3093,6 +3304,7 @@ export type ChatConversationUpdateWithoutAiAccountInput = {
   grants?: Prisma.ChatGrantUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUpdateManyWithoutConversationNestedInput
@@ -3121,6 +3333,7 @@ export type ChatConversationUncheckedUpdateWithoutAiAccountInput = {
   grants?: Prisma.ChatGrantUncheckedUpdateManyWithoutConversationNestedInput
   projectGrants?: Prisma.ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutConversationNestedInput
+  tabLimitNotices?: Prisma.TabLimitNoticeUncheckedUpdateManyWithoutConversationNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutConversationNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutConversationNestedInput
   subagents?: Prisma.ChatSubagentUncheckedUpdateManyWithoutConversationNestedInput
@@ -3157,6 +3370,7 @@ export type ChatConversationCountOutputType = {
   grants: number
   projectGrants: number
   tabQuestions: number
+  tabLimitNotices: number
   attachments: number
   chatDecisions: number
   subagents: number
@@ -3170,6 +3384,7 @@ export type ChatConversationCountOutputTypeSelect<ExtArgs extends runtime.Types.
   grants?: boolean | ChatConversationCountOutputTypeCountGrantsArgs
   projectGrants?: boolean | ChatConversationCountOutputTypeCountProjectGrantsArgs
   tabQuestions?: boolean | ChatConversationCountOutputTypeCountTabQuestionsArgs
+  tabLimitNotices?: boolean | ChatConversationCountOutputTypeCountTabLimitNoticesArgs
   attachments?: boolean | ChatConversationCountOutputTypeCountAttachmentsArgs
   chatDecisions?: boolean | ChatConversationCountOutputTypeCountChatDecisionsArgs
   subagents?: boolean | ChatConversationCountOutputTypeCountSubagentsArgs
@@ -3231,6 +3446,13 @@ export type ChatConversationCountOutputTypeCountTabQuestionsArgs<ExtArgs extends
 /**
  * ChatConversationCountOutputType without action
  */
+export type ChatConversationCountOutputTypeCountTabLimitNoticesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.TabLimitNoticeWhereInput
+}
+
+/**
+ * ChatConversationCountOutputType without action
+ */
 export type ChatConversationCountOutputTypeCountAttachmentsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.ChatAttachmentWhereInput
 }
@@ -3283,6 +3505,7 @@ export type ChatConversationSelect<ExtArgs extends runtime.Types.Extensions.Inte
   grants?: boolean | Prisma.ChatConversation$grantsArgs<ExtArgs>
   projectGrants?: boolean | Prisma.ChatConversation$projectGrantsArgs<ExtArgs>
   tabQuestions?: boolean | Prisma.ChatConversation$tabQuestionsArgs<ExtArgs>
+  tabLimitNotices?: boolean | Prisma.ChatConversation$tabLimitNoticesArgs<ExtArgs>
   attachments?: boolean | Prisma.ChatConversation$attachmentsArgs<ExtArgs>
   chatDecisions?: boolean | Prisma.ChatConversation$chatDecisionsArgs<ExtArgs>
   subagents?: boolean | Prisma.ChatConversation$subagentsArgs<ExtArgs>
@@ -3365,6 +3588,7 @@ export type ChatConversationInclude<ExtArgs extends runtime.Types.Extensions.Int
   grants?: boolean | Prisma.ChatConversation$grantsArgs<ExtArgs>
   projectGrants?: boolean | Prisma.ChatConversation$projectGrantsArgs<ExtArgs>
   tabQuestions?: boolean | Prisma.ChatConversation$tabQuestionsArgs<ExtArgs>
+  tabLimitNotices?: boolean | Prisma.ChatConversation$tabLimitNoticesArgs<ExtArgs>
   attachments?: boolean | Prisma.ChatConversation$attachmentsArgs<ExtArgs>
   chatDecisions?: boolean | Prisma.ChatConversation$chatDecisionsArgs<ExtArgs>
   subagents?: boolean | Prisma.ChatConversation$subagentsArgs<ExtArgs>
@@ -3398,6 +3622,7 @@ export type $ChatConversationPayload<ExtArgs extends runtime.Types.Extensions.In
     grants: Prisma.$ChatGrantPayload<ExtArgs>[]
     projectGrants: Prisma.$ChatProjectGrantPayload<ExtArgs>[]
     tabQuestions: Prisma.$TabQuestionPayload<ExtArgs>[]
+    tabLimitNotices: Prisma.$TabLimitNoticePayload<ExtArgs>[]
     attachments: Prisma.$ChatAttachmentPayload<ExtArgs>[]
     chatDecisions: Prisma.$ChatDecisionPayload<ExtArgs>[]
     subagents: Prisma.$ChatSubagentPayload<ExtArgs>[]
@@ -3843,6 +4068,7 @@ export interface Prisma__ChatConversationClient<T, Null = never, ExtArgs extends
   grants<T extends Prisma.ChatConversation$grantsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatConversation$grantsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatGrantPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   projectGrants<T extends Prisma.ChatConversation$projectGrantsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatConversation$projectGrantsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatProjectGrantPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   tabQuestions<T extends Prisma.ChatConversation$tabQuestionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatConversation$tabQuestionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TabQuestionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  tabLimitNotices<T extends Prisma.ChatConversation$tabLimitNoticesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatConversation$tabLimitNoticesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TabLimitNoticePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   attachments<T extends Prisma.ChatConversation$attachmentsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatConversation$attachmentsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatAttachmentPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   chatDecisions<T extends Prisma.ChatConversation$chatDecisionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatConversation$chatDecisionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatDecisionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   subagents<T extends Prisma.ChatConversation$subagentsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatConversation$subagentsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatSubagentPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
@@ -4491,6 +4717,30 @@ export type ChatConversation$tabQuestionsArgs<ExtArgs extends runtime.Types.Exte
   take?: number
   skip?: number
   distinct?: Prisma.TabQuestionScalarFieldEnum | Prisma.TabQuestionScalarFieldEnum[]
+}
+
+/**
+ * ChatConversation.tabLimitNotices
+ */
+export type ChatConversation$tabLimitNoticesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TabLimitNotice
+   */
+  select?: Prisma.TabLimitNoticeSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the TabLimitNotice
+   */
+  omit?: Prisma.TabLimitNoticeOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TabLimitNoticeInclude<ExtArgs> | null
+  where?: Prisma.TabLimitNoticeWhereInput
+  orderBy?: Prisma.TabLimitNoticeOrderByWithRelationInput | Prisma.TabLimitNoticeOrderByWithRelationInput[]
+  cursor?: Prisma.TabLimitNoticeWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.TabLimitNoticeScalarFieldEnum | Prisma.TabLimitNoticeScalarFieldEnum[]
 }
 
 /**

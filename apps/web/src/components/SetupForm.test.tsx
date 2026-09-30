@@ -18,6 +18,8 @@ vi.mock('../lib/api', () => {
         get: (...a: unknown[]) => getMock(...a),
         save: (...a: unknown[]) => saveMock(...a),
         syncTickets: (...a: unknown[]) => syncTicketsMock(...a),
+        // the project's AI accounts card (TER-589): nothing configured, nothing available
+        ai: { get: () => Promise.resolve({ ai: { accounts: [], models: { claude: null, chatgpt: null } }, available: [] }), save: () => Promise.reject(new Error('unused')) },
       },
       integrations: {
         list: (...a: unknown[]) => integrationsListMock(...a),

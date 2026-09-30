@@ -23,6 +23,7 @@ import { progressRoutes } from './routes/progress.js';
 import { officeRoutes } from './routes/office.js';
 import { integrationRoutes } from './routes/integrations.js';
 import { setupRoutes } from './routes/setup.js';
+import { projectAiRoutes } from './routes/project-ai.js';
 import { projectTicketRoutes, taskTicketRoutes } from './routes/tickets.js';
 import { aiAccountRoutes } from './routes/ai-accounts.js';
 import { waitlistRoutes } from './routes/waitlist.js';
@@ -238,6 +239,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
       await guarded('projects', (a) => officeRoutes(a, repos, { simulators, agents }), '/office');
       await guarded('integrations', (a) => integrationRoutes(a, repos), '/integrations');
       await guarded('projects', (a) => setupRoutes(a, repos), '/projects');
+      await guarded('projects', (a) => projectAiRoutes(a, repos), '/projects');
       await guarded('tickets', (a) => projectTicketRoutes(a, repos), '/projects');
       await guarded('tickets', (a) => taskTicketRoutes(a, repos), '/tasks');
       await guarded('terminals', (a) => tabRoutes(a, repos, { simulators, closeSimulatorTab: (id) => simWs.closeTab(id) }), '/tabs');

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { normalizeSetup } from '../setup/schema.js';
 
 // The account fallback on a usage limit (TER-588) reads each account's usage and moves the session with
 // the agent: both are the machine's, stood in for here.
@@ -44,7 +45,7 @@ const action = (overrides: Partial<ChatAction> = {}): ChatAction => ({
   ...overrides,
 });
 
-function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActions?: ChatAction[]; tabQuestions?: TabQuestion[]; attachments?: AttachmentRow[]; subagents?: ChatSubagent[]; streaming?: boolean; groups?: ProjectGroup[]; projects?: { id: string; key: string; name: string; status: string; owner_id: string }[]; host?: { machines?: unknown[]; capabilities?: string[] | null; account?: { id: string; provider: string; machine_id: string; config_dir: string | null; label?: string } }; accounts?: { id: string; provider: string; machine_id: string; config_dir: string | null; label: string }[] } = {}) {
+function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActions?: ChatAction[]; tabQuestions?: TabQuestion[]; attachments?: AttachmentRow[]; subagents?: ChatSubagent[]; streaming?: boolean; groups?: ProjectGroup[]; projects?: { id: string; key: string; name: string; status: string; owner_id: string }[]; host?: { machines?: unknown[]; capabilities?: string[] | null; account?: { id: string; provider: string; machine_id: string; config_dir: string | null; label?: string } }; accounts?: { id: string; provider: string; machine_id: string; config_dir: string | null; label: string }[]; projectAi?: unknown } = {}) {
   // The host pair every case but the host-specific ones takes for granted: one agent machine of this
   // user's own, online, with an agent that knows how to run a chat (see host.test.ts for the choice
   // itself). `configDirs` is gone — the account travels as the chosen `ai_account`'s config dir.
@@ -65,6 +66,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
   const chat = {
     getOrCreateForUser: vi.fn(async () => activeFor(null)),
     getOrCreateForProject: vi.fn(async (_userId: string, projectId: string) => activeFor(projectId)),
+    setRunAccount: vi.fn(async () => undefined),
     setHost: vi.fn(async (id: string, h: { machine_id: string; ai_account_id: string | null }) => {
       const row = conversations.find((c) => c.id === id)!;
       const moved = (row.machine_id !== null && row.machine_id !== h.machine_id) || row.ai_account_id !== h.ai_account_id;
@@ -276,7 +278,10 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
     tabs: { findByIdsForOwner: ownedBy(tab) },
     tasks: { findByIdsForOwner: vi.fn(async () => []) },
     projects: { findByIdsForOwner: ownedBy(project), list: vi.fn(async (f: { owner?: string | null } = {}) => projectRows.filter((r) => !f.owner || r.owner_id === f.owner)) },
-    projectMachines: { listByProject: vi.fn(async (): Promise<{ machine_id: string; cwd: string }[]> => [{ machine_id: 'm1', cwd: '/srv/app' }]) },
+    projectMachines: {
+      listByProject: vi.fn(async (): Promise<{ machine_id: string; cwd: string }[]> => [{ machine_id: 'm1', cwd: '/srv/app' }]),
+      find: vi.fn(async (_p: string, m: string) => (m === 'm1' ? { machine_id: 'm1', cwd: '/srv/app' } : undefined)),
+    },
     machines: { findByIdsForOwner: ownedBy(machine), list: vi.fn(async (owner: string | null) => (owner === user.id ? (opts.host?.machines ?? [host]) : [])) },
     aiAccounts: { findById: vi.fn(async () => opts.host?.account), list: vi.fn(async (owner: string) => (owner === user.id ? (opts.accounts ?? []) : [])) },
     chatGrants: { revokeForConversation: vi.fn(async () => 0), findActiveBySourceAction: vi.fn(async () => undefined) },
@@ -284,6 +289,8 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
     chatStandingGrants: { findActiveBySourceAction: vi.fn(async () => undefined), listActive: vi.fn(async () => []) },
     chatAttachments,
     chatSubagents,
+    // The project's AI accounts and model (TER-589): absent unless a test configures them.
+    ...(opts.projectAi !== undefined ? { projectSetup: { get: vi.fn(async () => ({ data: normalizeSetup({ ai: opts.projectAi }, 2) })) } } : {}),
   } as unknown as Repositories;
   const agents = {
     capabilities: vi.fn(() => (opts.host && 'capabilities' in opts.host ? (opts.host.capabilities ?? null) : ['pty', 'claude', 'claude.system_prompt', ...(opts.streaming ? ['claude.stream_input'] : [])])),
@@ -3713,6 +3720,29 @@ describe('usage limit (TER-588)', () => {
     vi.mocked(runner.run).mockImplementation(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield limitFrames[0]; yield tool; yield* limitFrames.slice(1); } }));
     expect(await service.send(user, 'oi')).toMatchObject({ error_code: 'USAGE_LIMIT' });
     expect(runner.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("project chat (TER-589): starts on the project's first account with its model, and keeps the one that took over", async () => {
+    const personal = { id: 'acc_p', provider: 'claude', machine_id: 'm1', config_dir: '~/.claude-p', label: 'Pessoal' };
+    const built = build([], { host: { machines: [jarvis()] }, accounts: [work, personal], projectAi: { accounts: ['acc_p', 'acc_w'], models: { claude: 'opus' } } });
+    vi.mocked(built.runner.run).mockImplementationOnce(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield* limitFrames; } }));
+    vi.mocked(built.runner.run).mockImplementationOnce(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield delta('oi!'); yield done(SID); } }));
+    const final = await built.service.send(user, 'oi', { projectId: 'p1' });
+    expect(final).toMatchObject({ text: 'oi!', error_code: null });
+    expect(built.inputs()[0]).toMatchObject({ config_dir: '~/.claude-p', model: 'opus' });
+    expect(built.inputs()[1]).toMatchObject({ config_dir: '~/.claude-work', model: 'opus' });
+    // the project conversation keeps the account that answered; the account-wide host is untouched
+    expect(built.chat.setRunAccount).toHaveBeenCalledWith('c_p1', 'acc_w');
+    expect(built.chat.setHost).not.toHaveBeenCalled();
+  });
+
+  it('account-wide chat (TER-589): never keeps the account that took over', async () => {
+    const built = build([], { host: { machines: [jarvis()] }, accounts: [work], projectAi: { accounts: ['acc_w'], models: { claude: 'opus' } } });
+    vi.mocked(built.runner.run).mockImplementationOnce(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield* limitFrames; } }));
+    vi.mocked(built.runner.run).mockImplementationOnce(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield delta('oi!'); yield done(SID); } }));
+    await built.service.send(user, 'oi');
+    expect(built.inputs()[0].model ?? null).toBeNull();
+    expect(built.chat.setRunAccount).not.toHaveBeenCalled();
   });
 
   it('one-shot: a 429 without the rejected limit event is a transient failure, not the usage limit', async () => {

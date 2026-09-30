@@ -8,6 +8,7 @@ import type { AiAccountUsage } from '../ai/index.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { AiAccount, Machine } from '../db/repositories/types.js';
 import { fallbackCandidates, linkChatSession, pickFallback } from './account-fallback.js';
+import { normalizeSetup } from '../setup/schema.js';
 
 const SID = '6d127d73-4bd0-42d6-b4a6-d96899507e62';
 const DIR = '/home/u/.claude/projects/-srv';
@@ -28,6 +29,30 @@ beforeEach(() => {
   peaks = { a: 100, b: 40, c: 10 };
   getAccountUsage.mockImplementation(async (a: AiAccount) => usage(a.id, peaks[a.id] ?? null));
   linkClaudeSession.mockResolvedValue('linked');
+});
+
+describe('fallbackCandidates in a project chat (TER-589)', () => {
+  const withProject = (ai: unknown, linked = true) =>
+    ({ ...repos, projectSetup: { get: vi.fn(async () => ({ data: normalizeSetup({ ai }, 2) })) }, projectMachines: { find: vi.fn(async () => (linked ? { machine_id: 'm1' } : undefined)) } }) as unknown as Repositories;
+
+  it("follows the project's order over room, and never leaves its list", async () => {
+    // c has more room than b, but the project lists b first; the machine's other accounts are not the project's
+    expect((await fallbackCandidates(withProject({ accounts: ['a', 'b', 'c', 'x', 'g'] }), machine, 'a', new Set(), 'p1')).map((a) => a.id)).toEqual(['b', 'c']);
+    expect((await fallbackCandidates(withProject({ accounts: ['a', 'c'] }), machine, 'a', new Set(), 'p1')).map((a) => a.id)).toEqual(['c']);
+  });
+
+  it('still skips accounts already tried and those at their limit', async () => {
+    peaks.b = 95;
+    expect((await fallbackCandidates(withProject({ accounts: ['a', 'b', 'c'] }), machine, 'a', new Set(['c']), 'p1')).map((a) => a.id)).toEqual([]);
+  });
+
+  it('ranks by room as before when the machine is no longer linked to the project', async () => {
+    expect((await fallbackCandidates(withProject({ accounts: ['a', 'b'] }, false), machine, 'a', new Set(), 'p1')).map((a) => a.id)).toEqual(['c', 'b']);
+  });
+
+  it('ranks by room as before for a project without Claude accounts on this machine', async () => {
+    expect((await fallbackCandidates(withProject({ accounts: ['x', 'g'] }), machine, 'a', new Set(), 'p1')).map((a) => a.id)).toEqual(['c', 'b']);
+  });
 });
 
 describe('fallbackCandidates', () => {
