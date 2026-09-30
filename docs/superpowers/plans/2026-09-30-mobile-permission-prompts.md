@@ -8,7 +8,7 @@
 
 **Tech Stack:** Expo SDK 57, React Native 0.86, expo-router, zustand + MMKV, NativeWind, `expo-notifications`, `expo-tracking-transparency@~57.0.2`, `@react-native-firebase/analytics@^26.4`, Jest (`logic` and `ui` projects).
 
-**Spec:** `docs/superpowers/specs/2026-09-30-mobile-permission-prompts-design.md`
+**Spec:** `docs/superpowers/specs/2026-09-30-mobile-permission-prompts-design.md` · **Card:** TER-628 (subtasks TER-629…TER-636 = Tasks 1–8)
 
 ## Global Constraints
 

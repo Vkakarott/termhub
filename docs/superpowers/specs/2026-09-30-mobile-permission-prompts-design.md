@@ -1,6 +1,6 @@
 # Mobile: contextual permission prompts (notifications and ad measurement) — design
 
-Phone app only (`@termhub/mobile`). No server, web, contract or migration change. Needs a new native
+Card: **TER-628**. Phone app only (`@termhub/mobile`). No server, web, contract or migration change. Needs a new native
 build (a new native module and the AdSupport framework), so it ships in a new app version.
 
 The decisions in §2 marked "maintainer" were taken on 2026-09-30; the others follow from the code
