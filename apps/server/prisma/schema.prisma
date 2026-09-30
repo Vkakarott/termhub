@@ -753,6 +753,8 @@ model ChatMessage {
   text           String
   usage          Json?
   errorCode      String?          @map("error_code")
+  /// TER-588: the usage limit the answer hit, or the account that answered instead (ChatNotice).
+  notice         Json?
   /// The message this one answers (TER-447). The database nulls it when that row is deleted; the two
   /// fields below keep what was quoted, and `replyToRole` being set is what says this is a reply.
   replyToId      String?          @map("reply_to_id")

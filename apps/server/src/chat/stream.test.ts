@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, it, describe } from 'vitest';
-import { contextUsage, parseFrame, cliTaskStatus } from './stream.js';
+import { codeForReason, contextUsage, parseFrame, cliTaskStatus } from './stream.js';
 
 const fixture = readFileSync(join(import.meta.dirname, 'fixtures/stream-basic.ndjson'), 'utf8').split('\n').filter(Boolean);
 const toolCallFixture = readFileSync(join(import.meta.dirname, 'fixtures/stream-tool-call.ndjson'), 'utf8').split('\n').filter(Boolean);
@@ -197,4 +197,49 @@ it('reads a real /compact: the sizes before and after, then a result with no cal
 
 it('reads a compaction that does not report its sizes', () => {
   expect(parseFrame(JSON.stringify({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'manual' } }))).toEqual({ type: 'compacted', tokens_before: undefined, tokens: undefined });
+});
+
+// TER-588: the CLI says why a turn failed on stdout, in frames the server already reads — recorded on
+// Claude Code 2.1.285 with the account at its limit, with a model it does not know and with no login.
+// Stderr was empty in all three, which is why `classifyFailure` could never tell them apart.
+const recorded = (name: string) => readFileSync(join(import.meta.dirname, `fixtures/${name}.ndjson`), 'utf8').split('\n').filter(Boolean).map(parseFrame).filter((f) => f !== null);
+
+describe('failures the CLI reports in the stream', () => {
+  it('reads a usage limit: when it resets, why the turn failed, and a result that says so too', () => {
+    const frames = recorded('stream-usage-limit');
+    expect(frames.find((f) => f!.type === 'usage_limit')).toEqual({ type: 'usage_limit', resets_at: new Date(1790749200 * 1000).toISOString() });
+    expect(frames.find((f) => f!.type === 'api_error')).toEqual({ type: 'api_error', reason: 'usage_limit' });
+    expect(frames.at(-1)).toMatchObject({ type: 'error', reason: 'usage_limit', turn_ended: true, session_id: 'ee7af5ab-976a-43f5-92e0-d1afd433c518' });
+    // The synthetic "You've hit your session limit" text is the CLI's, not an answer: nothing is streamed.
+    expect(frames.some((f) => f!.type === 'text')).toBe(false);
+  });
+
+  it('reads where the session lives from the init frame', () => {
+    expect(recorded('stream-usage-limit').find((f) => f!.type === 'session_dir')).toEqual({ type: 'session_dir', dir: '/home/u/.claude/projects/-srv' });
+  });
+
+  it('names a model the CLI does not know, and a machine that is not logged in', () => {
+    expect(recorded('stream-model-not-found').find((f) => f!.type === 'api_error')).toEqual({ type: 'api_error', reason: 'model_unavailable' });
+    expect(recorded('stream-not-logged-in').find((f) => f!.type === 'api_error')).toEqual({ type: 'api_error', reason: 'auth_failed' });
+  });
+
+  it('falls back to the status code of the result when no assistant frame said why', () => {
+    expect(parseFrame(JSON.stringify({ type: 'result', is_error: true, api_error_status: 429, session_id: 's' }))).toMatchObject({ reason: 'usage_limit' });
+    expect(parseFrame(JSON.stringify({ type: 'result', is_error: true, api_error_status: 401, session_id: 's' }))).toMatchObject({ reason: 'auth_failed' });
+    expect(parseFrame(JSON.stringify({ type: 'result', is_error: true, api_error_status: 500, session_id: 's' }))).toMatchObject({ reason: 'run_failed' });
+  });
+
+  it('ignores an error it has no name for, a limit that was not hit, and a bad init', () => {
+    expect(parseFrame(JSON.stringify({ type: 'assistant', error: 'server_error', is_api_error_message: true, message: { content: [{ type: 'text', text: 'x' }] } }))).toBeNull();
+    expect(parseFrame(JSON.stringify({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', resetsAt: 1790749200 } }))).toBeNull();
+    expect(parseFrame(JSON.stringify({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected' } }))).toEqual({ type: 'usage_limit', resets_at: null });
+    expect(parseFrame(JSON.stringify({ type: 'system', subtype: 'init', memory_paths: { auto: 'relative/projects/x/memory/' } }))).toBeNull();
+    expect(parseFrame(JSON.stringify({ type: 'system', subtype: 'init' }))).toBeNull();
+  });
+
+  it('stores each of them under a code of its own', () => {
+    expect(codeForReason('usage_limit')).toBe('USAGE_LIMIT');
+    expect(codeForReason('model_unavailable')).toBe('MODEL_UNAVAILABLE');
+    expect(codeForReason('auth_failed')).toBe('AUTH_FAILED');
+  });
 });

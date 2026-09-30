@@ -31,6 +31,14 @@ describe('mergeMessage', () => {
     expect(out[0].error_code).toBe('RUN_FAILED');
   });
 
+  it('replaces a known id whose notice changed (TER-588), and keeps it when the same one comes again', () => {
+    const notice = { kind: 'account_swap' as const, from: null, to: 'Trabalho', resets_at: null };
+    const list = [msg({ id: 'm2', text: 'oi' })];
+    const out = mergeMessage(list, msg({ id: 'm2', text: 'oi', notice }));
+    expect(out[0].notice).toEqual(notice);
+    expect(mergeMessage(out, msg({ id: 'm2', text: 'oi', notice: { ...notice } }))).toBe(out);
+  });
+
   it('returns the very same list when nothing changed', () => {
     const list = [msg({ id: 'm1', role: 'user', text: 'oi' }), msg({ id: 'm2', text: 'pronto' })];
     expect(mergeMessage(list, msg({ id: 'm2', text: 'pronto' }))).toBe(list);

@@ -346,6 +346,39 @@ describe('ChatTurn', () => {
     });
   });
 
+  describe('usage limit and account swap (TER-588)', () => {
+    it('says the account hit its usage limit, and when it comes back, instead of "parou no meio"', () => {
+      const notice = { kind: 'usage_limit' as const, account: 'Pessoal', resets_at: null, fallback: 'none_free' as const };
+      render(
+        <ol>
+          <ChatTurn message={answer({ text: '', error_code: 'USAGE_LIMIT', notice })} waiting={false} failed />
+        </ol>,
+      );
+      expect(screen.getByText('A conta "Pessoal" do Claude atingiu o limite de uso. Nenhuma outra conta do Claude desta máquina tem limite livre agora.')).toBeTruthy();
+      expect(screen.queryByText(/parou no meio/)).toBeNull();
+    });
+
+    it('names the two other failures the CLI reports', () => {
+      render(
+        <ol>
+          <ChatTurn message={answer({ id: 'm1', text: '', error_code: 'MODEL_UNAVAILABLE' })} waiting={false} failed />
+          <ChatTurn message={answer({ id: 'm2', text: '', error_code: 'AUTH_FAILED' })} waiting={false} failed />
+        </ol>,
+      );
+      expect(screen.getByText(/não reconhece o modelo/)).toBeTruthy();
+      expect(screen.getByText(/não está logada/)).toBeTruthy();
+    });
+
+    it('says which account took over above an answer another account gave', () => {
+      render(
+        <ol>
+          <ChatTurn message={answer({ notice: { kind: 'account_swap', from: null, to: 'Trabalho', resets_at: null } })} waiting={false} failed={false} />
+        </ol>,
+      );
+      expect(screen.getByText('A conta padrão do Claude desta máquina atingiu o limite de uso; a conta "Trabalho" assumiu esta resposta.')).toBeTruthy();
+    });
+  });
+
   it('renders what a message answers above its text, and marks the row with its id (TER-447)', () => {
     const { container } = render(
       <ol>

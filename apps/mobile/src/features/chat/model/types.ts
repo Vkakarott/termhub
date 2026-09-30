@@ -78,6 +78,12 @@ export type ChatErrorCode =
   /** the host's agent does not know how to run a chat */
   | 'AGENT_TOO_OLD'
   /** the host machine is up and healthy, with every channel taken: the run could not start */
-  | 'HOST_BUSY';
+  | 'HOST_BUSY'
+  /** the Claude account hit its usage limit (the message's `notice` says when it resets) */
+  | 'USAGE_LIMIT'
+  /** the CLI does not know the model the chat asked for */
+  | 'MODEL_UNAVAILABLE'
+  /** the Claude account is not logged in on the host machine */
+  | 'AUTH_FAILED';
 
 export type { ChatEntry } from './timeline';

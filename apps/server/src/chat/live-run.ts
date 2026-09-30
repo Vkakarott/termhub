@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { STREAM_END_INPUT_LINE, streamUserMessageLine } from '@termhub/agent-protocol';
-import type { ChatMessage, ChatRepository } from '../db/repositories/chat.js';
+import type { ChatMessage, ChatNotice, ChatRepository } from '../db/repositories/chat.js';
 import type { ChatAction, ChatActionsRepository } from '../db/repositories/chat-actions.js';
 import type { StoredTurn } from '../db/repositories/chat-live-runs.js';
 import { OPEN_STATUSES, type ChatSubagent, type ChatSubagentsRepository } from '../db/repositories/chat-subagents.js';
@@ -8,7 +8,7 @@ import { chatBus } from './bus.js';
 import { actionClass } from './gate.js';
 import { saveContext } from './context.js';
 import { failureLabel, type RunStream } from './service.js';
-import { codeForReason, parseFrame, type ChatErrorCode } from './stream.js';
+import { codeForReason, parseFrame, type ChatErrorCode, type ChatFailureReason } from './stream.js';
 import { subagentOrigins } from './subagent-origin.js';
 import { toSubagentView } from './subagent-view.js';
 
@@ -38,6 +38,8 @@ interface Answering {
   /** Turns of the person's the CLI folded into this one before it said anything (see `turn_started`
    *  in `consume`): their own answers were deleted, and they settle with this turn's final message. */
   merged: LiveTurn[];
+  /** Whether it called a tool: then it did something, and is never re-run elsewhere (TER-588). */
+  acted?: boolean;
 }
 
 export interface LiveRunDeps {
@@ -86,6 +88,17 @@ export class LiveRun {
   private notes = new Map<string, string>();
   /** Subagents a `stop_task` was written for, until its answer or their final status. */
   private stopping = new Set<string>();
+  /** Why the current turn failed, as the CLI's synthetic assistant message said (TER-588): the `result`
+   *  that ends the turn only says `is_error`. */
+  private turnReason: ChatFailureReason | null = null;
+  /** The usage limit this process hit (`rate_limit_event` rejected), with when it resets. A 429 without
+   *  it is a transient rate limit, not the account's usage limit. */
+  private limitHit: { resets_at: string | null } | null = null;
+  /** Whether this process put a turn back because of the usage limit (see `consume`). */
+  private limited = false;
+  private dir: string | null = null;
+  /** What each answer says besides its text, stored with it (an account that took over, a limit). */
+  private notices = new Map<string, ChatNotice>();
   /** The process was ended on purpose (`stop`): a turn of its own that was cut is not a failed answer. */
   private stopped = false;
   /** Someone waits for this process to end (`giveWay`). */
@@ -113,6 +126,10 @@ export class LiveRun {
   /** Whose conversation this process runs. */
   get userId(): string {
     return this.deps.userId;
+  }
+  /** Where the session lives on the machine, as the last process's `init` said. */
+  get sessionDir(): string | null {
+    return this.dir;
   }
 
   /** Takes a turn: written now to the live process, or kept for `initialText` before it starts. False
@@ -188,9 +205,12 @@ export class LiveRun {
   }
 
   /** Reads one process to its end. Throws what the stream throws (a setup failure is the caller's). */
-  async consume(stream: RunStream): Promise<{ code: ChatErrorCode; missingSession: boolean }> {
+  async consume(stream: RunStream): Promise<{ code: ChatErrorCode; missingSession: boolean; limit: { resets_at: string | null } | null }> {
     this.stream = stream;
     this.replayed = false;
+    this.turnReason = null;
+    this.limitHit = null;
+    this.limited = false;
     let code: ChatErrorCode = null;
     let missingSession = false;
     try {
@@ -198,6 +218,9 @@ export class LiveRun {
         const frame = parseFrame(line);
         if (!frame) continue;
         if (frame.type === 'turn_started') {
+          // Past the usage limit this process only fails: a line it had already read (written before the
+          // input ended) stays where it is, in order, for the next process.
+          if (this.limited) continue;
           if (this.notes.delete(frame.uuid)) {
             // A note: a turn that already said something (or one the CLI started on its own) ends
             // here, and what the CLI says next goes to a message of its own (`answering`). A person's
@@ -235,6 +258,7 @@ export class LiveRun {
           chatBus.publish({ type: 'delta', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message_id: a.answer.id, delta: frame.delta });
         } else if (frame.type === 'action') {
           const a = await this.answering();
+          a.acted = true;
           chatBus.publish({ type: 'action', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message_id: a.answer.id, tool: frame.tool, tool_use_id: frame.tool_use_id, args: frame.args });
         } else if (frame.type === 'action_result') {
           if (this.current) chatBus.publish({ type: 'action_result', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message_id: this.current.answer.id, tool_use_id: frame.tool_use_id, ok: frame.ok });
@@ -253,10 +277,28 @@ export class LiveRun {
           // unfinished writes a `result` that ended no turn before its first replay (Claude Code 2.1.285).
           if (answered && !this.replayed && (this.waiting.length > 0 || this.notes.size > 0)) await this.failWaiting('RUN_FAILED');
           this.endInputIfIdle();
+        } else if (frame.type === 'api_error') {
+          this.turnReason = frame.reason;
+        } else if (frame.type === 'usage_limit') {
+          this.limitHit = { resets_at: frame.resets_at };
+        } else if (frame.type === 'session_dir') {
+          this.dir = frame.dir;
         } else if (frame.type === 'error') {
           await this.saveSession(frame.session_id);
           if (frame.turn_ended) {
-            if (this.current) await this.finish(this.current, 'RUN_FAILED');
+            let reason = this.turnReason ?? frame.reason ?? 'run_failed';
+            if (reason === 'usage_limit' && !this.limitHit) reason = 'run_failed';
+            this.turnReason = null;
+            const cur = this.current;
+            // A person's turn that hit the usage limit before saying or doing anything waits again, and the
+            // input ends: the caller re-runs it on another account (TER-588). One that already said
+            // something or called a tool keeps what it has — re-running it would repeat what the person
+            // already read, or an action already taken.
+            if (reason === 'usage_limit' && cur?.turn && cur.collected === '' && !cur.acted) {
+              this.limited = true;
+              await this.requeueCurrent();
+              this.endInput();
+            } else if (cur) await this.finish(cur, codeForReason(reason));
             if (this.reportsOwed > 0) this.reportsOwed -= 1;
             this.endInputIfIdle();
           } else {
@@ -312,7 +354,43 @@ export class LiveRun {
       this.stream = null;
       this.inputOpen = false;
     }
-    return { code, missingSession };
+    return { code, missingSession, limit: this.limited ? { resets_at: this.limitHit?.resets_at ?? null } : null };
+  }
+
+  /** The turn being answered goes back to the front of the queue, its screen cleared, its session kept. */
+  private async requeueCurrent(): Promise<void> {
+    const cur = this.current;
+    this.current = null;
+    if (!cur) return;
+    // A merged turn's answer row was deleted: it waits again with a new, empty one.
+    for (const t of cur.merged) {
+      t.answer = await this.deps.chat.addMessage({ conversation_id: this.deps.conversationId, role: 'assistant', text: '' });
+      chatBus.publish({ type: 'message', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message: t.answer });
+    }
+    const back = [...cur.merged, ...(cur.turn ? [cur.turn] : [])];
+    this.waiting.unshift(...back);
+    for (const t of back) chatBus.publish({ type: 'reset', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message_id: t.answer.id });
+    this.turnsChanged();
+  }
+
+  /**
+   * After the usage limit (TER-588): the turns put back, and those never started, go to the next process
+   * — on another account, resuming the same session or, with `fresh`, a new one. Each of them is stored
+   * with `notice` when it ends.
+   */
+  async retryElsewhere(opts: { fresh: boolean; notice: ChatNotice }): Promise<void> {
+    for (const t of this.waiting) {
+      this.notices.set(t.answer.id, opts.notice);
+      if (opts.fresh) chatBus.publish({ type: 'reset', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message_id: t.answer.id });
+      this.announce(t.answer.id);
+    }
+    this.background = 0;
+    this.inputOpen = true;
+    if (opts.fresh) {
+      this.session = null;
+      await this.deps.chat.setCliSession(this.deps.conversationId, null);
+    }
+    this.turnsChanged();
   }
 
   /** A fresh session after `missing_session`: every open turn waits again, its partial text dropped. */
@@ -342,9 +420,10 @@ export class LiveRun {
     await this.deps.chat.setCliSession(this.deps.conversationId, null);
   }
 
-  /** The process is over: every turn still open is stored with `code`. */
-  async failOpen(code: ChatErrorCode): Promise<void> {
+  /** The process is over: every turn still open is stored with `code` (and `notice`, when given). */
+  async failOpen(code: ChatErrorCode, notice?: ChatNotice): Promise<void> {
     this.inputOpen = false;
+    if (notice) for (const id of this.openAnswerIds()) this.notices.set(id, notice);
     const open: Answering[] = [...(this.current ? [this.current] : []), ...this.waiting.splice(0).map((t) => ({ turn: t, answer: t.answer, collected: '', usage: null, merged: [] }))];
     // Every turn is settled even when storing one fails (`finish` rejects that one); the first failure
     // is rethrown once all of them are done, so no web request is left waiting forever.
@@ -434,7 +513,9 @@ export class LiveRun {
     const settles = [...a.merged, ...(a.turn ? [a.turn] : [])].map((t) => t.settle);
     let final: ChatMessage;
     try {
-      final = await this.deps.chat.updateMessage(a.answer.id, { text: a.collected, usage: a.usage, error_code: code });
+      const notice = this.notices.get(a.answer.id);
+      this.notices.delete(a.answer.id);
+      final = await this.deps.chat.updateMessage(a.answer.id, { text: a.collected, usage: a.usage, error_code: code, ...(notice ? { notice } : {}) });
       this.ended += 1 + a.merged.length;
       chatBus.publish({ type: 'message', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message: final });
       chatBus.publish({ type: 'run_finished', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message_id: final.id, ok: code === null, error_code: code });

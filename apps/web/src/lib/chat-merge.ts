@@ -10,7 +10,14 @@ function sameAttachments(a: readonly ChatAttachment[] = NONE, b: readonly ChatAt
 
 /** The fields a stored row can change after the panel first saw it. */
 function same(a: ChatMessage, b: ChatMessage): boolean {
-  return a.text === b.text && a.error_code === b.error_code && a.role === b.role && a.created_at === b.created_at && sameAttachments(a.attachments, b.attachments);
+  return (
+    a.text === b.text &&
+    a.error_code === b.error_code &&
+    a.role === b.role &&
+    a.created_at === b.created_at &&
+    sameAttachments(a.attachments, b.attachments) &&
+    JSON.stringify(a.notice ?? null) === JSON.stringify(b.notice ?? null)
+  );
 }
 
 const isAnswered = (m: ChatMessage): boolean => m.role === 'assistant' && (Boolean(m.text) || Boolean(m.error_code));

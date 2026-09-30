@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { STREAM_END_INPUT_LINE } from '@termhub/agent-protocol';
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { ChatMessage } from '../db/repositories/chat.js';
+import type { ChatMessage, ChatNotice } from '../db/repositories/chat.js';
 import type { ChatAction } from '../db/repositories/chat-actions.js';
 import type { ChatSubagent } from '../db/repositories/chat-subagents.js';
 import type { SubagentStatus } from './stream.js';
@@ -25,9 +25,9 @@ function harness(sessionId: string | null = null) {
       rows.push(row);
       return row;
     }),
-    updateMessage: vi.fn(async (id: string, p: { text?: string; usage?: unknown; error_code?: string | null }) => {
+    updateMessage: vi.fn(async (id: string, p: { text?: string; usage?: unknown; error_code?: string | null; notice?: ChatNotice | null }) => {
       const row = rows.find((r) => r.id === id)!;
-      Object.assign(row, p.text === undefined ? {} : { text: p.text }, p.error_code === undefined ? {} : { error_code: p.error_code });
+      Object.assign(row, p.text === undefined ? {} : { text: p.text }, p.error_code === undefined ? {} : { error_code: p.error_code }, p.notice ? { notice: p.notice } : {});
       return { ...row };
     }),
     deleteMessage: vi.fn(async (id: string) => void rows.splice(rows.findIndex((r) => r.id === id), 1)),
@@ -129,7 +129,7 @@ it('answers a message injected while a background subagent runs, and gives the n
     if (JSON.parse(line).type === 'result' && !s.written.length) expect(h.live.add(two.t)).toBe(true);
   }
   s.end();
-  expect(await consumed).toEqual({ code: null, missingSession: false });
+  expect(await consumed).toEqual({ code: null, missingSession: false, limit: null });
 
   expect((await one.done).text).toBe('Disparei um subagente.');
   expect((await two.done).text).toBe('Paris');
@@ -375,7 +375,7 @@ it('restart puts the open turns back and drops their partial text', async () => 
   s.push(replay(U1)); s.push(delta('perdido'));
   s.push(JSON.stringify({ type: 'termhub_error', code: 1, reason: 'missing_session' }));
   s.end();
-  expect(await consumed).toEqual({ code: 'MISSING_SESSION', missingSession: true });
+  expect(await consumed).toEqual({ code: 'MISSING_SESSION', missingSession: true, limit: null });
   await h.live.restart();
   expect(h.events.some((e) => e.type === 'reset' && e.message_id === a.t.answer.id)).toBe(true);
   expect(h.live.accepting).toBe(true);
@@ -448,7 +448,7 @@ it('merges a message the CLI folds into the running turn: one answer settles bot
   for (const line of midTurn) s.push(line);
   await settle();
   s.end();
-  expect(await consumed).toEqual({ code: null, missingSession: false });
+  expect(await consumed).toEqual({ code: null, missingSession: false, limit: null });
 
   const first = await one.done;
   const second = await two.done;
@@ -704,7 +704,7 @@ it('a subagent bookkeeping failure never breaks the answer', async () => {
   s.push(taskStarted('t1', 'u1', 'Buscar CI')); s.push(result());
   await settle();
   s.end();
-  expect(await consumed).toEqual({ code: null, missingSession: false });
+  expect(await consumed).toEqual({ code: null, missingSession: false, limit: null });
   expect(await a.done).toMatchObject({ text: 'disparei', error_code: null });
   expect(err).toHaveBeenCalledWith(expect.stringMatching(/^chat: /), { conversation_id: 'c1', error: 'P1001' });
   expect(JSON.stringify(err.mock.calls)).not.toContain('secret text');
@@ -1092,4 +1092,137 @@ it('lists the answers it still owes: the one being written, then the waiting one
   expect(h.live.openAnswerIds()).toHaveLength(1);
   s.end();
   await consumed;
+});
+
+// TER-588: the CLI's own frames, recorded with the account at its usage limit (Claude Code 2.1.285).
+const usageLimit = readFileSync(join(import.meta.dirname, 'fixtures/stream-usage-limit.ndjson'), 'utf8').split('\n').filter(Boolean);
+const modelNotFound = readFileSync(join(import.meta.dirname, 'fixtures/stream-model-not-found.ndjson'), 'utf8').split('\n').filter(Boolean);
+const swapNotice: ChatNotice = { kind: 'account_swap', from: null, to: 'Trabalho', resets_at: '2026-09-30T06:20:00.000Z' };
+
+it('puts a turn that met the usage limit back in the queue, with the reset time and where the session lives', async () => {
+  const a = await h.turn(U1, 'oi');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1));
+  for (const line of usageLimit) s.push(line);
+  await settle();
+  // the input ends: nothing more goes to an account at its limit
+  expect(s.written.at(-1)).toBe(STREAM_END_INPUT_LINE);
+  s.push(JSON.stringify({ type: 'termhub_error', code: 1, reason: 'run_failed' }));
+  s.end();
+  expect(await consumed).toEqual({ code: 'RUN_FAILED', missingSession: false, limit: { resets_at: new Date(1790749200 * 1000).toISOString() } });
+  expect(h.live.sessionDir).toBe('/home/u/.claude/projects/-srv');
+  // not answered: waiting again, its screen cleared
+  expect(h.chat.updateMessage).not.toHaveBeenCalled();
+  expect(h.events.some((e) => e.type === 'reset' && e.message_id === a.t.answer.id)).toBe(true);
+  expect(JSON.parse(h.live.initialText().trim()).uuid).toBe(U1);
+});
+
+it('answers the turn on the next account, resuming the same session, with the notice of the swap', async () => {
+  h.off();
+  h = harness('ee7af5ab-976a-43f5-92e0-d1afd433c518');
+  const a = await h.turn(U1, 'oi');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1));
+  for (const line of usageLimit) s.push(line);
+  await settle();
+  s.end();
+  await consumed;
+  await h.live.retryElsewhere({ fresh: false, notice: swapNotice });
+  expect(h.live.accepting).toBe(true);
+  expect(h.live.sessionId).toBe('ee7af5ab-976a-43f5-92e0-d1afd433c518');
+  expect(h.chat.setCliSession).not.toHaveBeenCalledWith('c1', null);
+  const s2 = manualStream();
+  const again = h.live.consume(s2.stream);
+  s2.push(replay(U1)); s2.push(delta('oi!')); s2.push(result('ee7af5ab-976a-43f5-92e0-d1afd433c518'));
+  await settle();
+  s2.end();
+  expect(await again).toMatchObject({ code: null, limit: null });
+  const final = await a.done;
+  expect(final).toMatchObject({ text: 'oi!', error_code: null, notice: swapNotice });
+});
+
+it('starts a fresh session on the next account when the old one could not be moved', async () => {
+  h.off();
+  h = harness('ee7af5ab-976a-43f5-92e0-d1afd433c518');
+  const a = await h.turn(U1, 'oi');
+  h.live.add(a.t);
+  await h.live.retryElsewhere({ fresh: true, notice: swapNotice });
+  expect(h.live.sessionId).toBeNull();
+  expect(h.chat.setCliSession).toHaveBeenCalledWith('c1', null);
+});
+
+it('stores every open turn as the usage limit, with its notice, when no account is left', async () => {
+  const a = await h.turn(U1, 'oi');
+  const b = await h.turn(U2, 'e aí');
+  h.live.add(a.t);
+  h.live.add(b.t);
+  const notice: ChatNotice = { kind: 'usage_limit', account: null, resets_at: '2026-09-30T06:20:00.000Z', fallback: 'none_free' };
+  await h.live.failOpen('USAGE_LIMIT', notice);
+  expect(await a.done).toMatchObject({ error_code: 'USAGE_LIMIT', notice });
+  expect(await b.done).toMatchObject({ error_code: 'USAGE_LIMIT', notice });
+});
+
+it('keeps what a turn already said when the limit comes mid-answer, and stores it as the limit', async () => {
+  const a = await h.turn(U1, 'oi');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1)); s.push(delta('metade'));
+  for (const line of usageLimit) s.push(line);
+  await settle();
+  s.end();
+  expect(await consumed).toMatchObject({ limit: null });
+  expect(await a.done).toMatchObject({ text: 'metade', error_code: 'USAGE_LIMIT' });
+});
+
+it('names a model the CLI does not know instead of the generic failure', async () => {
+  const a = await h.turn(U1, 'oi');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1));
+  for (const line of modelNotFound) s.push(line);
+  await settle();
+  s.end();
+  await consumed;
+  expect(await a.done).toMatchObject({ error_code: 'MODEL_UNAVAILABLE' });
+});
+
+it('keeps the order of the turns when the limit meets one while the next is already written (review of TER-588)', async () => {
+  const a = await h.turn(U1, 'primeira');
+  const b = await h.turn(U2, 'segunda');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1));
+  await settle();
+  h.live.add(b.t); // written to the process before it met the limit
+  for (const line of usageLimit.slice(0, 4)) s.push(line);
+  await settle();
+  // the process had read the second line already: it replays it, and fails it too
+  s.push(replay(U2));
+  for (const line of usageLimit.slice(1, 4)) s.push(line);
+  await settle();
+  s.end();
+  expect(await consumed).toMatchObject({ limit: { resets_at: expect.any(String) } });
+  expect(h.live.initialText().trim().split('\n').map((l) => JSON.parse(l).uuid)).toEqual([U1, U2]);
+  expect(h.chat.updateMessage).not.toHaveBeenCalled();
+});
+
+it('does not re-run a turn that already called a tool when the limit comes', async () => {
+  const a = await h.turn(U1, 'faz');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1));
+  s.push(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tu1', name: 'mcp__termhub__send_input', input: {} }] } }));
+  for (const line of usageLimit) s.push(line);
+  await settle();
+  s.end();
+  expect(await consumed).toMatchObject({ limit: null });
+  expect(await a.done).toMatchObject({ error_code: 'USAGE_LIMIT' });
 });

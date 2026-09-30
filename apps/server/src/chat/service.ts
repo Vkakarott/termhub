@@ -2,15 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { CAPABILITY_CLAUDE_STREAM_INPUT, CAPABILITY_CLAUDE_SYSTEM_PROMPT } from '@termhub/agent-protocol';
 import { STANDING_KIND_LABEL, replyExcerpt, type ChatAttachment } from '@termhub/mobile-api';
 import type { Repositories } from '../db/repositories/index.js';
-import type { ChatConversation, ChatMessage } from '../db/repositories/chat.js';
+import type { ChatConversation, ChatMessage, ChatNotice } from '../db/repositories/chat.js';
 import type { ChatAction } from '../db/repositories/chat-actions.js';
 import type { ChatStandingGrant } from '../db/repositories/chat-standing-grants.js';
 import type { ChatLiveRun, StoredTurn } from '../db/repositories/chat-live-runs.js';
 import { isAttachable, toPublicAttachment, type AttachmentRow } from '../db/repositories/chat-attachments.js';
 import { describeActions } from '../db/repositories/chat-actions-view.js';
 import { describeTabQuestions } from '../db/repositories/tab-questions-view.js';
-import type { User } from '../db/repositories/types.js';
+import type { Machine, User } from '../db/repositories/types.js';
 import { HttpError, notFound } from '../lib/errors.js';
+import { fallbackShortfall, pickFallback, type FallbackPick } from './account-fallback.js';
 import { attachmentContext } from './attachments/context.js';
 import { chatBus } from './bus.js';
 import { replyContext, type ReplyTarget } from './reply-context.js';
@@ -30,6 +31,71 @@ import { indexMessage } from '../memory/index-items.js';
 import { groupsOf, type GroupView } from '../control/groups.js';
 
 export type { ChatErrorCode } from './stream.js';
+
+/** What a run needs of its host: the machine, and the account it starts on. */
+type RunHost = Pick<Extract<HostChoice, { kind: 'ready' }>, 'machine' | 'configDir' | 'account'>;
+
+/** The account a run is on: its row (null for the machine's default login) and its label for the notices. */
+interface RunAccount {
+  id: string | null;
+  label: string | null;
+  configDir: string | null;
+}
+
+/** A `lost` account runs on the default login (see `accountFor`), so it is that one here too. */
+const runAccountOf = (host: RunHost): RunAccount => ({
+  id: host.account.kind === 'chosen' ? host.account.id : null,
+  label: host.account.kind === 'chosen' ? host.account.label : null,
+  configDir: host.configDir,
+});
+
+/**
+ * Where a turn that hit the usage limit goes on (TER-588): another account the run has not tried yet, or
+ * — when there is none — what the stored answer says about it. Tracks the first account that hit the
+ * limit, which is the one the person knows the chat by.
+ */
+class LimitFallback {
+  readonly tried = new Set<string>();
+  private first: { label: string | null; resets_at: string | null } | null = null;
+  account: RunAccount;
+
+  constructor(
+    private repos: Pick<Repositories, 'aiAccounts'>,
+    private machine: Machine,
+    private projectId: string | null,
+    private conversationId: string,
+    host: RunHost,
+  ) {
+    this.account = runAccountOf(host);
+    if (this.account.id) this.tried.add(this.account.id);
+  }
+
+  /** The next account, its session moved there when it can be, and the notice its answer carries. */
+  async next(limit: { resets_at: string | null }, session: { dir: string | null; id: string | null }): Promise<{ pick: FallbackPick; notice: ChatNotice } | { pick: null; notice: ChatNotice }> {
+    this.first ??= { label: this.account.label, resets_at: limit.resets_at };
+    // The same opt-in as the tabs' automatic swap (TER-55): an account of the machine is used for
+    // someone else's quota only when its owner asked for that.
+    if (!this.machine.claude_auto_swap) {
+      const fallback = (await fallbackShortfall(this.repos, this.machine, this.account.id).catch(() => 'none_free' as const)) === 'no_other_account' ? 'no_other_account' : 'auto_swap_off';
+      return { pick: null, notice: { kind: 'usage_limit', account: this.first.label, resets_at: this.first.resets_at, fallback } };
+    }
+    let pick: FallbackPick | null = null;
+    try {
+      pick = await pickFallback(this.repos, { machine: this.machine, currentAccountId: this.account.id, tried: this.tried, projectId: this.projectId, sessionDir: session.dir, sessionId: session.id });
+    } catch (err) {
+      console.error('chat: account fallback failed', { conversation_id: this.conversationId, error: failureLabel(err) });
+    }
+    if (pick) {
+      console.info('chat: usage limit, answering on another account', { conversation_id: this.conversationId, machine_id: this.machine.id, from: this.account.id, to: pick.account.id, resume: pick.resume });
+      this.account = { id: pick.account.id, label: pick.account.label, configDir: pick.account.config_dir };
+      // TER-589: `pick.account` is the account that answers from here on.
+      return { pick, notice: { kind: 'account_swap', from: this.first.label, to: pick.account.label, resets_at: this.first.resets_at } };
+    }
+    const fallback = await fallbackShortfall(this.repos, this.machine, this.account.id).catch(() => 'none_free' as const);
+    console.info('chat: usage limit, no account to fall back to', { conversation_id: this.conversationId, machine_id: this.machine.id, account: this.account.id, fallback });
+    return { pick: null, notice: { kind: 'usage_limit', account: this.first.label, resets_at: this.first.resets_at, fallback } };
+  }
+}
 
 export interface RunnerInput {
   session_id: string;
@@ -1137,11 +1203,11 @@ export class ChatService {
       if (streamed) {
         const d = deferred();
         const turn: LiveTurn = { uuid: randomUUID(), text: runText, question, answer, settle: d.settle };
-        void this.runLive(user, conversation, runner, host.configDir, streamedSystemPrompt(appendSystemPrompt ?? accountIndex), [...(carried?.turns ?? []), turn], { note: carried?.note });
+        void this.runLive(user, conversation, runner, host, streamedSystemPrompt(appendSystemPrompt ?? accountIndex), [...(carried?.turns ?? []), turn], { note: carried?.note });
         handedOff = true;
         return { ...started, done: d.promise };
       }
-      const done = this.finishRun(user, conversation, runText, question, answer, runner, host.configDir, appendSystemPrompt);
+      const done = this.finishRun(user, conversation, runText, question, answer, runner, host, appendSystemPrompt);
       handedOff = true;
       return { ...started, done };
     } finally {
@@ -1164,7 +1230,7 @@ export class ChatService {
     question: ChatMessage,
     answer: ChatMessage,
     runner: RunnerClient,
-    configDir: string | null,
+    host: RunHost,
     appendSystemPrompt: string | null,
   ): Promise<ChatMessage> {
     try {
@@ -1186,6 +1252,14 @@ export class ChatService {
        * being switched), vs. a run that started and died mid-stream (often account/quota, which
        * account fallback can act on). */
       let errorCode: ChatErrorCode = null;
+      /** Why the turn failed, as the CLI's synthetic assistant message said (TER-588). */
+      let turnReason: ChatFailureReason | null = null;
+      /** Set when the run hit the account's usage limit, with when it resets. */
+      let limit: { resets_at: string | null } | null = null;
+      /** Whether the answer called a tool: then it is never re-run elsewhere. */
+      let acted = false;
+      let sessionDir: string | null = null;
+      let notice: ChatNotice | undefined;
 
       const consume = async (run: RunnerInput) => {
         for await (const line of runner.run(run)) {
@@ -1195,6 +1269,7 @@ export class ChatService {
             collected += frame.delta;
             chatBus.publish({ type: 'delta', user_id: user.id, conversation_id: conversation.id, message_id: answer.id, delta: frame.delta });
           } else if (frame.type === 'action') {
+            acted = true;
             chatBus.publish({ type: 'action', user_id: user.id, conversation_id: conversation.id, message_id: answer.id, tool: frame.tool, tool_use_id: frame.tool_use_id, args: frame.args });
           } else if (frame.type === 'action_result') {
             chatBus.publish({ type: 'action_result', user_id: user.id, conversation_id: conversation.id, message_id: answer.id, tool_use_id: frame.tool_use_id, ok: frame.ok });
@@ -1203,12 +1278,24 @@ export class ChatService {
             usage = frame.usage ?? null;
             if (frame.session_id && frame.session_id !== conversation.cli_session_id) await this.deps.repos.chat.setCliSession(conversation.id, frame.session_id);
             if (frame.context) await saveContext(this.deps.repos.chat, user.id, conversation.id, frame.context);
+          } else if (frame.type === 'api_error') {
+            turnReason = frame.reason;
+          } else if (frame.type === 'usage_limit') {
+            limit = { resets_at: frame.resets_at };
+          } else if (frame.type === 'session_dir') {
+            sessionDir = frame.dir;
           } else if (frame.type === 'error') {
             // The reason is the container's closed-set classification, so a failure is diagnosable
             // from the stored row alone: CLI_REJECTED means our own flags were refused, which no
             // amount of retrying fixes. Without this, every failure looked the same and finding the
-            // cause meant probing the container by hand.
-            errorCode = codeForReason(frame.reason);
+            // cause meant probing the container by hand. A turn's own failure (the CLI's `result`,
+            // named by its assistant message) is kept over the process's exit that follows it.
+            if (frame.turn_ended) {
+              // A 429 with no rejected `rate_limit_event` is a transient rate limit, not the usage limit.
+              const reason = turnReason ?? frame.reason;
+              errorCode = codeForReason(reason === 'usage_limit' && !limit ? 'run_failed' : reason);
+            }
+            else if (errorCode === null) errorCode = codeForReason(frame.reason);
             if (frame.reason === 'missing_session') missingSession = true;
             // A failed run still leaves its session, and the whole transcript, on disk: this server
             // generated the uuid and passed it as --session-id, so there is nothing unknown about
@@ -1235,71 +1322,88 @@ export class ChatService {
       }
 
       if (token !== undefined) {
-        const sessionId = conversation.cli_session_id ?? randomUUID();
-        const input: RunnerInput = {
-          session_id: sessionId,
+        const fallback = new LimitFallback(this.deps.repos, host.machine, conversation.project_id, conversation.id, host);
+        let input: RunnerInput = {
+          session_id: conversation.cli_session_id ?? randomUUID(),
           resume: conversation.cli_session_id !== null,
           text,
-          config_dir: configDir,
+          config_dir: fallback.account.configDir,
           model: conversation.model,
           token,
           append_system_prompt: appendSystemPrompt,
         };
-
-        try {
-          await consume(input);
-          // Only when nothing has already said why: an error frame's own reason (cli_missing above
-          // all, the likeliest first failure of a chat on someone's own machine) is the whole point of
-          // carrying a label from the machine to the screen, and overwriting it here with the generic
-          // "a resposta não terminou" threw it away one step before it was read.
-          if (!sawDone && errorCode === null) errorCode = 'RUNNER_FAILED';
-        } catch (e) {
-          if (isSetupFailure(e)) {
-            // Nothing ran and nothing will: drop the empty assistant row instead of leaving a
-            // bubble that would say "pensando…" for ever, and let the status reach the browser.
-            await this.deps.repos.chat.deleteMessage(answer.id);
-            chatBus.publish({ type: 'message_removed', user_id: user.id, conversation_id: conversation.id, message_id: answer.id });
-            // The question is still re-published: screens that predate `message_removed` re-read on it.
-            chatBus.publish({ type: 'message', user_id: user.id, conversation_id: conversation.id, message: question });
-            this.publishSetupFailure(user, conversation.id);
-            throw e;
-          }
-          // The stream itself broke (the container closed the socket, the deadline aborted it):
-          // there is no frame to read a reason from, so this can only be a plain failure.
-          errorCode = 'RUNNER_FAILED';
-        }
-
-        // A resume the account cannot honour is not a failure: start a fresh session once. The
-        // signal is the error frame's reason, the only thing the container can tell us about the
-        // CLI's stderr without forwarding it.
-        if (input.resume && missingSession) {
-          const fresh = { ...input, resume: false, session_id: randomUUID() };
-          // The failed attempt may have streamed partial text before dying; that text (and
-          // whatever the browser already rendered for it) belongs to a session the CLI has
-          // discarded, so both sides must start the answer over.
+        /** A missing session is retried on a fresh one once — and never after a swap started one fresh. */
+        let freshTried = false;
+        /** The answer starts over: its partial text belongs to an attempt that is being replaced. */
+        const startOver = () => {
           collected = '';
           sawDone = false;
           missingSession = false;
           errorCode = null;
+          turnReason = null;
+          limit = null;
+          acted = false;
           chatBus.publish({ type: 'reset', user_id: user.id, conversation_id: conversation.id, message_id: answer.id });
-          await this.deps.repos.chat.setCliSession(conversation.id, null);
+        };
+
+        for (;;) {
           try {
-            await consume(fresh);
+            await consume(input);
+            // Only when nothing has already said why: an error frame's own reason (cli_missing above
+            // all, the likeliest first failure of a chat on someone's own machine) is the whole point of
+            // carrying a label from the machine to the screen, and overwriting it here with the generic
+            // "a resposta não terminou" threw it away one step before it was read.
             if (!sawDone && errorCode === null) errorCode = 'RUNNER_FAILED';
           } catch (e) {
             if (isSetupFailure(e)) {
+              // Nothing ran and nothing will: drop the empty assistant row instead of leaving a
+              // bubble that would say "pensando…" for ever, and let the status reach the browser.
               await this.deps.repos.chat.deleteMessage(answer.id);
               chatBus.publish({ type: 'message_removed', user_id: user.id, conversation_id: conversation.id, message_id: answer.id });
+              // The question is still re-published: screens that predate `message_removed` re-read on it.
               chatBus.publish({ type: 'message', user_id: user.id, conversation_id: conversation.id, message: question });
               this.publishSetupFailure(user, conversation.id);
               throw e;
             }
+            // The stream itself broke (the container closed the socket, the deadline aborted it):
+            // there is no frame to read a reason from, so this can only be a plain failure.
             errorCode = 'RUNNER_FAILED';
           }
+
+          // The account hit its usage limit before the answer said anything (TER-588): the turn goes
+          // again on another account of the machine, its session moved there when it can be.
+          // (Read through a widened copy: `consume` assigns it, which the compiler cannot see here.)
+          const failed = errorCode as ChatErrorCode;
+          if (failed === 'USAGE_LIMIT' && collected === '' && !acted) {
+            const next = await fallback.next(limit ?? { resets_at: null }, { dir: sessionDir, id: input.session_id });
+            notice = next.notice;
+            if (!next.pick) break;
+            startOver();
+            if (!next.pick.resume) {
+              freshTried = true;
+              await this.deps.repos.chat.setCliSession(conversation.id, null);
+            }
+            input = { ...input, config_dir: next.pick.account.config_dir, resume: next.pick.resume, session_id: next.pick.resume ? input.session_id : randomUUID() };
+            continue;
+          }
+
+          // A resume the account cannot honour is not a failure: start a fresh session once. The
+          // signal is the error frame's reason, the only thing the container can tell us about the
+          // CLI's stderr without forwarding it. The failed attempt may have streamed partial text
+          // before dying; that text (and whatever the browser already rendered for it) belongs to a
+          // session the CLI has discarded, so both sides must start the answer over.
+          if (input.resume && missingSession && !freshTried) {
+            freshTried = true;
+            startOver();
+            await this.deps.repos.chat.setCliSession(conversation.id, null);
+            input = { ...input, resume: false, session_id: randomUUID() };
+            continue;
+          }
+          break;
         }
       }
 
-      const final = await this.deps.repos.chat.updateMessage(answer.id, { text: collected, usage, error_code: errorCode });
+      const final = await this.deps.repos.chat.updateMessage(answer.id, { text: collected, usage, error_code: errorCode, ...(notice ? { notice } : {}) });
       chatBus.publish({ type: 'message', user_id: user.id, conversation_id: conversation.id, message: final });
       chatBus.publish({ type: 'run_finished', user_id: user.id, conversation_id: conversation.id, message_id: final.id, ok: errorCode === null, error_code: errorCode });
       return final;
@@ -1319,7 +1423,7 @@ export class ChatService {
     user: User,
     conversation: ChatConversation,
     runner: RunnerClient,
-    configDir: string | null,
+    host: RunHost,
     appendSystemPrompt: string,
     turns: LiveTurn[],
     opts: { note?: string } = {},
@@ -1384,19 +1488,23 @@ export class ChatService {
         else await live.failOpen('TOKEN_FAILED');
         return;
       }
-      for (let attempt = 0; ; attempt++) {
+      const fallback = new LimitFallback(this.deps.repos, host.machine, conversation.project_id, conversation.id, host);
+      /** A missing session is retried on a fresh one once — and never after a swap started one fresh. */
+      let freshTried = false;
+      for (;;) {
         const resume = live.sessionId !== null;
+        const ended = live.endedTurns;
         const input: RunnerInput = {
           session_id: live.sessionId ?? randomUUID(),
           resume,
           text: live.initialText(),
-          config_dir: configDir,
+          config_dir: fallback.account.configDir,
           model: conversation.model,
           token,
           append_system_prompt: appendSystemPrompt,
           stream_input: true,
         };
-        let outcome: { code: ChatErrorCode; missingSession: boolean };
+        let outcome: { code: ChatErrorCode; missingSession: boolean; limit: { resets_at: string | null } | null };
         try {
           outcome = await live.consume(runner.run(input));
         } catch (e) {
@@ -1405,7 +1513,7 @@ export class ChatService {
             this.publishSetupFailure(user, conversation.id);
             return;
           }
-          outcome = { code: 'RUNNER_FAILED', missingSession: false };
+          outcome = { code: 'RUNNER_FAILED', missingSession: false, limit: null };
         }
         // A graceful shutdown killed the process: its turns stay open, for the instance that resumes
         // them, and whoever waits on one is answered now instead of never.
@@ -1413,7 +1521,24 @@ export class ChatService {
           await live.rejectOpen(serverRestarting());
           return;
         }
-        if (resume && outcome.missingSession && live.endedTurns === 0 && attempt === 0) {
+        // The account hit its usage limit and the turn that met it waits again (TER-588): it goes on
+        // another account of the machine, or every open turn is stored as the limit.
+        if (outcome.limit) {
+          const next = await fallback.next(outcome.limit, { dir: live.sessionDir, id: live.sessionId });
+          if (this.suspending) {
+            live.rejectOpen(serverRestarting());
+            return;
+          }
+          if (!next.pick) {
+            await live.failOpen('USAGE_LIMIT', next.notice);
+            return;
+          }
+          await live.retryElsewhere({ fresh: !next.pick.resume, notice: next.notice });
+          if (!next.pick.resume) freshTried = true;
+          continue;
+        }
+        if (resume && outcome.missingSession && live.endedTurns === ended && !freshTried) {
+          freshTried = true;
           await live.restart();
           continue;
         }
@@ -1596,7 +1721,7 @@ export class ChatService {
       const appendSystemPrompt = await this.promptFor(user, conversation);
       const accountIndex = await this.accountIndexFor(user, conversation, host.machine.id);
       const runner = this.deps.runnerFor(host.machine.id);
-      void this.runLive(user, conversation, runner, host.configDir, streamedSystemPrompt(appendSystemPrompt ?? accountIndex), turns, { note });
+      void this.runLive(user, conversation, runner, host, streamedSystemPrompt(appendSystemPrompt ?? accountIndex), turns, { note });
       handedOff = true;
     } catch (err) {
       if (!expired) await this.handBack(row);
@@ -1719,8 +1844,8 @@ export class ChatService {
       taken = [];
       const prior = carried;
       carried = null;
-      if (streamed) void this.runLive(user, conversation, runner, host.configDir, streamedSystemPrompt(appendSystemPrompt ?? accountIndex), [...(prior?.turns ?? []), ...turns], { note: prior?.note });
-      else this.finishRun(user, conversation, turns[0].text, oneShot.question, turns[0].answer, runner, host.configDir, appendSystemPrompt).then(turns[0].settle.resolve, turns[0].settle.reject);
+      if (streamed) void this.runLive(user, conversation, runner, host, streamedSystemPrompt(appendSystemPrompt ?? accountIndex), [...(prior?.turns ?? []), ...turns], { note: prior?.note });
+      else this.finishRun(user, conversation, turns[0].text, oneShot.question, turns[0].answer, runner, host, appendSystemPrompt).then(turns[0].settle.resolve, turns[0].settle.reject);
     } catch (err) {
       console.error('chat: queued messages could not be started', { conversation_id: conversationId, error: failureLabel(err) });
       if (carried) await this.handBack(carried.row);

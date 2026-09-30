@@ -83,6 +83,16 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatRepository (Postgres)
     expect(failed.text).toBe('comecei a olhar');
   });
 
+  it('keeps the notice of an answer (TER-588), and a message without one has none', async () => {
+    const c = await repo.getOrCreateForUser(userId);
+    const m = await repo.addMessage({ conversation_id: c.id, role: 'assistant', text: '' });
+    expect(m).not.toHaveProperty('notice');
+    const notice = { kind: 'usage_limit' as const, account: null, resets_at: '2026-09-30T06:20:00.000Z', fallback: 'none_free' as const };
+    expect((await repo.updateMessage(m.id, { error_code: 'USAGE_LIMIT', notice })).notice).toEqual(notice);
+    expect((await repo.listMessages(c.id)).find((x) => x.id === m.id)?.notice).toEqual(notice);
+    expect(await repo.updateMessage(m.id, { notice: null })).not.toHaveProperty('notice');
+  });
+
   it('returns the newest messages, in chronological order, when the conversation is longer than the limit', async () => {
     // Regression: `asc` + `take` pinned the window to the *oldest* messages, so past the limit the
     // user's own message and its answer were never in the payload again.

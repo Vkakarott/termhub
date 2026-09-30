@@ -54,7 +54,7 @@ export function mergeMessage(list: ChatMessage[], msg: ChatMessage): ChatMessage
   // An answer never goes from final back to empty: the empty version is older, whatever brought it.
   if (isAnswered(old) && isEmptyAnswer(msg)) return list;
   const same =
-    old.text === msg.text && old.error_code === msg.error_code && old.created_at === msg.created_at && JSON.stringify(old.usage ?? null) === JSON.stringify(msg.usage ?? null) && sameAttachments(old.attachments, msg.attachments);
+    old.text === msg.text && old.error_code === msg.error_code && old.created_at === msg.created_at && JSON.stringify(old.usage ?? null) === JSON.stringify(msg.usage ?? null) && sameAttachments(old.attachments, msg.attachments) && JSON.stringify(old.notice ?? null) === JSON.stringify(msg.notice ?? null);
   return same ? list : list.map((m, j) => (j === i ? msg : m));
 }
 

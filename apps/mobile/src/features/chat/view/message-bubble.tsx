@@ -4,6 +4,7 @@ import Markdown from 'react-native-markdown-display';
 import type { SchemeName } from '@/theme/tokens';
 import { AppText, Button, useSchemeName } from '@/ui';
 import { failureSentence } from '../model/copy';
+import { limitSentence, swapSentence } from '../model/notice';
 import { splitSettled } from '../model/markdown-split';
 import type { ChatMessage } from '../model/types';
 import { markdownStyle } from './markdown-style';
@@ -65,10 +66,11 @@ export const MessageBubble = memo(function MessageBubble({ message, streamed, st
   const { settled, tail } = streaming ? splitSettled(body) : { settled: '', tail: body };
   return (
     <View className={`max-w-[92%] gap-1 self-start rounded-2xl border-2 bg-app-surface px-4 py-2.5 ${highlighted ? 'border-app-accent' : 'border-transparent'}`}>
+      {message.notice?.kind === 'account_swap' ? <AppText variant="muted">{swapSentence(message.notice)}</AppText> : null}
       {settled ? <SettledMarkdown text={settled} scheme={scheme} /> : null}
       {tail ? <Markdown style={markdownStyle(scheme)}>{tail}</Markdown> : null}
       {message.error_code !== null ? (
-        <Text className="text-sm text-app-danger">{failureSentence(message.error_code)}</Text>
+        <Text className="text-sm text-app-danger">{message.error_code === 'USAGE_LIMIT' ? limitSentence(message.notice) : failureSentence(message.error_code)}</Text>
       ) : !body && started ? (
         <AppText variant="muted">pensando…</AppText>
       ) : !body ? (

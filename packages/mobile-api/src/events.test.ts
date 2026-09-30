@@ -218,6 +218,22 @@ describe('chatEventSchema: subagents', () => {
   });
 });
 
+describe('chatMessage notice (TER-588)', () => {
+  const row = { id: 'm1', conversation_id: 'c1', role: 'assistant', text: '', usage: null, error_code: 'USAGE_LIMIT', created_at: '2026-09-30T06:00:00.000Z' };
+  it('reads the usage limit and the account swap, and a message without one', () => {
+    const limit = { kind: 'usage_limit', account: null, resets_at: '2026-09-30T06:20:00.000Z', fallback: 'none_free' };
+    expect(chatMessage.parse({ ...row, notice: limit }).notice).toEqual(limit);
+    const swap = { kind: 'account_swap', from: 'Pessoal', to: 'Trabalho', resets_at: null };
+    expect(chatMessage.parse({ ...row, notice: swap }).notice).toEqual(swap);
+    expect(chatMessage.parse(row).notice).toBeUndefined();
+  });
+  it('drops a notice it does not know instead of failing the message', () => {
+    const parsed = chatMessage.safeParse({ ...row, notice: { kind: 'something_new' } });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.notice).toBeUndefined();
+  });
+});
+
 it('a message may carry what it answers, with a null id once the original is gone (TER-447)', () => {
   const m = { id: 'm2', conversation_id: 'c1', role: 'user', text: 'faz de novo', usage: null, error_code: null, created_at: '2026-09-30T12:00:00.000Z' };
   expect(chatMessage.parse({ ...m, reply_to: { id: 'm1', role: 'assistant', excerpt: 'Abri a aba' } }).reply_to).toEqual({ id: 'm1', role: 'assistant', excerpt: 'Abri a aba' });

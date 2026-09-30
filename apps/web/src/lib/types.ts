@@ -814,7 +814,21 @@ export type ChatErrorCode =
   /** the host's agent does not know how to run a chat */
   | 'AGENT_TOO_OLD'
   /** the host machine is up and healthy, with every channel taken: the run could not start */
-  | 'HOST_BUSY';
+  | 'HOST_BUSY'
+  /** the Claude account hit its usage limit (the message's `notice` says when it resets) */
+  | 'USAGE_LIMIT'
+  /** the CLI does not know the model the chat asked for */
+  | 'MODEL_UNAVAILABLE'
+  /** the Claude account is not logged in on the host machine */
+  | 'AUTH_FAILED';
+
+/**
+ * Mirrors `ChatNotice` in `apps/server/src/db/repositories/chat.ts` (TER-588): what an answer says besides
+ * its text. Account labels are null for the machine's default login.
+ */
+export type ChatNotice =
+  | { kind: 'usage_limit'; account: string | null; resets_at: string | null; fallback: 'none_free' | 'no_other_account' | 'auto_swap_off' }
+  | { kind: 'account_swap'; from: string | null; to: string; resets_at: string | null };
 
 /** Mirrors `chatAttachment` in `packages/mobile-api/src/attachments.ts` (the web has no workspace deps). */
 export type AttachmentKind = 'image' | 'pdf' | 'docx' | 'xlsx' | 'audio' | 'video' | 'text';
@@ -838,6 +852,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
   error_code: ChatErrorCode | null;
+  /** A usage limit or an account that took over (TER-588); absent when there is none. */
+  notice?: ChatNotice;
   created_at: string;
   /** The files sent with a user message; absent when none. */
   attachments?: ChatAttachment[];
