@@ -66,6 +66,10 @@ export class LiveRun {
   private waiting: LiveTurn[] = [];
   private current: Answering | null = null;
   private background = 0;
+  /** Turn ends still to come before the CLI has reported every subagent that ended: it does so in a
+   *  turn of its own, the next one when nothing was being answered, the one after the running turn
+   *  otherwise. The input stays open until then, since that turn may start another subagent. */
+  private reportsOwed = 0;
   private stream: RunStream | null = null;
   private inputOpen = true;
   private ended = 0;
@@ -242,6 +246,7 @@ export class LiveRun {
             this.current.usage = frame.usage ?? null;
             await this.finish(this.current, null);
           }
+          if (this.reportsOwed > 0) this.reportsOwed -= 1;
           // A turn was answered and this process never replayed a message: the CLI does not echo the
           // uuids, so no waiting turn can ever be matched. They fail now instead of waiting for the kill.
           // Only a turn that said something counts: a resumed session whose last process left a subagent
@@ -252,6 +257,7 @@ export class LiveRun {
           await this.saveSession(frame.session_id);
           if (frame.turn_ended) {
             if (this.current) await this.finish(this.current, 'RUN_FAILED');
+            if (this.reportsOwed > 0) this.reportsOwed -= 1;
             this.endInputIfIdle();
           } else {
             code = codeForReason(frame.reason);
@@ -259,9 +265,9 @@ export class LiveRun {
           }
         } else if (frame.type === 'background') {
           // Only counted: the input ends at the end of a turn, never here. The CLI reports a subagent
-          // that ended in a turn of its own, and that turn may start another one (a monitor that
-          // relaunches itself). With the input already closed that process would take no message,
-          // and would hold every `result` back until nothing is left in the background.
+          // that ended in a turn of its own (`reportsOwed`), and that turn may start another one (a
+          // monitor that relaunches itself). With the input already closed that process would take no
+          // message, and would hold every `result` back until nothing is left in the background.
           this.background = frame.count;
           this.stopIfStranded();
         } else if (frame.type === 'subagent_started') {
@@ -270,6 +276,7 @@ export class LiveRun {
             this.remember(row);
           });
         } else if (frame.type === 'subagent_status') {
+          this.reportsOwed = Math.max(this.reportsOwed, this.current ? 2 : 1);
           const known = this.subagentsByTask.get(frame.task_id);
           if (!known) continue;
           this.stopping.delete(known.id);
@@ -325,6 +332,7 @@ export class LiveRun {
       this.announce(t.answer.id);
     }
     this.background = 0;
+    this.reportsOwed = 0;
     this.inputOpen = true;
     this.session = null;
     this.turnsChanged();
@@ -460,10 +468,10 @@ export class LiveRun {
     if (failure) throw failure.error;
   }
 
-  /** A turn ended with nothing to answer and nothing in the background: end the input. A message that
-   *  comes later goes to the next run. */
+  /** A turn ended with nothing to answer, nothing in the background and no subagent left to report:
+   *  end the input. A message that comes later goes to the next run. */
   private endInputIfIdle(): void {
-    if (this.current || this.waiting.length > 0 || this.notes.size > 0 || this.background > 0) return;
+    if (this.current || this.waiting.length > 0 || this.notes.size > 0 || this.background > 0 || this.reportsOwed > 0) return;
     this.endInput();
   }
 

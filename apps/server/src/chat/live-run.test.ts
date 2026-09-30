@@ -201,9 +201,33 @@ it('keeps the input open when the turn that reports the last subagent starts ano
   await consumed;
 });
 
-/** A process left with its input closed and a subagent in the background: the first subagent ended
- *  while the person's turn ran, the input ended with that turn, and the turn that reports the
- *  subagent started another. The CLI holds that turn's `result` back until nothing is left running. */
+it('keeps the input open when a subagent ends during a turn: the turn that reports it comes next, and may start another (TER-498)', async () => {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  // The subagent ends while the person's turn is still being answered (Claude Code 2.1.285 then
+  // reports it in a turn of its own, right after this one).
+  s.push(replay(U1)); s.push(background(1)); s.push(delta('disparei'));
+  s.push(background(0)); s.push(taskUpdated('t1', 'completed')); s.push(result());
+  await settle();
+  expect(h.live.accepting).toBe(true);
+  s.push(toolCall()); s.push(background(1)); s.push(delta('relancei')); s.push(result());
+  await settle();
+  expect(h.live.accepting).toBe(true);
+  expect(h.rows.filter((r) => r.role === 'assistant').map((r) => r.text)).toEqual(['disparei', 'relancei']);
+  // That one ends with nothing being answered, and the turn that reports it starts nothing.
+  s.push(background(0)); s.push(taskUpdated('t2', 'completed')); s.push(delta('fim')); s.push(result());
+  await settle();
+  expect(h.live.accepting).toBe(false);
+  expect(s.written).toEqual([STREAM_END_INPUT_LINE]);
+  s.end();
+  await consumed;
+});
+
+/** A process left with its input closed and a subagent in the background: the input ended with a
+ *  turn, and a turn the CLI started afterwards launched a subagent (here the CLI never said that the
+ *  first one had ended). The CLI holds that turn's `result` back until nothing is left running. */
 async function stranded() {
   const a = await h.turn(U1, 'a');
   h.live.add(a.t);

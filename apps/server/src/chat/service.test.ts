@@ -1610,7 +1610,7 @@ describe('reset', () => {
 
     const first = await service.start(user, 'vigia a aba', { projectId: 'p1' });
     const run = await runAt(lr, 0);
-    // The first monitor ends while the turn runs, so the input ends with the turn…
+    // The input ends with the turn (nothing in the background, and the CLI never said a subagent ended)…
     run.push(replayOf(run.input.text.trim()));
     run.push(backgroundTasks(['t1']));
     run.push(backgroundTasks([]));
@@ -1619,8 +1619,8 @@ describe('reset', () => {
     await first.done;
     await settled();
     expect(run.written.at(-1)).toBe('{"type":"termhub_end_input"}');
-    // …and the turn that reports it starts another. With its input closed the CLI holds the
-    // `result` of that turn back: for the server the turn never ends.
+    // …and a turn the CLI starts afterwards launches a subagent. With its input closed the CLI holds
+    // the `result` of that turn back: for the server the turn never ends.
     run.push(delta('Relancei o monitor.'));
     run.push(backgroundTasks(['t2']));
     await settled();
@@ -2006,9 +2006,9 @@ describe('a chat that never blocks', () => {
     next.end();
   });
 
-  /** A process left with its input closed and a subagent in the background: the first monitor ended
-   *  while the turn ran, so the input ended with the turn, and the turn that reports the monitor
-   *  started another. The CLI holds that turn's `result` back for as long as the subagent runs. */
+  /** A process left with its input closed and a subagent in the background: the input ended with a
+   *  turn (the CLI never said that the first monitor had ended), and a turn the CLI started afterwards
+   *  launched another. The CLI holds that turn's `result` back for as long as the subagent runs. */
   async function strandedRun(service: ChatService, lr: ReturnType<typeof liveRunner>) {
     const first = await service.start(user, 'vigia a aba');
     const run = await runAt(lr, 0);
@@ -2596,7 +2596,7 @@ describe('subagentsFor / cancelSubagent (spec 2026-09-26 panel §4/§5.4)', () =
     vi.mocked(built.runner.run).mockImplementation(lr.run);
     const started = await built.service.start(user, 'vigia a aba');
     const run = await runAt(lr, 0);
-    // The first monitor ends while the turn runs, so the input ends with the turn…
+    // The input ends with the turn (nothing in the background, and the CLI never said a subagent ended)…
     run.push(replayOf(run.input.text.trim()));
     run.push(backgroundTasks(['task0']));
     run.push(backgroundTasks([]));
@@ -2604,7 +2604,7 @@ describe('subagentsFor / cancelSubagent (spec 2026-09-26 panel §4/§5.4)', () =
     run.push(done());
     await started.done;
     await settled();
-    // …and the turn that reports it starts another, which no `stop_task` line can reach any more.
+    // …and a turn the CLI starts afterwards launches a subagent, which no `stop_task` line can reach.
     run.push(taskStarted('task1', 'tu1', 'Monitorar a aba'));
     run.push(backgroundTasks(['task1']));
     await vi.waitFor(() => expect(built.subagentsStore).toHaveLength(1));
