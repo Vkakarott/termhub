@@ -6,6 +6,7 @@ import { mintTabToken, TAB_TOKEN_TOOLS } from '../mcp/tab-token.js';
 import { sendTextToSession } from '../terminal/session-ops.js';
 import { installTabMcp, TAB_MCP_SERVER, tabMcpSupported } from '../terminal/tab-mcp.js';
 import { ControlError, type ControlContext } from './context.js';
+import { boardUrl, taskOut, type TaskOut } from './tasks.js';
 import { openTab } from './terminals.js';
 
 /** Same ceiling as one typed input: the prompt travels as a single command-line argument. */
@@ -177,6 +178,16 @@ export interface StartAgentResult {
 }
 
 /**
+ * Points the card at the tab and starts work on it: a top-level card goes to the project's agent column
+ * (else the first doing column) unless it is already in a doing column; a subtask is marked doing.
+ * What `start_agent` does for the tab it opens and `link_tab_task` for one that is already open.
+ */
+async function attachTask(ctx: ControlContext, taskId: string, tabId: string): Promise<Task | undefined> {
+  const linked = await ctx.repos.tasks.setTab(taskId, tabId);
+  return (await ctx.repos.tasks.startWork(taskId)) ?? linked;
+}
+
+/**
  * Opens a tab in the project and starts the account's CLI there with the prompt (spec §4.4). Everything
  * that can be checked is checked before the tab exists; once it does, a failure keeps the tab and names it.
  */
@@ -226,10 +237,7 @@ export async function startAgent(
   await ctx.repos.tabs.setAgentFields(tab.tab_id, { ai_account_id: account.id }).catch(() => undefined);
   if (task) {
     try {
-      await ctx.repos.tasks.setTab(task.id, tab.tab_id);
-      // a top-level card goes to the project's agent column (else the first doing column) unless it is
-      // already in a doing column; a subtask is marked doing
-      await ctx.repos.tasks.startWork(task.id);
+      await attachTask(ctx, task.id, tab.tab_id);
     } catch (e) {
       throw new ControlError('TASK_LINK_FAILED', `A aba ${tab.tab_id} foi aberta e o agente iniciado, mas a tarefa não foi vinculada: ${reason(e)}. ${keptTab}`);
     }
@@ -245,6 +253,38 @@ export async function startAgent(
     task_id: task?.id ?? null,
     previous_tab_id: task?.tab_id ?? null,
     note: `O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou perguntar algo, e read_screen para ver a tela. ${mcp.note}`,
+  };
+}
+
+export interface LinkTabTaskResult {
+  /** the card after the link, in the column it ended up in */
+  task: TaskOut;
+  tab_id: string;
+  tab_name: string;
+  /** the tab the card pointed at before, when it was another one (it stays open, unlinked) */
+  previous_tab_id: string | null;
+  board_url: string;
+}
+
+/**
+ * Links a terminal tab that is already open to a card of its project (spec 2026-09-30 TER-499 D5): an
+ * agent somebody started by hand then shows on the card and in Progresso, as one started by `start_agent`
+ * does. Nothing is typed into the tab. Several cards may point at one tab; a card has one tab, so
+ * linking re-points it.
+ */
+export async function linkTabTask(ctx: ControlContext, input: { tab_id: string; task_id: string }): Promise<LinkTabTaskResult> {
+  if (!(await ctx.can('tasks', 'update'))) throw new ControlError('FORBIDDEN', 'Vincular a tarefa precisa da permissão tasks:update na sua role');
+  const { tab } = await ctx.scoped.tab(input.tab_id);
+  const { task } = await ctx.scoped.task(input.task_id);
+  if (tab.kind !== 'terminal') throw new ControlError('TAB_NOT_TERMINAL', 'Só abas de terminal podem ser ligadas a uma tarefa');
+  if (task.project_id !== tab.project_id) throw new ControlError('TASK_OTHER_PROJECT', `A tarefa "${task.title}" é de outro projeto, não o da aba`);
+  const linked = await attachTask(ctx, task.id, tab.id);
+  return {
+    task: taskOut(linked ?? { ...task, tab_id: tab.id }),
+    tab_id: tab.id,
+    tab_name: tab.name,
+    previous_tab_id: task.tab_id && task.tab_id !== tab.id ? task.tab_id : null,
+    board_url: boardUrl(task.project_id),
   };
 }
 

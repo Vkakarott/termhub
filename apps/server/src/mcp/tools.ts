@@ -11,7 +11,7 @@ import { closeTab, INPUT_MAX_CHARS, openTab, runCommand, RUN_MAX_SECONDS, sendIn
 import { linkProjectMachine, PROJECT_CWD, setProjectMachineCwd, unlinkProjectMachine } from '../control/project-links.js';
 import { addSubtasks, createTask, deleteTask, listTasks, moveTask, TASK_DESCRIPTION_MAX, TASK_POSITION_MAX, TASK_TITLE_MAX, updateTask, type CreatableType, type WorkType } from '../control/tasks.js';
 import { getTicket, importTickets, listTickets, pushTicketStatus, syncTickets, TICKET_IMPORT_MAX, TICKET_LIST_MAX } from '../control/tickets.js';
-import { PROMPT_MAX_CHARS, startAgent } from '../control/agents.js';
+import { linkTabTask, PROMPT_MAX_CHARS, startAgent } from '../control/agents.js';
 import { answerTabQuestionTool, listTabQuestions, recordDecision, searchMemory, MEMORY_REF, type MemoryRefKind } from '../control/memory.js';
 import { createIntegration, getProjectSetup, listIntegrations, setProjectRepo } from '../control/integrations.js';
 import { recordLesson } from '../control/lessons.js';
@@ -200,6 +200,14 @@ export const TOOLS: ToolDef[] = [
     scope: 'terminals', resource: 'terminals', action: 'write',
     input: { project_id: id, machine_id: id.optional(), account_id: id, prompt: z.string().min(1).max(PROMPT_MAX_CHARS), task_id: id.optional(), tab_name: z.string().trim().min(1).max(60).optional() },
     run: (ctx, a) => startAgent(ctx, a as { project_id: string; machine_id?: string; account_id: string; prompt: string; task_id?: string; tab_name?: string }),
+  },
+  {
+    name: 'link_tab_task',
+    description:
+      "Link a terminal tab that is already open to a card of the same project, as start_agent does for the tab it opens: the card shows the tab (and its agent in Progresso) and moves to the project's agent column unless it already sits in a doing column; a subtask is marked doing. A card linked to another tab is re-pointed (previous_tab_id names the one it left). Nothing is typed into the tab. Use it for an agent that was started by hand in a tab; to start an agent on a card, use start_agent with task_id.",
+    scope: 'tasks', resource: 'tasks', action: 'update',
+    input: { tab_id: id, task_id: id },
+    run: (ctx, a) => linkTabTask(ctx, a as { tab_id: string; task_id: string }),
   },
   {
     name: 'list_tasks',

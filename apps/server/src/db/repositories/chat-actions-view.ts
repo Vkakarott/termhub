@@ -119,6 +119,8 @@ function verbPhrase(action: ChatAction, task: Task | undefined, ticketById: Map<
       return task ? `mover a tarefa ${named(task)}` : 'mover uma tarefa que não existe mais';
     case 'delete_task':
       return task ? `apagar a tarefa ${named(task)}` : 'apagar uma tarefa que não existe mais';
+    case 'link_tab_task':
+      return task ? `ligar a tarefa ${named(task)}` : 'ligar uma tarefa que não existe mais';
     case 'sync_tickets':
       return 'sincronizar os tickets de todas as fontes';
     case 'import_tickets': {
@@ -304,7 +306,9 @@ export async function describeActions(repos: Repositories, actions: ChatAction[]
 
     // Exactly one of these is ever populated for a real gated call (see the tool schemas): a tab_id
     // for terminal tools, a task_id for the four task tools, a project_id for open_tab/create_task/
-    // start_agent (and, for the three MACHINE_LINK_TOOLS below, alongside a machine_id too). Each is
+    // start_agent (and, for the three MACHINE_LINK_TOOLS below, alongside a machine_id too). The one
+    // exception is link_tab_task, which names a tab and a task: the tab is its "where" and the verb
+    // already names the task. Each is
     // the *primary* reference this specific action names, and its own resolution decides the whole
     // "where" — a project derived from a resolved tab or task (and a machine, only from a resolved
     // tab — a project has no single machine any more) is a secondary, best-effort addition, never

@@ -281,6 +281,20 @@ it('names every other task tool by the task\'s title too', async () => {
   expect(moveTask.summary).toBe('mover a tarefa REA-7 "Corrigir o build" no projeto reactivando');
 });
 
+// TER-499: link_tab_task carries a tab_id (copied onto the row) and a task_id (read from args): the card
+// names both, since what the user approves is "this card shows that tab".
+it('names the card and the tab of a link_tab_task, and says so when either is gone', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ tool: 'link_tab_task', args: { tab_id: 't1', task_id: 'tk1' }, tab_id: 't1' })], OWNER);
+  expect(card.summary).toBe('ligar a tarefa REA-7 "Corrigir o build" na aba Terminal 2 do projeto reactivando, no macbook m3');
+
+  const [noTask] = await describeActions(repos, [action({ tool: 'link_tab_task', args: { tab_id: 't1', task_id: 'gone' }, tab_id: 't1' })], OWNER);
+  expect(noTask.summary).toBe('ligar uma tarefa que não existe mais na aba Terminal 2 do projeto reactivando, no macbook m3');
+
+  const [noTab] = await describeActions(repos, [action({ tool: 'link_tab_task', args: { tab_id: 'gone', task_id: 'tk1' }, tab_id: 'gone' })], OWNER);
+  expect(noTab.summary).toBe('ligar a tarefa REA-7 "Corrigir o build" numa aba que não existe mais');
+});
+
 it('sync_tickets reads as fetching every source, no task or location involved', async () => {
   const repos = fakeRepos();
   const [card] = await describeActions(repos, [action({ tool: 'sync_tickets', args: { project_id: 'p1' } })], OWNER);

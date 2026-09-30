@@ -201,6 +201,10 @@ async function bindLateOrigin(ctx: ControlContext, call: GatedCall, conversation
  * `send_key`, and `send_input` with `answering_permission`, are how a pending permission is meant to
  * be answered (the tools' own contract), so for those a tab waiting on a permission is not stale.
  */
+/** Tools that name a tab without sending it a key (TER-499): an approval of one is not an answer to
+ *  whatever the tab is asking, so only a closed tab spends it. */
+const NON_TYPING_TAB_TOOLS: ReadonlySet<string> = new Set(['link_tab_task']);
+
 const typesFreeText = (call: GatedCall) => call.tool === 'run_command' || (call.tool === 'send_input' && call.args.answering_permission !== true);
 
 /**
@@ -231,6 +235,7 @@ async function staleApproval(ctx: ControlContext, call: GatedCall, row: ChatActi
   // own "not found" instead of `TAB_GONE` — an existence oracle for somebody else's tab.
   const [tab] = await ctx.repos.tabs.findByIdsForOwner([row.tab_id], ctx.scope.user.id);
   if (!tab) return TAB_GONE(row.tab_id);
+  if (NON_TYPING_TAB_TOOLS.has(call.tool)) return undefined;
   if (tab.state === 'waiting_permission') {
     if (typesFreeText(call)) return TAB_WAITING_PERMISSION(row.tab_id);
     // A grant's call was never shown to the user, so it cannot be the answer they chose.

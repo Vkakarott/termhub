@@ -270,3 +270,42 @@ describe('terminal grants in the gate', () => {
     expect(actions.rows[0]).toMatchObject({ status: 'failed', error_code: 'TAB_GONE', grant_id: 'tg1' });
   });
 });
+
+// TER-499: link_tab_task names a tab but types nothing into it. It always asks (no grant covers it), and
+// an approval of it is not an answer to whatever the tab is asking: only a closed tab spends it.
+describe('link_tab_task in the gate', () => {
+  const args = { tab_id: 't3', task_id: 'k1' };
+  /** The row as the decision route leaves it after the user clicked approve, `minutesAgo` back. */
+  const approve = (minutesAgo: number) => {
+    const at = new Date(Date.now() - minutesAgo * 60_000).toISOString();
+    actions.rows.push({
+      id: 'ap1', conversation_id: C, message_id: null, tool: 'link_tab_task', args, class: 'write', status: 'approved',
+      idempotency_key: idempotencyKeyFor(C, 'link_tab_task', args), machine_id: null, project_id: null, tab_id: 't3', grant_id: null, error_code: null,
+      duration_ms: null, decided_by: 'u1', decided_at: at, injected_at: null, created_at: at,
+    });
+  };
+
+  it('asks even in a tab and a project the user trusted for everything', async () => {
+    seedTabGrant('t3');
+    seedProjectGrant('p1', 'all');
+    expect(await call('link_tab_task', args)).toMatchObject({ ok: false, code: 'CONFIRMATION_PENDING' });
+    expect(run).not.toHaveBeenCalled();
+    expect(actions.rows[0]).toMatchObject({ tool: 'link_tab_task', class: 'write', status: 'pending', tab_id: 't3' });
+  });
+
+  it('runs once approved although the tab asked for another permission meanwhile: nothing is typed', async () => {
+    approve(10);
+    tabs.set('t3', { ...tabs.get('t3')!, state: 'waiting_permission', state_at: new Date().toISOString() });
+    expect(await call('link_tab_task', args)).toEqual({ ok: true, value: { ok: 1 } });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(actions.rows[0].status).toBe('executed');
+  });
+
+  it('an approval for a tab that was closed meanwhile is spent as TAB_GONE', async () => {
+    approve(1);
+    tabs.delete('t3');
+    expect(await call('link_tab_task', args)).toMatchObject({ ok: false, code: 'TAB_GONE' });
+    expect(run).not.toHaveBeenCalled();
+    expect(actions.rows[0]).toMatchObject({ status: 'failed', error_code: 'TAB_GONE' });
+  });
+});

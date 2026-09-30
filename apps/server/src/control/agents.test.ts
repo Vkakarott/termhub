@@ -13,10 +13,10 @@ vi.mock('../terminal/session-ops.js', () => ({ sendTextToSession }));
 vi.mock('../terminal/tab-mcp.js', async (orig) => ({ ...(await orig<typeof import('../terminal/tab-mcp.js')>()), installTabMcp, tabMcpSupported }));
 
 import type { Repositories } from '../db/repositories/index.js';
-import type { AiAccount, Machine, Project, Task } from '../db/repositories/types.js';
+import type { AiAccount, Machine, Project, Tab, Task } from '../db/repositories/types.js';
 import { Scoped } from '../auth/scope.js';
 import { ControlError, type ControlContext } from './context.js';
-import { checkPrompt, CODEX_TAB_MCP_ENABLED, launchLine, LESSONS_REMINDER, PROMPT_MAX_CHARS, RESUME_PROMPT, resumeLine, startAgent, withLessonsReminder } from './agents.js';
+import { checkPrompt, CODEX_TAB_MCP_ENABLED, launchLine, LESSONS_REMINDER, linkTabTask, PROMPT_MAX_CHARS, RESUME_PROMPT, resumeLine, startAgent, withLessonsReminder } from './agents.js';
 
 const machine = (over: Partial<Machine> & { id: string }): Machine => ({
   name: over.id, host: null, ssh_user: null, ssh_port: 22, type: 'agent', os: 'macos', capabilities: ['tmux', 'claude', 'codex'], checked_at: null,
@@ -51,6 +51,19 @@ const kdoing = task({ id: 'k2', project_id: 'p1', title: 'Already', status: 'doi
 const ksub = task({ id: 's1', project_id: 'p1', title: 'A subtask', parent_id: 'k1', tab_id: 't-old' });
 const klong = task({ id: 'k3', project_id: 'p1', title: 'T'.repeat(80) });
 const k9 = task({ id: 'k9', project_id: 'p2', title: 'Elsewhere' });
+const kx = task({ id: 'kx', project_id: 'px', title: 'Not yours' });
+const tab = (over: Partial<Tab> & { id: string; project_id: string; machine_id: string }): Tab => ({
+  name: over.id, kind: 'terminal', tmux_session: `th-${over.id}`, simulator_udid: null, position: 0,
+  state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, created_at: '', ...over,
+});
+/** Open tabs: t1 and t-old in p1, a simulator tab there too, t2 in p2, tx of the other user. */
+const tabs = [
+  tab({ id: 't1', project_id: 'p1', machine_id: 'm1', name: 'claude à mão' }),
+  tab({ id: 't-old', project_id: 'p1', machine_id: 'm1' }),
+  tab({ id: 'tsim', project_id: 'p1', machine_id: 'm1', kind: 'simulator', tmux_session: null }),
+  tab({ id: 't2', project_id: 'p2', machine_id: 'm2' }),
+  tab({ id: 'tx', project_id: 'px', machine_id: 'mx' }),
+];
 
 function ctx(grants: string[] = ['terminals:write', 'tasks:update']) {
   const repos = {
@@ -65,12 +78,12 @@ function ctx(grants: string[] = ['terminals:write', 'tasks:update']) {
       list: vi.fn(async (owner: string | null) => accounts.filter((a) => owner === null || machines.find((m) => m.id === a.machine_id)!.owner_id === owner)),
     },
     tasks: {
-      findById: vi.fn(async (id: string) => [k1, kdoing, ksub, klong, k9].find((t) => t.id === id)),
+      findById: vi.fn(async (id: string) => [k1, kdoing, ksub, klong, k9, kx].find((t) => t.id === id)),
       setTab: vi.fn(async () => undefined),
       update: vi.fn(async () => undefined),
-      startWork: vi.fn(async () => undefined),
+      startWork: vi.fn(async (_id: string): Promise<Task | undefined> => undefined),
     },
-    tabs: { setAgentFields: vi.fn(async () => undefined) },
+    tabs: { setAgentFields: vi.fn(async () => undefined), findById: vi.fn(async (id: string) => tabs.find((t) => t.id === id)) },
     apiTokens: {
       create: vi.fn(async (userId: string, input: { name: string; tabId?: string | null }) => ({ id: 'tt1', user_id: userId, name: input.name, tab_id: input.tabId ?? null })),
       revokeForTab: vi.fn(async () => 1),
@@ -500,5 +513,62 @@ describe('startAgent', () => {
     openTab.mockRejectedValue(new ControlError('TAB_LIMIT', 'limite'));
     await expect(startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p' })).rejects.toEqual(new ControlError('TAB_LIMIT', 'limite'));
     expect(sendTextToSession).not.toHaveBeenCalled();
+  });
+});
+
+// TER-499: a tab that is already open — an agent started by hand — linked to a card the way start_agent
+// links the tab it opens, so the card shows it and Progresso lists the agent.
+describe('linkTabTask', () => {
+  it('points the card at the tab and starts work on it, answering the card as it ended up', async () => {
+    const { c, repos } = ctx();
+    repos.tasks.startWork.mockResolvedValue({ ...k1, ref: 'P1-7', status: 'doing', column_id: 'c-doing', tab_id: 't1' });
+    const r = await linkTabTask(c, { tab_id: 't1', task_id: 'k1' });
+    expect(repos.tasks.setTab).toHaveBeenCalledWith('k1', 't1');
+    expect(repos.tasks.startWork).toHaveBeenCalledWith('k1');
+    expect(repos.tasks.setTab.mock.invocationCallOrder[0]).toBeLessThan(repos.tasks.startWork.mock.invocationCallOrder[0]);
+    expect(r).toMatchObject({
+      task: { id: 'k1', ref: 'P1-7', status: 'doing', column_id: 'c-doing', tab_id: 't1', url: 'https://app.test/project/P1-7' },
+      tab_id: 't1', tab_name: 'claude à mão', previous_tab_id: null, board_url: 'https://app.test/projects/p1/tasks',
+    });
+  });
+
+  it('re-points a card linked to another tab and names the tab it left', async () => {
+    const { c, repos } = ctx();
+    const r = await linkTabTask(c, { tab_id: 't1', task_id: 's1' });
+    expect(repos.tasks.setTab).toHaveBeenCalledWith('s1', 't1');
+    expect(r.previous_tab_id).toBe('t-old');
+  });
+
+  it('linking the tab a card already has is not a change of tab', async () => {
+    const { c, repos } = ctx();
+    const r = await linkTabTask(c, { tab_id: 't-old', task_id: 's1' });
+    expect(r.previous_tab_id).toBeNull();
+    expect(repos.tasks.startWork).toHaveBeenCalledWith('s1');
+  });
+
+  it('refuses a card of another project, writing nothing', async () => {
+    const { c, repos } = ctx();
+    await expect(linkTabTask(c, { tab_id: 't1', task_id: 'k9' })).rejects.toEqual(new ControlError('TASK_OTHER_PROJECT', 'A tarefa "Elsewhere" é de outro projeto, não o da aba'));
+    expect(repos.tasks.setTab).not.toHaveBeenCalled();
+  });
+
+  it('refuses a tab that is not a terminal', async () => {
+    const { c, repos } = ctx();
+    await expect(linkTabTask(c, { tab_id: 'tsim', task_id: 'k1' })).rejects.toEqual(new ControlError('TAB_NOT_TERMINAL', 'Só abas de terminal podem ser ligadas a uma tarefa'));
+    expect(repos.tasks.setTab).not.toHaveBeenCalled();
+  });
+
+  it('needs the tasks:update grant', async () => {
+    const { c, repos } = ctx(['terminals:write']);
+    await expect(linkTabTask(c, { tab_id: 't1', task_id: 'k1' })).rejects.toEqual(new ControlError('FORBIDDEN', 'Vincular a tarefa precisa da permissão tasks:update na sua role'));
+    expect(repos.tasks.setTab).not.toHaveBeenCalled();
+  });
+
+  it("404s another user's tab or card, the same way as one that does not exist", async () => {
+    const { c, repos } = ctx();
+    await expect(linkTabTask(c, { tab_id: 'tx', task_id: 'k1' })).rejects.toMatchObject({ statusCode: 404, message: 'Tab não encontrada' });
+    await expect(linkTabTask(c, { tab_id: 'nope', task_id: 'k1' })).rejects.toMatchObject({ statusCode: 404, message: 'Tab não encontrada' });
+    await expect(linkTabTask(c, { tab_id: 't1', task_id: 'kx' })).rejects.toMatchObject({ statusCode: 404, message: 'Tarefa não encontrada' });
+    expect(repos.tasks.setTab).not.toHaveBeenCalled();
   });
 });
