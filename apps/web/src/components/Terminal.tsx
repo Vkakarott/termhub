@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import { TerminalConnection, type ConnectionState } from '../lib/terminal-connection';
+import { wheelLines } from '../lib/wheel-lines';
 import { api, ApiError } from '../lib/api';
 import { MAX_RECORDING_MS, VoiceRecorder, canRecordVoice, micErrorMessage, resumeTranscription, transcribeClip, type Clip, type TranscribePhase } from '../lib/voice-recorder';
 import { voiceStore } from '../lib/voice-store';
@@ -360,6 +361,33 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
     const dataSub = term.onData((d) => conn.send(d));
     const resizeSub = term.onResize(({ cols, rows }) => conn.sendResize(cols, rows));
 
+    // Mouse wheel (TER-465): tmux keeps xterm.js in the alternate buffer with no scrollback, where xterm.js
+    // turns the wheel into Up/Down — a shell's or Codex's prompt history. When the server can, the wheel
+    // scrolls the tmux pane instead (copy-mode). An app that turned mouse tracking on (Claude, vim with
+    // mouse) still gets the wheel from xterm.js, and so does an older server or agent (no `canScroll`).
+    let wheelCarry = 0;
+    let wheelPending = 0;
+    let wheelRaf = 0;
+    term.attachCustomWheelEventHandler((e) => {
+      if (!conn.canScroll || term.modes.mouseTrackingMode !== 'none' || term.buffer.active.type !== 'alternate') return true;
+      e.preventDefault();
+      const screen = el.querySelector<HTMLElement>('.xterm-screen');
+      const cellHeight = screen && term.rows ? screen.clientHeight / term.rows : 0;
+      const r = wheelLines(e, wheelCarry, { cellHeight, rows: term.rows });
+      wheelCarry = r.carry;
+      wheelPending += r.lines;
+      // one message per animation frame, however many wheel events came in
+      if (wheelPending !== 0 && !wheelRaf) {
+        wheelRaf = requestAnimationFrame(() => {
+          wheelRaf = 0;
+          const lines = wheelPending;
+          wheelPending = 0;
+          conn.sendScroll(lines);
+        });
+      }
+      return false;
+    });
+
     let raf = 0;
     const ro = new ResizeObserver(() => {
       cancelAnimationFrame(raf);
@@ -384,6 +412,7 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
       window.clearTimeout(copiedTimer.current);
       ro.disconnect();
       cancelAnimationFrame(raf);
+      cancelAnimationFrame(wheelRaf);
       dataSub.dispose();
       resizeSub.dispose();
       conn.close();
