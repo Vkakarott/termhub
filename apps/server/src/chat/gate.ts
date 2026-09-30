@@ -42,6 +42,7 @@ const writeTools = new Set([
   'add_subtasks',
   'update_task',
   'move_task',
+  'link_tab_task',
   'link_project_machine',
   'set_project_machine_cwd',
   'sync_tickets',

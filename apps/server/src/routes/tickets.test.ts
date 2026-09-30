@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // reads config.publicUrl; config.js itself validates process.env (DATABASE_URL etc.) on import, so a
 // unit test that never boots the app needs this mock, same as control/tickets.test.ts.
 vi.mock('../config.js', () => ({ config: { publicUrl: 'https://app.test' } }));
+// The route guard (not mounted here) is what checks the role; the control operation asks again.
+vi.mock('../auth/permissions.js', async (orig) => ({ ...(await orig<typeof import('../auth/permissions.js')>()), canAccess: vi.fn(async () => true) }));
 
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, Project, ProjectMachine, Tab, Task } from '../db/repositories/types.js';
@@ -13,8 +15,9 @@ import { monitorBus, type TabLifecycle } from '../monitor/bus.js';
 import { taskTicketRoutes } from './tickets.js';
 
 /**
- * Covers only `POST /tasks/:id/terminal`, in the style of `routes/projects.test.ts`. u1 owns machines
- * m1 and m2 and project p1; task t1 belongs to p1 and has no tab yet, task t9 already has a live tab.
+ * Covers `POST /tasks/:id/terminal` and `POST /tasks/:id/link-tab`, in the style of
+ * `routes/projects.test.ts`. u1 owns machines m1 and m2 and projects p1 and p2; task t1 belongs to p1
+ * and has no tab yet, task t9 already has a live tab. u2 owns project px and its tab.
  */
 const machine = (over: Partial<Machine> & { id: string }): Machine => ({
   name: over.id, host: null, ssh_user: null, ssh_port: 22, type: 'agent', os: null, capabilities: ['tmux'], checked_at: null,
@@ -35,14 +38,14 @@ const tab = (over: Partial<Tab> & { id: string; project_id: string; machine_id: 
 
 function buildApp(links: ProjectMachine[]) {
   const machines: Record<string, Machine> = { m1: machine({ id: 'm1' }), m2: machine({ id: 'm2' }) };
-  const projects: Record<string, Project> = { p1: project({ id: 'p1' }) };
+  const projects: Record<string, Project> = { p1: project({ id: 'p1' }), p2: project({ id: 'p2' }), px: project({ id: 'px', owner_id: 'u2' }) };
   const liveTab = tab({ id: 'live', project_id: 'p1', machine_id: 'm1' });
   const tasks: Record<string, Task> = {
     t1: task({ id: 't1', project_id: 'p1', title: 'Corrigir o build' }),
     t9: task({ id: 't9', project_id: 'p1', title: 'Já tem terminal', tab_id: 'live' }),
     t2: task({ id: 't2', project_id: 'p1', external_ref: { provider: 'github', id: '4', identifier: '#4', url: 'u', state: 'open', status: 'backlog', scope: 'acme/api' } }),
   };
-  let tabs: Tab[] = [liveTab];
+  const tabs: Tab[] = [liveTab, tab({ id: 'elsewhere', project_id: 'p2', machine_id: 'm1' }), tab({ id: 'foreign', project_id: 'px', machine_id: 'mx' })];
 
   const app = Fastify();
   applyErrorHandler(app);
@@ -52,13 +55,14 @@ function buildApp(links: ProjectMachine[]) {
   });
 
   const setTab = vi.fn(async (id: string, tabId: string | null) => (tasks[id] = { ...tasks[id], tab_id: tabId }));
+  const startWork = vi.fn(async (id: string) => (tasks[id] = { ...tasks[id], status: 'doing' }));
   const createTab = vi.fn(async (project_id: string, machine_id: string, name: string) => {
     const t = tab({ id: `new-${machine_id}`, project_id, machine_id, name });
     tabs.push(t);
     return t;
   });
   const repos = {
-    tasks: { findById: vi.fn(async (id: string) => tasks[id]), setTab },
+    tasks: { findById: vi.fn(async (id: string) => tasks[id]), setTab, startWork },
     projects: { findById: vi.fn(async (id: string) => projects[id]) },
     projectMachines: {
       listByProject: vi.fn(async (id: string) => links.filter((l) => l.project_id === id)),
@@ -69,7 +73,7 @@ function buildApp(links: ProjectMachine[]) {
   } as unknown as Repositories;
 
   app.register((a) => taskTicketRoutes(a, repos), { prefix: '/tasks' });
-  return { app, repos, createTab, setTab };
+  return { app, repos, createTab, setTab, startWork };
 }
 
 beforeEach(() => vi.clearAllMocks());
@@ -148,5 +152,44 @@ describe('POST /tasks/:id/terminal on the monitor bus', () => {
     const opened = await lifecycleDuring(() => app.inject({ method: 'POST', url: '/tasks/t1/terminal' }));
     expect(opened).toEqual([{ kind: 'upsert', tab: expect.objectContaining({ id: 'new-m1' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' }]);
     expect(await lifecycleDuring(() => app.inject({ method: 'POST', url: '/tasks/t9/terminal' }))).toEqual([]);
+  });
+});
+
+// TER-499: the card editor's "Ligar a uma aba aberta".
+describe('POST /tasks/:id/link-tab', () => {
+  const links = [link('p1', 'm1'), link('p2', 'm1')];
+
+  it('links the card to the open tab, starts work on it and answers the card', async () => {
+    const { app, setTab, startWork } = buildApp(links);
+    const res = await app.inject({ method: 'POST', url: '/tasks/t1/link-tab', payload: { tab_id: 'live' } });
+    expect(res.statusCode).toBe(200);
+    expect(setTab).toHaveBeenCalledWith('t1', 'live');
+    expect(startWork).toHaveBeenCalledWith('t1');
+    expect(res.json().task).toMatchObject({ id: 't1', tab_id: 'live', status: 'doing', external_ref: null });
+  });
+
+  it('400s a body without a tab_id or with anything else in it', async () => {
+    const { app, setTab } = buildApp(links);
+    expect((await app.inject({ method: 'POST', url: '/tasks/t1/link-tab', payload: {} })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/tasks/t1/link-tab', payload: { tab_id: 'live', machine_id: 'm1' } })).statusCode).toBe(400);
+    expect(setTab).not.toHaveBeenCalled();
+  });
+
+  it("404s a tab that is not the user's, like one that does not exist", async () => {
+    const { app, setTab } = buildApp(links);
+    for (const tab_id of ['foreign', 'nope']) {
+      const res = await app.inject({ method: 'POST', url: '/tasks/t1/link-tab', payload: { tab_id } });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error).toBe('Tab não encontrada');
+    }
+    expect(setTab).not.toHaveBeenCalled();
+  });
+
+  it('409s, in words the editor can show, a tab of another project', async () => {
+    const { app, setTab } = buildApp(links);
+    const res = await app.inject({ method: 'POST', url: '/tasks/t1/link-tab', payload: { tab_id: 'elsewhere' } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('A tarefa "Corrigir o build" é de outro projeto, não o da aba');
+    expect(setTab).not.toHaveBeenCalled();
   });
 });

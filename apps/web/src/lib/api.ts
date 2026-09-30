@@ -348,6 +348,8 @@ export const api = {
     pushStatus: (id: string) => request<{ task: Task; state: string }>('POST', `/tasks/${id}/push-status`, {}),
     openTerminal: (id: string, machineId?: string) =>
       request<{ task: Task; tab: Tab; created: boolean }>('POST', `/tasks/${id}/terminal`, machineId ? { machine_id: machineId } : {}),
+    /** links the card to a terminal tab that is already open in its project (and starts work on it) */
+    linkTab: (id: string, tabId: string) => request<{ task: Task }>('POST', `/tasks/${id}/link-tab`, { tab_id: tabId }),
     detachTerminal: (id: string) => request<{ task: Task }>('DELETE', `/tasks/${id}/terminal`),
   },
   columns: {

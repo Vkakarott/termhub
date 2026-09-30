@@ -3,13 +3,15 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Machine, Project, Task, TaskColumn } from '../lib/types';
+import type { Machine, Project, Tab, Task, TaskColumn } from '../lib/types';
 
 const listMock = vi.fn();
 const openTerminalMock = vi.fn();
 const createMock = vi.fn();
 const moveMock = vi.fn();
 const pullRequestsMock = vi.fn();
+const linkTabMock = vi.fn();
+const detachTerminalMock = vi.fn();
 vi.mock('../lib/api', () => {
   class ApiError extends Error {}
   return {
@@ -21,6 +23,8 @@ vi.mock('../lib/api', () => {
         create: (...a: unknown[]) => createMock(...a),
         move: (...a: unknown[]) => moveMock(...a),
         pullRequests: (...a: unknown[]) => pullRequestsMock(...a),
+        linkTab: (...a: unknown[]) => linkTabMock(...a),
+        detachTerminal: (...a: unknown[]) => detachTerminalMock(...a),
       },
     },
   };
@@ -35,6 +39,10 @@ vi.mock('../lib/data', () => ({
     setOpenTasks: () => {},
   }),
 }));
+
+/** The open terminal tabs the monitor knows of, across the user's projects. */
+let openTabs: Tab[] = [];
+vi.mock('../lib/monitor', () => ({ useMonitor: () => ({ openTabs }) }));
 
 import { TasksBoard } from './TasksBoard';
 
@@ -70,6 +78,7 @@ async function requestTerminal() {
 
 beforeEach(() => {
   localStorage.clear();
+  openTabs = [];
   project = { id: 'p1', key: 'P1', name: 'p1', machines: [{ machine_id: 'm1', cwd: '/a', position: 0 }] } as Project;
   listMock.mockResolvedValue(board([epic('e1', 'Geral', 1), task({ id: 't1' })]));
   pullRequestsMock.mockResolvedValue({ pull_requests: [] });
@@ -276,5 +285,54 @@ describe('TasksBoard — card URLs', () => {
     mount('t1', '/project/P1-t1');
     fireEvent.click(await screen.findByRole('button', { name: 'Fechar' }));
     expect(screen.getByTestId('location').textContent).toBe('/projects/p1/tasks|');
+  });
+});
+
+// TER-499: an agent started by hand in an open tab is linked to its card from the card editor.
+describe('TasksBoard — linking an open tab to a card', () => {
+  const openTab = (over: Partial<Tab> & { id: string }): Tab => ({ project_id: 'p1', machine_id: 'm1', name: over.id, kind: 'terminal', ...over }) as Tab;
+
+  beforeEach(() => {
+    project = { id: 'p1', key: 'P1', name: 'p1', machines: [{ machine_id: 'm1', cwd: '/a', position: 0 }, { machine_id: 'm2', cwd: '/b', position: 1 }] } as Project;
+    openTabs = [openTab({ id: 'ta', name: 'claude' }), openTab({ id: 'tz', name: 'de outro projeto', project_id: 'p2' }), openTab({ id: 'tb', name: 'codex', machine_id: 'm2' })];
+  });
+
+  it('offers only the open tabs of this project, each with its machine', async () => {
+    mount('t1');
+    const select = (await screen.findByLabelText('Ligar a uma aba aberta')) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Ligar a uma aba aberta…', 'claude · mac', 'codex · jarvis']);
+  });
+
+  it('links the chosen tab, and the card then goes to that terminal', async () => {
+    const linked = task({ id: 't1', tab_id: 'tb', status: 'doing', column_id: 'c2' });
+    linkTabMock.mockResolvedValue({ task: linked });
+    // the board is read again after the link: the server moved the card and reindexed both columns
+    listMock.mockResolvedValueOnce(board([epic('e1', 'Geral', 1), task({ id: 't1' })])).mockResolvedValue(board([epic('e1', 'Geral', 1), linked]));
+    mount('t1');
+    fireEvent.change(await screen.findByLabelText('Ligar a uma aba aberta'), { target: { value: 'tb' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ligar' }));
+    await waitFor(() => expect(linkTabMock).toHaveBeenCalledWith('t1', 'tb'));
+    expect(await screen.findByRole('link', { name: /Ir para o terminal/ })).toHaveAttribute('href', '/projects/p1?tab=tb');
+    // the card moved with the link, as start_agent moves it
+    expect(within(screen.getByRole('region', { name: 'Em revisão' })).getByText('t1')).toBeInTheDocument();
+  });
+
+  it('unlinks the tab of a card, which can then open or link a terminal again', async () => {
+    listMock.mockResolvedValue(board([epic('e1', 'Geral', 1), task({ id: 't1', tab_id: 'ta' })]));
+    detachTerminalMock.mockResolvedValue({ task: task({ id: 't1', tab_id: null }) });
+    mount('t1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Desligar a aba deste card' }));
+    await waitFor(() => expect(detachTerminalMock).toHaveBeenCalledWith('t1'));
+    expect(await screen.findByRole('button', { name: /Abrir terminal para esta task/ })).toBeInTheDocument();
+    expect(screen.getByLabelText('Ligar a uma aba aberta')).toBeInTheDocument();
+  });
+
+  it('says why a link was refused', async () => {
+    const { ApiError } = await import('../lib/api');
+    linkTabMock.mockRejectedValue(new ApiError('A tarefa "t1" é de outro projeto, não o da aba'));
+    mount('t1');
+    fireEvent.change(await screen.findByLabelText('Ligar a uma aba aberta'), { target: { value: 'ta' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ligar' }));
+    expect(await screen.findByText('A tarefa "t1" é de outro projeto, não o da aba')).toBeInTheDocument();
   });
 });

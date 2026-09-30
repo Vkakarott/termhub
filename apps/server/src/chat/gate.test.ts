@@ -20,6 +20,8 @@ it('classifies every tool the MCP exposes, and defaults an unknown one to irreve
   expect(actionClass('read_attachment', { id: 'abc123' })).toBe('read');
   expect(actionClass('send_input', { tab_id: 't1', text: 'oi' })).toBe('write');
   expect(actionClass('start_agent', {})).toBe('write');
+  // TER-499: links a card to an open tab; it moves the card like move_task does, so it asks like one
+  expect(actionClass('link_tab_task', { tab_id: 't1', task_id: 'k1' })).toBe('write');
   expect(actionClass('close_tab', { tab_id: 't1' })).toBe('irreversible');
   expect(actionClass('delete_task', { task_id: 'k1' })).toBe('irreversible');
   // a tool added later must not silently become auto-allowed
@@ -109,7 +111,7 @@ describe('grantable', () => {
 
 describe('boardGrantable', () => {
   it.each(['create_task', 'add_subtasks', 'update_task', 'move_task'])('covers %s', (t) => expect(boardGrantable(t)).toBe(true));
-  it.each(['delete_task', 'start_agent', 'send_input', 'run_command', 'list_tasks', 'close_tab'])('never covers %s', (t) => expect(boardGrantable(t)).toBe(false));
+  it.each(['delete_task', 'start_agent', 'send_input', 'run_command', 'list_tasks', 'close_tab', 'link_tab_task'])('never covers %s', (t) => expect(boardGrantable(t)).toBe(false));
   it('covered tools are all write-class', () => {
     for (const t of BOARD_GRANT_TOOLS) expect(actionClass(t, {})).toBe('write');
   });
@@ -157,6 +159,7 @@ describe('standingKindOf', () => {
     ['send_key', { tab_id: 't1', key: 'Enter' }, 'terminal'],
     ['run_command', { tab_id: 't1', command: 'ls' }, null],
     ['delete_task', { task_id: 'k1' }, null],
+    ['link_tab_task', { tab_id: 't1', task_id: 'k1' }, null],
     ['push_ticket_status', {}, null],
     ['create_integration', {}, null],
     ['set_project_repo', {}, null],
