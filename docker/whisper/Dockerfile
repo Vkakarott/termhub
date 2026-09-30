@@ -4,7 +4,9 @@
 FROM python:3.12-slim
 WORKDIR /srv
 ENV PIP_NO_CACHE_DIR=1 PYTHONUNBUFFERED=1 HF_HOME=/models
-RUN pip install --no-cache-dir faster-whisper==1.2.1
+# av is pinned too: faster-whisper 1.2.1 calls av.open(metadata_errors=...), which av 19 removed,
+# so an unpinned rebuild fails every transcription with "unexpected keyword argument".
+RUN pip install --no-cache-dir faster-whisper==1.2.1 av==18.1.0
 COPY server.py .
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=180s --retries=5 \
