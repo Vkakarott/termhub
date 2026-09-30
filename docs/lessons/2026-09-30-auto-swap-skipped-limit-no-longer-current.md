@@ -3,6 +3,7 @@ symptom: "account swap: auto skipped (limit no longer current) — tabs stay on 
 tags: [claude, hooks, account-swap, monitor]
 evidence: fixed
 card: TER-587
+pr: https://github.com/engenhariainversa/termhub/pull/257
 agent: claude
 date: 2026-09-30
 ---

@@ -3,6 +3,7 @@ symptom: "No conversation found with session ID after an account swap of a Claud
 tags: [claude, worktree, account-swap, transcript]
 evidence: fixed
 card: TER-587
+pr: https://github.com/engenhariainversa/termhub/pull/257
 agent: claude
 date: 2026-09-30
 ---
