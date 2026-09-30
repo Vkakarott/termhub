@@ -1277,3 +1277,187 @@ describe('standing grants (TER-386)', () => {
     expect(await screen.findByRole('link', { name: '1 permissão ativa' })).toBeInTheDocument();
   });
 });
+
+describe('which answers are being written (spec 2026-09-29 §5)', () => {
+  let onEvent!: (e: unknown) => void;
+  let onReconnect!: () => Promise<void>;
+  const FAILED = 'A resposta não terminou — tente de novo.';
+  const SETUP_FAILED = 'O concierge não conseguiu começar a resposta. Tente de novo.';
+  const at = (minute: number) => `2026-09-29T10:${String(minute).padStart(2, '0')}:00.000Z`;
+  const q = (id: string, text: string, minute: number) => msg({ id, text, created_at: at(minute) });
+  const a = (id: string, minute: number, text = '') => msg({ id, role: 'assistant', text, created_at: at(minute) });
+  const thread = (messages: ChatMessage[], open?: string[], id = 'c1') => ({ conversation: { id, ai_account_id: null }, messages, actions: [], host: READY, ...(open ? { open_answer_ids: open } : {}) });
+  const final = (id: string, minute: number, text = 'pronto') => ({ type: 'message', conversation_id: 'c1', message: a(id, minute, text) });
+  const mount = () =>
+    render(
+      <MemoryRouter>
+        <ChatPanel projectId={null} />
+      </MemoryRouter>,
+    );
+
+  beforeEach(() => {
+    streamMock.mockImplementation((reload: () => Promise<void>, cb: (e: unknown) => void) => {
+      onReconnect = reload;
+      onEvent = cb;
+      return { connected: true };
+    });
+  });
+
+  it('a row the server lists as open shows "pensando…" on load', async () => {
+    chatMock.mockResolvedValue(thread([q('q1', 'pergunta', 0), a('a1', 1)], ['a1']));
+    mount();
+    expect(await screen.findByText(/pensando/i)).toBeInTheDocument();
+    expect(screen.queryByText(FAILED)).toBeNull();
+  });
+
+  it('an empty row the server does not list shows as failed', async () => {
+    chatMock.mockResolvedValue(thread([q('q1', 'pergunta', 0), a('a1', 1)], []));
+    mount();
+    expect(await screen.findByText(FAILED)).toBeInTheDocument();
+    expect(screen.queryByText(/pensando/i)).toBeNull();
+  });
+
+  it('a server that sends no open_answer_ids behaves as before', async () => {
+    chatMock.mockResolvedValue(thread([q('q1', 'pergunta', 0), a('a1', 1)]));
+    mount();
+    expect(await screen.findByText(FAILED)).toBeInTheDocument();
+    expect(screen.queryByText(/pensando/i)).toBeNull();
+  });
+
+  it('a row that finished while the read was in flight stays final', async () => {
+    const stale = thread([q('q1', 'pergunta', 0), a('a1', 1)], ['a1']);
+    chatMock.mockResolvedValue(stale);
+    mount();
+    await screen.findByText(/pensando/i);
+    act(() => onEvent(final('a1', 1)));
+    expect(await screen.findByText('pronto')).toBeInTheDocument();
+    await act(async () => {
+      await onReconnect();
+    });
+    expect(chatMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('pronto')).toBeInTheDocument();
+    expect(screen.queryByText(/pensando/i)).toBeNull();
+    expect(screen.queryByText(FAILED)).toBeNull();
+  });
+
+  it('a removed row leaves the thread, and "Nova conversa" is enabled again', async () => {
+    chatMock.mockResolvedValue(thread([q('q1', 'um', 0), a('a1', 1), q('q2', 'dois', 2), a('a2', 3)], ['a1', 'a2']));
+    mount();
+    await waitFor(() => expect(screen.getAllByText(/pensando/i)).toHaveLength(2));
+    expect(screen.getByRole('button', { name: 'Nova conversa' })).toBeDisabled();
+    act(() => onEvent({ type: 'message_removed', message_id: 'a1', conversation_id: 'c1' }));
+    act(() => onEvent(final('a2', 3)));
+    expect(await screen.findByText('pronto')).toBeInTheDocument();
+    expect(screen.queryByText(/pensando/i)).toBeNull();
+    // The removed row is gone, not left behind as a failed one.
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Nova conversa' })).toBeEnabled();
+  });
+
+  it('"Nova conversa" is disabled while an older row is still open', async () => {
+    chatMock.mockResolvedValue(thread([q('q1', 'um', 0), a('a1', 1), q('q2', 'dois', 2), a('a2', 3, 'já respondida')], ['a1']));
+    mount();
+    await screen.findByText('já respondida');
+    expect(screen.getByText(/pensando/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Nova conversa' })).toBeDisabled();
+  });
+
+  it('a run that could not start re-reads the conversation and says so', async () => {
+    chatMock.mockResolvedValue(thread([q('q1', 'pergunta', 0)], []));
+    mount();
+    await screen.findByText('pergunta');
+    expect(chatMock).toHaveBeenCalledTimes(1);
+    // Another conversation's failure is not this screen's to say or to re-read.
+    act(() => onEvent({ type: 'run_finished', message_id: null, ok: false, error_code: 'SETUP_FAILED', conversation_id: 'c9' }));
+    expect(chatMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(SETUP_FAILED)).toBeNull();
+    let reread!: (value: unknown) => void;
+    chatMock.mockImplementationOnce(() => new Promise((resolve) => (reread = resolve)));
+    act(() => onEvent({ type: 'run_finished', message_id: null, ok: false, error_code: 'SETUP_FAILED', conversation_id: 'c1' }));
+    expect(chatMock).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      reread(thread([q('q1', 'pergunta', 0)], []));
+    });
+    // Still said once the re-read has landed: the read never clears it.
+    expect(screen.getByText(SETUP_FAILED)).toBeInTheDocument();
+    expect(screen.getByText('pergunta')).toBeInTheDocument();
+  });
+
+  it('a deleted newest answer leaves on the next re-read, even with no message_removed', async () => {
+    chatMock.mockResolvedValueOnce(thread([q('q1', 'pergunta', 0), a('a1', 1)], ['a1']));
+    mount();
+    await screen.findByText(/pensando/i);
+    expect(screen.getByRole('button', { name: 'Nova conversa' })).toBeDisabled();
+    // The server deleted a1 (a missed message_removed, or a server that predates it) and re-read shows q1 alone.
+    chatMock.mockResolvedValue(thread([q('q1', 'pergunta', 0)], []));
+    await act(async () => {
+      await onReconnect();
+    });
+    expect(screen.queryByText(/pensando/i)).toBeNull();
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Nova conversa' })).toBeEnabled();
+    // Closed for good: a late start of that row does not bring a started mark back.
+    act(() => onEvent({ type: 'run_started', message_id: 'a1', conversation_id: 'c1' }));
+    expect(screen.getByRole('button', { name: 'Nova conversa' })).toBeEnabled();
+  });
+
+  it('the first read keeps what an untagged event streamed before it (a server with no conversation tags)', async () => {
+    let resolveLoad!: (value: unknown) => void;
+    chatMock.mockImplementationOnce(() => new Promise((resolve) => (resolveLoad = resolve)));
+    mount();
+    act(() => onEvent({ type: 'delta', message_id: 'a1', delta: 'começo da resposta' }));
+    await act(async () => {
+      resolveLoad(thread([q('q1', 'pergunta', 0), a('a1', 1)]));
+    });
+    expect(await screen.findByText('começo da resposta')).toBeInTheDocument();
+  });
+
+  it('keeps a row whose message arrived while the re-read was in flight', async () => {
+    chatMock.mockResolvedValueOnce(thread([q('q1', 'um', 0), a('a1', 1, 'resposta um')], []));
+    mount();
+    await screen.findByText('resposta um');
+    let reread!: (value: unknown) => void;
+    chatMock.mockImplementationOnce(() => new Promise((resolve) => (reread = resolve)));
+    let pending!: Promise<void>;
+    act(() => {
+      pending = onReconnect();
+    });
+    act(() => {
+      onEvent({ type: 'message', conversation_id: 'c1', message: q('q2', 'dois', 2) });
+      onEvent({ type: 'message', conversation_id: 'c1', message: a('a2', 3) });
+    });
+    await act(async () => {
+      reread(thread([q('q1', 'um', 0), a('a1', 1, 'resposta um')], []));
+      await pending;
+    });
+    expect(screen.getByText('dois')).toBeInTheDocument();
+    expect(screen.getByText(/pensando/i)).toBeInTheDocument();
+  });
+
+  it('another conversation replaces the thread', async () => {
+    chatMock
+      .mockResolvedValueOnce(thread([q('q1', 'antiga', 0), a('a1', 1, 'resposta antiga')], []))
+      .mockResolvedValue(thread([], [], 'c2'));
+    resetMock.mockResolvedValue({ conversation: { id: 'c2' } });
+    mount();
+    await screen.findByText('resposta antiga');
+    fireEvent.click(screen.getByRole('button', { name: 'Nova conversa' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Começar de novo' }));
+    await waitFor(() => expect(resetMock).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText('resposta antiga')).toBeNull());
+    expect(screen.queryByText('antiga')).toBeNull();
+  });
+
+  it('a final message held before the panel knew its conversation reaches the thread', async () => {
+    let resolveLoad!: (value: unknown) => void;
+    chatMock.mockImplementationOnce(() => new Promise((resolve) => (resolveLoad = resolve)));
+    mount();
+    act(() => onEvent(final('a1', 1)));
+    await act(async () => {
+      resolveLoad(thread([q('q1', 'pergunta', 0), a('a1', 1)], ['a1']));
+    });
+    expect(await screen.findByText('pronto')).toBeInTheDocument();
+    expect(screen.queryByText(/pensando/i)).toBeNull();
+    expect(screen.queryByText(FAILED)).toBeNull();
+  });
+});

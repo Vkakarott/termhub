@@ -155,11 +155,15 @@ A re-read of the same conversation merges the snapshot into the thread by id:
 
 1. A row the snapshot lists as empty and the screen holds as final keeps the screen's version.
 2. A row the screen saw removed is left out of the snapshot.
-3. A row the snapshot lacks is dropped, unless it is newer than the snapshot's newest row. This is
-   what closes a row whose `message_removed` was missed while the socket was down.
+3. A row the snapshot lacks is dropped, unless its `message` event reached the screen while the
+   read was in flight. A dropped row is closed. This is what closes a row whose `message_removed`
+   was missed while the socket was down, and what keeps the page right against a server that
+   predates the event.
 4. Every other row takes the snapshot's version.
 
-Rules 3 and 4 are what the phone's `mergeThread` does today. The web replaces the list wholesale today,
+The phone compares `created_at` with the snapshot's newest row today, and the first version of
+this design copied it. That keeps a deleted answer for ever: an answer is always newer than its
+question. Both screens use rule 3 as written above. The web replaces the list wholesale today,
 and gets the same four rules.
 
 A `message_removed` for a row the screen never had is harmless: the id is remembered, so a later
@@ -169,10 +173,11 @@ only the screen, or the phone's slot, of its `conversation_id` re-reads and show
 **Web** (`apps/web`).
 
 - `ChatEvent` gains `run_started`, `run_finished` and `message_removed`.
-- `lib/chat-live.ts`: the fold gains the closed set, `seed(ids)`, `clear()`, `isClosed(id)` and
-  `wasRemoved(id)`. On `reset` the row keeps `started` and takes `text: ''` and the shared empty tools
+- `lib/chat-live.ts`: the fold gains the closed set, `seed(ids)`, `clear()`, `isClosed(id)`,
+  `removed()` and `closeRows(ids)` (closes the rows a merge dropped, without marking them removed). On `reset` the row keeps `started` and takes `text: ''` and the shared empty tools
   array.
-- `lib/chat-merge.ts`: `mergeThread(current, server, removed)` applies the four rules.
+- `lib/chat-merge.ts`: `mergeThread(current, server, removed, arrived)` applies the four rules, where
+  `arrived` is the set of ids whose `message` event reached the panel while the read was in flight.
   `ChatPanel.load` uses it when the conversation is the one on screen, replaces the list and clears the
   fold otherwise, then seeds.
 - Events held before the panel knows its conversation are replayed through the same path as live
@@ -256,3 +261,4 @@ shows as failed.
 | The web merges a re-read "by the two rules" | A merge that never drops a row keeps the archived thread on screen after "Nova conversa", and keeps a row whose removal was missed | The phone's two other rules, and a replace when the conversation changes |
 | The new deletion in `restart` had no place in the order | A deletion that throws before the turns are re-queued strands the person's turns | Last step, best effort |
 | Held events feed only the fold | A held final `message` or removal leaves the thread with the snapshot's row | Held events take the same path as live ones |
+| Rule 3 compared `created_at` with the snapshot's newest row | A deleted answer is always newer than its question, so the merge kept it, started, until a reload | A row is kept only when its `message` arrived during the read |

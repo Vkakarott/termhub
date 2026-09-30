@@ -9,7 +9,7 @@ const pendingAction = { id: 'act1', conversation_id: 'c1', tool: 'send_input', a
 function build(opts: {
   send?: ReturnType<typeof vi.fn>;
   start?: ReturnType<typeof vi.fn>;
-  resumeAfterDecision?: ReturnType<typeof vi.fn>;
+  startAfterDecision?: ReturnType<typeof vi.fn>;
   reset?: ReturnType<typeof vi.fn>;
   decide?: ReturnType<typeof vi.fn>;
   findByIdForUser?: ReturnType<typeof vi.fn>;
@@ -50,7 +50,9 @@ function build(opts: {
   openAnswerIds?: ReturnType<typeof vi.fn>;
 } = {}) {
   const send = opts.send ?? vi.fn(async () => ({ id: 'm2', role: 'assistant', text: 'Nada rodando.' }));
-  const resumeAfterDecision = opts.resumeAfterDecision ?? vi.fn(async () => ({ id: 'm3', role: 'assistant', text: 'Feito.' }));
+  const startAfterDecision = opts.startAfterDecision ?? vi.fn(async () => ({ conversation_id: 'c1', user_message_id: 'mu', assistant_message_id: 'ma', done: Promise.resolve({ id: 'ma' }) }));
+  // Kept on the stand-in only to prove the web's decision routes never await a whole run.
+  const resumeAfterDecision = vi.fn(async () => ({ id: 'm3', role: 'assistant', text: 'Feito.' }));
   const reset = opts.reset ?? vi.fn(async () => ({ id: 'c_new', project_id: 'p1' }));
   const decide = opts.decide ?? vi.fn(async (_id: string, _userId: string, status: string) => ({ ...pendingAction, status }));
   const findByIdForUser = opts.findByIdForUser ?? vi.fn(async () => undefined);
@@ -64,6 +66,7 @@ function build(opts: {
     conversationFor,
     send,
     start,
+    startAfterDecision,
     resumeAfterDecision,
     reset,
     hostFor: opts.hostFor ?? vi.fn(async () => ({ kind: 'ready', machine: { id: 'm1', name: 'jarvis' }, configDir: null })),
@@ -142,7 +145,7 @@ function build(opts: {
   });
   const indexActions = vi.fn(async () => {});
   app.register((a) => chatRoutes(a, repos as never, { service: service as never, indexActions }), { prefix: '/chat' });
-  return { app, service, decide, findByIdForUser, listByConversation, resumeAfterDecision, setHost, send, start, repos, indexActions };
+  return { app, service, decide, findByIdForUser, listByConversation, startAfterDecision, resumeAfterDecision, setHost, send, start, repos, indexActions };
 }
 
 it('returns the conversation with its messages', async () => {
@@ -277,14 +280,6 @@ it('scopes the trail\'s enrichment to the signed-in user: a tab belonging to som
   expect(actions[0].summary).not.toContain('Aba Alheia');
 });
 
-it('sends a message and answers with the assistant row', async () => {
-  const { app, service } = build();
-  const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'o que está rodando?' } });
-  expect(res.statusCode).toBe(201);
-  expect(res.json().message.text).toBe('Nada rodando.');
-  expect(service.send.mock.calls[0][1]).toBe('o que está rodando?');
-});
-
 it('answers 202 with the three ids at once when the page says it will not wait', async () => {
   let resolve!: (m: unknown) => void;
   const done = new Promise((r) => (resolve = r));
@@ -322,12 +317,19 @@ it('a refusal from start still answers with its own status when the page does no
   expect(res.json().code).toBe('CHAT_ARCHIVED');
 });
 
-it('without the flag, still waits for the answer and never calls start', async () => {
-  const { app, start } = build();
-  const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi' } });
-  expect(res.statusCode).toBe(201);
-  expect(res.json().message.text).toBe('Nada rodando.');
-  expect(start).not.toHaveBeenCalled();
+it('POST /messages answers 202 with the three ids, with or without the flag', async () => {
+  // `wait` is read and ignored: a page loaded before this release still sends it, and a caller that
+  // forgets it must not hold the request for the whole answer.
+  const { app, start, send } = build();
+  for (const payload of [{ text: 'oi' }, { text: 'oi', wait: false }]) {
+    const res = await app.inject({ method: 'POST', url: '/chat/messages', payload });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ conversation_id: 'c1', user_message_id: 'mu', assistant_message_id: 'ma' });
+  }
+  expect(start).toHaveBeenCalledTimes(2);
+  expect(start.mock.calls[0][1]).toBe('oi');
+  expect(start.mock.calls[1][1]).toBe('oi');
+  expect(send).not.toHaveBeenCalled();
 });
 
 it('rejects a wait flag that is not a boolean', async () => {
@@ -343,18 +345,18 @@ it('rejects an empty or oversized message', async () => {
 
 it('passes the service busy error through as 409', async () => {
   const { HttpError } = await import('../lib/errors.js');
-  const { app } = build({ send: vi.fn(async () => { throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY'); }) });
+  const { app } = build({ start: vi.fn(async () => { throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY'); }) });
   const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'segunda' } });
   expect(res.statusCode).toBe(409);
   expect(res.json().code).toBe('CHAT_BUSY');
 });
 
 it('surfaces a concierge that is not configured as 503, not as a stored failure', async () => {
-  // Merged with no container running, every message would otherwise be answered 201 with a message
+  // Merged with no container running, every message would otherwise be answered with a message
   // marked as failed, and the page would say "tente de novo" for ever. The status must reach the
   // browser so it can show the server's own pt-BR explanation.
   const { HttpError } = await import('../lib/errors.js');
-  const { app } = build({ send: vi.fn(async () => { throw new HttpError(503, 'O chat não está configurado neste servidor', 'CONCIERGE_DISABLED'); }) });
+  const { app } = build({ start: vi.fn(async () => { throw new HttpError(503, 'O chat não está configurado neste servidor', 'CONCIERGE_DISABLED'); }) });
   const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi' } });
   expect(res.statusCode).toBe(503);
   expect(res.json()).toMatchObject({ code: 'CONCIERGE_DISABLED', error: 'O chat não está configurado neste servidor' });
@@ -362,14 +364,14 @@ it('surfaces a concierge that is not configured as 503, not as a stored failure'
 
 it('surfaces a concierge that did not answer as 502', async () => {
   const { HttpError } = await import('../lib/errors.js');
-  const { app } = build({ send: vi.fn(async () => { throw new HttpError(502, 'O concierge não respondeu', 'CONCIERGE_FAILED'); }) });
+  const { app } = build({ start: vi.fn(async () => { throw new HttpError(502, 'O concierge não respondeu', 'CONCIERGE_FAILED'); }) });
   const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi' } });
   expect(res.statusCode).toBe(502);
   expect(res.json().code).toBe('CONCIERGE_FAILED');
 });
 
 it('approves a row the user owns: 200, decided through the repository, and the run is resumed', async () => {
-  const { app, decide, resumeAfterDecision, indexActions } = build();
+  const { app, decide, startAfterDecision, resumeAfterDecision, indexActions } = build();
   const events: ChatEvent[] = [];
   const unsubscribe = chatBus.subscribe((e) => events.push(e));
   let res;
@@ -381,9 +383,10 @@ it('approves a row the user owns: 200, decided through the repository, and the r
 
   expect(res.statusCode).toBe(200);
   expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved');
-  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
-  expect(resumeAfterDecision.mock.calls[0][0]).toMatchObject({ id: 'u1' });
-  expect(resumeAfterDecision.mock.calls[0][1]).toMatchObject({ id: 'act1', status: 'approved' });
+  expect(startAfterDecision).toHaveBeenCalledTimes(1);
+  expect(startAfterDecision.mock.calls[0][0]).toMatchObject({ id: 'u1' });
+  expect(startAfterDecision.mock.calls[0][1]).toMatchObject({ id: 'act1', status: 'approved' });
+  expect(resumeAfterDecision).not.toHaveBeenCalled();
   // Every open tab must learn of the decision, not only the one that clicked.
   expect(events).toContainEqual({ type: 'decision', user_id: 'u1', conversation_id: 'c1', action_id: 'act1', status: 'approved' });
   // Memory (spec 2026-09-26 concierge memory §4): the decided row is indexed, fire-and-forget.
@@ -391,33 +394,53 @@ it('approves a row the user owns: 200, decided through the repository, and the r
 });
 
 it('denies a row the user owns: 200, decided as denied, and the run is resumed', async () => {
-  const { app, decide, resumeAfterDecision } = build();
+  const { app, decide, startAfterDecision } = build();
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'deny' } });
 
   expect(res.statusCode).toBe(200);
   expect(decide).toHaveBeenCalledWith('act1', 'u1', 'denied');
-  expect(resumeAfterDecision.mock.calls[0][1]).toMatchObject({ id: 'act1', status: 'denied' });
+  expect(startAfterDecision.mock.calls[0][1]).toMatchObject({ id: 'act1', status: 'denied' });
 });
 
-it('answers 404 for a row that does not exist, or belongs to another user, without ever calling resumeAfterDecision', async () => {
+it('a decision answers while the run it started is still being written', async () => {
+  const done = new Promise(() => {});
+  const { app } = build({ startAfterDecision: vi.fn(async () => ({ conversation_id: 'c1', user_message_id: 'mu', assistant_message_id: 'ma', done })) });
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve' } });
+  expect(res.statusCode).toBe(200);
+  expect(res.json()).toMatchObject({ action: { id: 'act1', status: 'approved' } });
+  expect(res.json().message).toBeUndefined();
+});
+
+it('a batch of decisions answers while the run it started is still being written', async () => {
+  const done = new Promise(() => {});
+  const findByIdForUser = vi.fn(async (id: string) => ({ ...pendingAction, id, status: 'pending' }));
+  const decide = vi.fn(async (id: string, _u: string, status: string) => ({ ...pendingAction, id, status }));
+  const { app } = build({ findByIdForUser, decide, startAfterDecision: vi.fn(async () => ({ conversation_id: 'c1', user_message_id: 'mu', assistant_message_id: 'ma', done })) });
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/decisions', payload: { decisions: [{ id: 'a1', decision: 'approve' }] } });
+  expect(res.statusCode).toBe(200);
+  expect(res.json()).toMatchObject({ actions: [{ id: 'a1', status: 'approved' }], skipped: [] });
+  expect(res.json().message).toBeUndefined();
+});
+
+it('answers 404 for a row that does not exist, or belongs to another user, without ever calling startAfterDecision', async () => {
   // `decide` filters ownership in SQL and returns undefined either way; `findByIdForUser` is scoped
   // the same way (the owning conversation's user_id), so a wrong id or another user's row both come
   // back undefined from it too, and the route answers 404 rather than 409.
-  const { app, resumeAfterDecision, findByIdForUser } = build({ decide: vi.fn(async () => undefined), findByIdForUser: vi.fn(async () => undefined) });
+  const { app, startAfterDecision, findByIdForUser } = build({ decide: vi.fn(async () => undefined), findByIdForUser: vi.fn(async () => undefined) });
   const res = await app.inject({ method: 'POST', url: '/chat/actions/nope/decision', payload: { decision: 'approve' } });
 
   expect(res.statusCode).toBe(404);
   expect(findByIdForUser).toHaveBeenCalledWith('nope', 'u1');
-  expect(resumeAfterDecision).not.toHaveBeenCalled();
+  expect(startAfterDecision).not.toHaveBeenCalled();
 });
 
 it('answers 409 for a row this user already decided, without deciding it again or resuming', async () => {
   const decided = { ...pendingAction, id: 'act1', status: 'approved' };
-  const { app, resumeAfterDecision } = build({ decide: vi.fn(async () => undefined), findByIdForUser: vi.fn(async () => decided) });
+  const { app, startAfterDecision } = build({ decide: vi.fn(async () => undefined), findByIdForUser: vi.fn(async () => decided) });
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve' } });
 
   expect(res.statusCode).toBe(409);
-  expect(resumeAfterDecision).not.toHaveBeenCalled();
+  expect(startAfterDecision).not.toHaveBeenCalled();
 });
 
 it('answers 400 for an unknown decision value, without touching the repository', async () => {
@@ -433,7 +456,7 @@ it('answers 200 (not 409) when the decision is recorded but a run is busy, and s
   // would tell the client its own successful decision was a conflict. `ChatService.drainNextDecision`
   // picks the row up (still approved/denied, never injected) once the busy run's own lock frees up.
   const { HttpError } = await import('../lib/errors.js');
-  const { app, decide } = build({ resumeAfterDecision: vi.fn(async () => { throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY'); }) });
+  const { app, decide } = build({ startAfterDecision: vi.fn(async () => { throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY'); }) });
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve' } });
 
   expect(res.statusCode).toBe(200);
@@ -442,8 +465,8 @@ it('answers 200 (not 409) when the decision is recorded but a run is busy, and s
   expect(res.json().note).toMatch(/registrada/i);
 });
 
-it('lets any other resumeAfterDecision failure through unchanged, not the busy 200', async () => {
-  const { app } = build({ resumeAfterDecision: vi.fn(async () => { throw new Error('boom'); }) });
+it('lets any other startAfterDecision failure through unchanged, not the busy 200', async () => {
+  const { app } = build({ startAfterDecision: vi.fn(async () => { throw new Error('boom'); }) });
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve' } });
 
   expect(res.statusCode).toBe(500);
@@ -458,9 +481,9 @@ it('GET /?project= reads that project conversation and its host', async () => {
 });
 
 it('POST /messages passes project_id through', async () => {
-  const { app, send } = build();
+  const { app, start } = build();
   await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi', project_id: 'p1' } });
-  expect(send).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'oi', { projectId: 'p1' });
+  expect(start).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'oi', { projectId: 'p1' });
 });
 
 it('POST /reset archives the scope and answers the fresh conversation', async () => {
@@ -530,26 +553,26 @@ it('a double click on the same decision still answers 409 the second time, havin
     return { ...pendingAction, status };
   });
   const findByIdForUser = vi.fn(async () => ({ ...pendingAction, status: 'approved' }));
-  const { app, resumeAfterDecision } = build({ decide, findByIdForUser });
+  const { app, startAfterDecision } = build({ decide, findByIdForUser });
 
   const first = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve' } });
   const second = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve' } });
 
   expect(first.statusCode).toBe(200);
   expect(second.statusCode).toBe(409);
-  expect(resumeAfterDecision).toHaveBeenCalledTimes(1); // injected once — the second click never reaches it
+  expect(startAfterDecision).toHaveBeenCalledTimes(1); // injected once — the second click never reaches it
 });
 
 it('POST /chat/actions/decisions decides the batch and resumes the conversation once', async () => {
   const rows: Record<string, typeof pendingAction & { status: string }> = { a1: { ...pendingAction, id: 'a1', status: 'pending' }, a2: { ...pendingAction, id: 'a2', status: 'pending' } };
   const findByIdForUser = vi.fn(async (id: string) => rows[id]);
   const decide = vi.fn(async (id: string, _u: string, status: string) => ({ ...rows[id], status }));
-  const { app, resumeAfterDecision, indexActions } = build({ findByIdForUser, decide });
+  const { app, startAfterDecision, indexActions } = build({ findByIdForUser, decide });
   const res = await app.inject({ method: 'POST', url: '/chat/actions/decisions', payload: { decisions: [{ id: 'a1', decision: 'approve' }, { id: 'a2', decision: 'deny' }] } });
   expect(res.statusCode).toBe(200);
   expect(decide).toHaveBeenCalledWith('a1', 'u1', 'approved');
   expect(decide).toHaveBeenCalledWith('a2', 'u1', 'denied');
-  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+  expect(startAfterDecision).toHaveBeenCalledTimes(1);
   expect(res.json()).toMatchObject({ actions: [{ id: 'a1', status: 'approved' }, { id: 'a2', status: 'denied' }], skipped: [] });
   // Memory (spec 2026-09-26 concierge memory §4): the whole decided batch is indexed, fire-and-forget.
   expect(indexActions).toHaveBeenCalledWith('u1', [expect.objectContaining({ id: 'a1', status: 'approved' }), expect.objectContaining({ id: 'a2', status: 'denied' })]);
@@ -565,10 +588,10 @@ it('POST /chat/actions/decisions validates the body', async () => {
 
 it('POST /chat/actions/decisions answers queued when a run holds the conversation', async () => {
   const findByIdForUser = vi.fn(async (id: string) => ({ ...pendingAction, id, status: 'pending' }));
-  const resumeAfterDecision = vi.fn(async () => {
+  const startAfterDecision = vi.fn(async () => {
     throw new HttpError(409, 'ocupado', 'CHAT_BUSY');
   });
-  const { app } = build({ findByIdForUser, resumeAfterDecision });
+  const { app } = build({ findByIdForUser, startAfterDecision });
   const res = await app.inject({ method: 'POST', url: '/chat/actions/decisions', payload: { decisions: [{ id: 'a1', decision: 'approve' }] } });
   expect(res.statusCode).toBe(200);
   expect(res.json()).toMatchObject({ queued: true });
@@ -578,7 +601,7 @@ it('approve_tab on an eligible send_input approves it, trusts the tab and says s
   const events: ChatEvent[] = [];
   const off = chatBus.subscribe((e) => events.push(e));
   const eligible = { ...pendingAction, status: 'pending', args: { tab_id: 't1', text: 'oi' } };
-  const { app, decide, repos, resumeAfterDecision } = build({ findByIdForUser: vi.fn(async () => eligible), tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }] });
+  const { app, decide, repos, startAfterDecision } = build({ findByIdForUser: vi.fn(async () => eligible), tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }] });
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_tab' } });
   off();
   expect(res.statusCode).toBe(200);
@@ -586,7 +609,7 @@ it('approve_tab on an eligible send_input approves it, trusts the tab and says s
   expect(repos.chatGrants.grant).toHaveBeenCalledWith({ conversation_id: 'c1', tab_id: 't1', tool: 'send_input', source_action_id: 'act1', granted_by: 'u1' });
   expect(res.json().grant).toMatchObject({ id: 'g1', tab_id: 't1', tab_name: 'Terminal 1', source_action_id: 'act1' });
   expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['decision', 'grant']));
-  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+  expect(startAfterDecision).toHaveBeenCalledTimes(1);
 });
 
 it('approve_tab whose grant fails still approves and resumes, with no grant in the answer or on the bus', async () => {
@@ -595,7 +618,7 @@ it('approve_tab whose grant fails still approves and resumes, with no grant in t
   const events: ChatEvent[] = [];
   const off = chatBus.subscribe((e) => events.push(e));
   const eligible = { ...pendingAction, status: 'pending', args: { tab_id: 't1', text: 'oi' } };
-  const { app, decide, repos, resumeAfterDecision } = build({ findByIdForUser: vi.fn(async () => eligible), tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }] });
+  const { app, decide, repos, startAfterDecision } = build({ findByIdForUser: vi.fn(async () => eligible), tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }] });
   vi.mocked(repos.chatGrants.grant).mockRejectedValueOnce(new Error('connection terminated'));
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_tab' } });
   off();
@@ -603,7 +626,7 @@ it('approve_tab whose grant fails still approves and resumes, with no grant in t
   expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved');
   expect(res.json().action).toMatchObject({ id: 'act1', status: 'approved' });
   expect(res.json()).not.toHaveProperty('grant');
-  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+  expect(startAfterDecision).toHaveBeenCalledTimes(1);
   expect(events.map((e) => e.type)).toContain('decision');
   expect(events.map((e) => e.type)).not.toContain('grant');
 });
@@ -643,7 +666,7 @@ const boardCard = { ...pendingAction, status: 'pending', tool: 'move_task', args
 it('approve_project decides and grants the resolved project, and says so live', async () => {
   const events: ChatEvent[] = [];
   const off = chatBus.subscribe((e) => events.push(e));
-  const { app, decide, repos, resumeAfterDecision } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }], projects: [{ id: 'p1', owner_id: 'u1', name: 'App' }] });
+  const { app, decide, repos, startAfterDecision } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }], projects: [{ id: 'p1', owner_id: 'u1', name: 'App' }] });
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_project' } });
   off();
   expect(res.statusCode).toBe(200);
@@ -653,7 +676,7 @@ it('approve_project decides and grants the resolved project, and says so live', 
   expect(res.json()).not.toHaveProperty('grant');
   expect(repos.chatGrants.grant).not.toHaveBeenCalled();
   expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['decision', 'project_grant']));
-  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+  expect(startAfterDecision).toHaveBeenCalledTimes(1);
 });
 
 it('approve_project resolves the card with the signed-in user, never the "view as" owner', async () => {
@@ -668,22 +691,22 @@ it('approve_project resolves the card with the signed-in user, never the "view a
 it('approve_project whose grant fails still approves and resumes, with no project_grant in the answer', async () => {
   const events: ChatEvent[] = [];
   const off = chatBus.subscribe((e) => events.push(e));
-  const { app, decide, repos, resumeAfterDecision } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }] });
+  const { app, decide, repos, startAfterDecision } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }] });
   vi.mocked(repos.chatProjectGrants.grant).mockRejectedValueOnce(new Error('connection terminated'));
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_project' } });
   off();
   expect(res.statusCode).toBe(200);
   expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved');
   expect(res.json()).not.toHaveProperty('project_grant');
-  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+  expect(startAfterDecision).toHaveBeenCalledTimes(1);
   expect(events.map((e) => e.type)).not.toContain('project_grant');
 });
 
 it('approve_project answers queued with the project grant when a run holds the conversation', async () => {
-  const resumeAfterDecision = vi.fn(async () => {
+  const startAfterDecision = vi.fn(async () => {
     throw new HttpError(409, 'ocupado', 'CHAT_BUSY');
   });
-  const { app } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }], resumeAfterDecision });
+  const { app } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }], startAfterDecision });
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_project' } });
   expect(res.statusCode).toBe(200);
   expect(res.json()).toMatchObject({ queued: true, project_grant: { id: 'pg1', project_id: 'p1' } });
@@ -723,7 +746,7 @@ const keyCard = { ...pendingAction, status: 'pending', tool: 'send_key', args: {
 it('approve_tab_terminal decides, replaces the narrow grant with a terminal one and returns grant (TER-325)', async () => {
   const events: ChatEvent[] = [];
   const off = chatBus.subscribe((e) => events.push(e));
-  const { app, decide, repos, resumeAfterDecision } = build({ findByIdForUser: vi.fn(async () => keyCard), tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }] });
+  const { app, decide, repos, startAfterDecision } = build({ findByIdForUser: vi.fn(async () => keyCard), tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }] });
   vi.mocked(repos.chatGrants.findActive).mockResolvedValueOnce({ id: 'g-narrow', conversation_id: 'c1', tab_id: 't1', tool: 'send_input' });
   vi.mocked(repos.chatGrants.revokeTool).mockResolvedValueOnce(1);
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_tab_terminal' } });
@@ -734,17 +757,17 @@ it('approve_tab_terminal decides, replaces the narrow grant with a terminal one 
   expect(repos.chatGrants.grant).toHaveBeenCalledWith({ conversation_id: 'c1', tab_id: 't1', tool: 'terminal', source_action_id: 'act1', granted_by: 'u1' });
   expect(res.json().grant).toMatchObject({ tab_id: 't1', tool: 'terminal', tab_name: 'Terminal 1' });
   expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['decision', 'grant_revoked', 'grant']));
-  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+  expect(startAfterDecision).toHaveBeenCalledTimes(1);
 });
 
 it('approve_tab_terminal whose grant fails still approves and resumes, with no grant in the answer', async () => {
-  const { app, decide, repos, resumeAfterDecision } = build({ findByIdForUser: vi.fn(async () => keyCard), tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }] });
+  const { app, decide, repos, startAfterDecision } = build({ findByIdForUser: vi.fn(async () => keyCard), tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }] });
   vi.mocked(repos.chatGrants.grant).mockRejectedValueOnce(new Error('connection terminated'));
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_tab_terminal' } });
   expect(res.statusCode).toBe(200);
   expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved');
   expect(res.json()).not.toHaveProperty('grant');
-  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+  expect(startAfterDecision).toHaveBeenCalledTimes(1);
 });
 
 it.each([
@@ -763,7 +786,7 @@ it.each([
 it('approve_project_all on a terminal card grants the tab\'s project with scope all and returns project_grant (TER-325)', async () => {
   const events: ChatEvent[] = [];
   const off = chatBus.subscribe((e) => events.push(e));
-  const { app, decide, repos, resumeAfterDecision } = build({ findByIdForUser: vi.fn(async () => keyCard), tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }], projects: [{ id: 'p1', owner_id: 'u1', name: 'App' }] });
+  const { app, decide, repos, startAfterDecision } = build({ findByIdForUser: vi.fn(async () => keyCard), tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }], projects: [{ id: 'p1', owner_id: 'u1', name: 'App' }] });
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_project_all' } });
   off();
   expect(res.statusCode).toBe(200);
@@ -771,7 +794,7 @@ it('approve_project_all on a terminal card grants the tab\'s project with scope 
   expect(repos.chatProjectGrants.grant).toHaveBeenCalledWith({ conversation_id: 'c1', project_id: 'p1', source_action_id: 'act1', granted_by: 'u1', scope: 'all' });
   expect(res.json().project_grant).toMatchObject({ id: 'pg1', project_id: 'p1', project_name: 'App', scope: 'all' });
   expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['decision', 'project_grant']));
-  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+  expect(startAfterDecision).toHaveBeenCalledTimes(1);
 });
 
 it('approve_project_all on a board card grants the card\'s project with scope all', async () => {
@@ -803,7 +826,7 @@ it.each(['approve_tab_terminal', 'approve_project_all'])('a batch refuses %s', a
 it('approve_project_always on a board card decides, grants standing with no expiry and returns standing_grant (TER-386)', async () => {
   const events: ChatEvent[] = [];
   const off = chatBus.subscribe((e) => events.push(e));
-  const { app, decide, repos, resumeAfterDecision } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }], projects: [{ id: 'p1', owner_id: 'u1', name: 'App' }] });
+  const { app, decide, repos, startAfterDecision } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }], projects: [{ id: 'p1', owner_id: 'u1', name: 'App' }] });
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_project_always' } });
   off();
   expect(res.statusCode).toBe(200);
@@ -813,7 +836,7 @@ it('approve_project_always on a board card decides, grants standing with no expi
   expect(res.json()).not.toHaveProperty('grant');
   expect(res.json()).not.toHaveProperty('project_grant');
   expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['decision', 'standing_grant']));
-  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+  expect(startAfterDecision).toHaveBeenCalledTimes(1);
 });
 
 it('approve_project_always on a terminal card grants the tab\'s project as a "terminal" standing grant', async () => {
@@ -837,13 +860,13 @@ it.each([
 });
 
 it('approve_project_always whose grant fails still approves and resumes, with no standing_grant in the answer', async () => {
-  const { app, decide, repos, resumeAfterDecision } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }] });
+  const { app, decide, repos, startAfterDecision } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }] });
   vi.mocked(repos.chatStandingGrants.grant).mockRejectedValueOnce(new Error('connection terminated'));
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_project_always' } });
   expect(res.statusCode).toBe(200);
   expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved');
   expect(res.json()).not.toHaveProperty('standing_grant');
-  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+  expect(startAfterDecision).toHaveBeenCalledTimes(1);
 });
 
 it('a batch refuses approve_project_always', async () => {
@@ -961,17 +984,17 @@ it('GET /chat/grants: 400 without a valid state, with a bad cursor or a limit ou
 });
 
 it('POST /messages passes attachment_ids to the service and allows an empty text with them', async () => {
-  const { app, send } = build();
+  const { app, start } = build();
   const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: '', attachment_ids: ['a1', 'a2'] } });
-  expect(res.statusCode).toBe(201);
-  expect(send).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), '', { projectId: null, attachmentIds: ['a1', 'a2'] });
+  expect(res.statusCode).toBe(202);
+  expect(start).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), '', { projectId: null, attachmentIds: ['a1', 'a2'] });
   expect((await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: '', attachment_ids: [] } })).statusCode).toBe(400);
   expect((await app.inject({ method: 'POST', url: '/chat/messages', payload: { attachment_ids: [] } })).statusCode).toBe(400);
   expect((await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi', attachment_ids: ['1', '2', '3', '4', '5', '6'] } })).statusCode).toBe(400);
 });
 
 it('POST /messages answers 409 ATTACHMENT_UNAVAILABLE as the service throws it', async () => {
-  const { app } = build({ send: vi.fn(async () => { throw new HttpError(409, 'Um dos anexos não está disponível: envie de novo', 'ATTACHMENT_UNAVAILABLE'); }) });
+  const { app } = build({ start: vi.fn(async () => { throw new HttpError(409, 'Um dos anexos não está disponível: envie de novo', 'ATTACHMENT_UNAVAILABLE'); }) });
   const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi', attachment_ids: ['gone'] } });
   expect(res.statusCode).toBe(409);
   expect(res.json()).toEqual({ error: 'Um dos anexos não está disponível: envie de novo', code: 'ATTACHMENT_UNAVAILABLE' });
