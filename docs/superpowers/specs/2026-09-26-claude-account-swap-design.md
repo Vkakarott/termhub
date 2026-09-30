@@ -246,15 +246,18 @@ swapped. What changed after that:
   `AutoSwapSettings` when the machine has `claude` and none of its registered accounts is the default
   login. Its tabs can move to a registered account. Nothing moves back to it until it is registered,
   and the settings say so.
-- **§4.3.** Only a normal `Stop` of the main thread clears `rate_limited_at`. `SessionStart`,
-  `UserPromptSubmit` and `PreToolUse` no longer do. Claude Code dequeues a queued background-task
+- **§4.3.** `rate_limited_at` is cleared by a normal `Stop` of the main thread, by `SessionEnd`, or by a
+  `SessionStart` of a different session. `UserPromptSubmit`, `PreToolUse`, a subagent's `Stop` and a
+  resume of the same session no longer clear it. Claude Code dequeues a queued background-task
   notification right after the `StopFailure`, and subagents keep calling tools. A second `StopFailure`
   keeps the first `rate_limited_at`.
 - **§4.5.** One automatic swap is scheduled per incident. The cooldown starts only when a swap is
-  attempted.
+  attempted. A machine with a single Claude login is skipped silently: no failure notice on every
+  limit.
 - **§4.4 step 4.** The link is made again after Claude exits. Leaving a worktree without changes
-  removes it, and the transcript moves to the main repository's project dir. The script looks up a
-  missing transcript by session id in the account's other project dirs. It replaces a link that points
+  removes it, and the transcript moves to the main repository's project dir. The move is done before
+  the `SessionEnd` hook, whose `transcript_path` is already the new path; the relink uses it. The script looks up a
+  missing transcript by session id in the account's other project dirs (the newest file wins). It replaces a link that points
   nowhere, and moves an older prefix copy aside (`.termhub-old-<epoch>`) instead of answering
   `conflict`.
 - **TER-589 extension point.** `swapPreferences(repos, tab)` returns

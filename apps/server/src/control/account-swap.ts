@@ -183,8 +183,11 @@ export async function swapAccount(
       await sleep(RESUME_SETTLE_MS);
       // Leaving a session whose worktree had no changes removes the worktree, and Claude Code moves the
       // transcript to the main repository's project dir (TER-587): the link made above now points
-      // nowhere. Link again, where the transcript is now (the script looks it up by session id).
-      const relinked = await linkClaudeSession(machine, { transcriptPath, sessionId, configDir: to.config_dir });
+      // nowhere. The move is done before the SessionEnd hook fires, and that hook reports the new path,
+      // so the tab already holds it; the script also looks a missing transcript up by session id.
+      const exited = await repos.tabs.findById(tab.id);
+      const movedTo = exited?.agent_session_id === sessionId ? exited.agent_transcript_path : null;
+      const relinked = await linkClaudeSession(machine, { transcriptPath: movedTo ?? transcriptPath, sessionId, configDir: to.config_dir });
       log.info({ tabId: tab.id, machineId: machine.id, accountId: to.id, status: relinked }, 'account swap: relink after exit');
       if (relinked !== 'linked') {
         throw new ControlError('RELINK_FAILED', `O Claude saiu, mas a sessão não pôde ser preparada na conta ${to.label} (${relinked}). Retome a sessão na aba.`);
@@ -210,6 +213,16 @@ export async function swapAccount(
 export const AUTO_SWAP_COOLDOWN_MS = 10 * 60_000;
 /** Claude Code draws its "waiting for the reset" prompt right after the hook: let it settle first. */
 export const AUTO_SWAP_DELAY_MS = 3_000;
+/**
+ * How many Claude logins the machine has: its registered Claude accounts, plus its default login when the
+ * machine has claude and none of them is it (no config dir). The web's Troca automática counts the same.
+ */
+export function claudeLoginCount(machine: Machine, accounts: AiAccount[]): number {
+  const here = accounts.filter((a) => a.machine_id === machine.id && a.provider === 'claude');
+  const unregisteredDefault = machine.capabilities.includes('claude') && here.length > 0 && !here.some((a) => a.config_dir === null);
+  return here.length + (unregisteredDefault ? 1 : 0);
+}
+
 /** When the last automatic swap of each tab was attempted. */
 const lastAuto = new Map<string, number>();
 /** Tabs with an automatic swap waiting for AUTO_SWAP_DELAY_MS: one per incident. */
@@ -227,6 +240,12 @@ export function autoSwapOnLimit(repos: Repositories, log: FastifyBaseLogger, tab
   void (async () => {
     const machine = await repos.machines.findById(tab.machine_id);
     if (!machine?.claude_auto_swap) return;
+    // On by default everywhere: a machine with a single Claude login has nowhere to go, and its tabs
+    // must not get a failure notice on every limit.
+    if (claudeLoginCount(machine, await repos.aiAccounts.list(machine.owner_id)) < 2) {
+      log.info({ tabId: tab.id, machineId: machine.id }, 'account swap: auto skipped (one Claude login)');
+      return;
+    }
     if (scheduled.has(tab.id)) {
       log.info({ tabId: tab.id, machineId: machine.id }, 'account swap: auto skipped (already scheduled)');
       return;

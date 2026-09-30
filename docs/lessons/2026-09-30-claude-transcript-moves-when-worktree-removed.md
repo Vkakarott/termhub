@@ -21,9 +21,15 @@ A second, unrelated conflict came up on the same night: a session that had passe
 account before left a plain copy of its `.jsonl` there. That copy is a prefix of the current
 transcript, and the link script answered `conflict`.
 
+The move finishes before Claude's `SessionEnd` hook runs, and that hook's `transcript_path` is already
+the new path. This was measured with Claude Code 2.1.285, using a `SessionEnd` probe in a throwaway
+repo: when the hook ran, the worktree was gone and the file was under the repo slug. Waiting for the tab
+to go idle (which the `SessionEnd` hook triggers) is therefore enough.
+
 ## Fix
 
-- `swapAccount` links again after Claude exits, and fails with `RELINK_FAILED` if that link fails.
+- `swapAccount` links again after Claude exits, from the path the `SessionEnd` hook stored on the tab,
+  and fails with `RELINK_FAILED` if that link fails.
 - `claudeLinkScript` (machine-ops, run by the agent) looks the transcript up by session id in the
   account's other project dirs when the reported path is gone, and links it under that slug.
 - The script replaces a link that points nowhere.

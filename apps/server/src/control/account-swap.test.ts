@@ -327,6 +327,21 @@ describe('swapAccount', () => {
     expect(repos.tabs.setAgentFields).toHaveBeenCalledWith('t1', { ai_account_id: 'a3', rate_limited_at: null });
   });
 
+  it("relinks from the path Claude's SessionEnd reported: the transcript already moved when it fires", async () => {
+    const { r } = makeRepos();
+    const MOVED = `/home/p/.claude_a/projects/-src/${SID}.jsonl`;
+    sendTextToSession.mockImplementation(async (_m: Machine, _s: string, text: string) => {
+      if (text === '/exit') {
+        setTimeout(() => {
+          stored = { ...stored, state: 'idle', agent_transcript_path: MOVED } as Tab;
+          monitorBus.publish({ tab: stored, project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
+        }, 5);
+      }
+    });
+    await drive(swapAccount(r, log, baseTab(), machine(), { auto: true }));
+    expect(linkClaudeSession.mock.calls.map((c) => c[1].transcriptPath)).toEqual([TRANSCRIPT, MOVED]);
+  });
+
   it('RELINK_FAILED when the session cannot be linked after the exit: nothing is recorded or resumed', async () => {
     const { repos, r } = makeRepos();
     linkClaudeSession.mockResolvedValueOnce('linked').mockResolvedValueOnce('no_transcript');
@@ -522,6 +537,33 @@ describe('autoSwapOnLimit', () => {
     autoSwapOnLimit(r, log, stored);
     await vi.advanceTimersByTimeAsync(AUTO_SWAP_DELAY_MS);
     expect(linkClaudeSession).toHaveBeenCalledTimes(1);
+  });
+
+  // The swap is on by default everywhere (TER-587): a machine with a single Claude login has nowhere to go,
+  // and must not get a "Troca automática falhou" on every limit.
+  it.each([
+    ['no registered account', []],
+    ['only its default login registered', [account({ id: 'd1', machine_id: 'm1', config_dir: null })]],
+    ['accounts on other machines only', [account({ id: 'x1', machine_id: 'm2', config_dir: '~/.claude_x' })]],
+  ])('does nothing on a machine with one Claude login (%s)', async (_label, list) => {
+    const { repos, r } = makeRepos();
+    repos.machines.findById.mockResolvedValue(machine({ claude_auto_swap: true }));
+    repos.aiAccounts.list.mockResolvedValue(list);
+    stored = baseTab({ id: `one-${list.length}-${_label.length}`, state: 'idle', ai_account_id: null });
+    autoSwapOnLimit(r, log, stored);
+    await vi.advanceTimersByTimeAsync(AUTO_SWAP_DELAY_MS);
+    expect(linkClaudeSession).not.toHaveBeenCalled();
+    expect(applyState).not.toHaveBeenCalled();
+  });
+
+  it('a registered account plus the unregistered default login is enough', async () => {
+    const { repos, r } = makeRepos();
+    repos.machines.findById.mockResolvedValue(machine({ claude_auto_swap: true }));
+    repos.aiAccounts.list.mockResolvedValue([account({ id: 'a2', machine_id: 'm1', config_dir: '~/.claude_b' })]);
+    stored = baseTab({ id: 'implicit-default', state: 'idle', ai_account_id: null });
+    autoSwapOnLimit(r, log, stored);
+    await vi.advanceTimersByTimeAsync(AUTO_SWAP_DELAY_MS);
+    expect(linkClaudeSession).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ configDir: '~/.claude_b' }));
   });
 
   it('swapPreferences is the TER-589 seam: nothing configured today', async () => {

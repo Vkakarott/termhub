@@ -37,7 +37,7 @@ export function isClaudeTranscriptPath(p: unknown, sessionId: string): p is stri
  * `~/x` and a transcript under `/home/me/x` are the same account.
  *
  * When the transcript is no longer where the hook said, it is looked up by session id in the other
- * project dirs of the same account: leaving a session whose worktree had no changes removes the
+ * project dirs of the same account (the newest file wins): leaving a session whose worktree had no changes removes the
  * worktree, and Claude Code moves the transcript to the main repository's project dir (TER-587). The
  * link then goes into that project dir of the target account, which is where `claude --resume` run
  * from the tab's shell looks.
@@ -48,7 +48,7 @@ export function claudeLinkScript(transcriptPath: string, sessionId: string, conf
     `SRC=${shellQuote(transcriptPath)}; SID=${shellQuote(sessionId)}`,
     'SLUGDIR=$(dirname "$SRC"); SRCROOT=$(dirname "$(dirname "$SLUGDIR")")',
     'if [ ! -f "$SRC" ]; then',
-    '  SRC=; for F in "$SRCROOT"/projects/*/"$SID.jsonl"; do [ -f "$F" ] && { SRC=$F; break; }; done',
+    '  SRC=; for F in "$SRCROOT"/projects/*/"$SID.jsonl"; do [ -f "$F" ] || continue; if [ -z "$SRC" ] || [ "$F" -nt "$SRC" ]; then SRC=$F; fi; done',
     '  [ -n "$SRC" ] || { echo no_transcript; exit 0; }',
     '  SLUGDIR=$(dirname "$SRC")',
     'fi',
@@ -63,7 +63,7 @@ export function claudeLinkScript(transcriptPath: string, sessionId: string, conf
     '    [ -f "$T" ] && [ ! -L "$T" ] || { echo conflict; exit 0; }',
     '    N=$(wc -c < "$T" | tr -d " "); M=$(wc -c < "$SRC" | tr -d " ")',
     '    [ "$N" -le "$M" ] && head -c "$N" "$SRC" | cmp -s - "$T" || { echo conflict; exit 0; }',
-    '    mv "$T" "$T.termhub-old-$(date +%s)" 2>/dev/null && ln -s "$SRC" "$T" 2>/dev/null || { echo conflict; exit 0; }',
+    '    mv -n "$T" "$T.termhub-old-$(date +%s)" 2>/dev/null && ln -s "$SRC" "$T" 2>/dev/null || { echo conflict; exit 0; }',
     '  fi',
     'else ln -s "$SRC" "$T" 2>/dev/null || { echo conflict; exit 0; }; fi',
     'if [ -d "$SLUGDIR/$SID" ] && [ ! -e "$D/projects/$SLUG/$SID" ] && [ ! -L "$D/projects/$SLUG/$SID" ]; then ln -s "$SLUGDIR/$SID" "$D/projects/$SLUG/$SID" 2>/dev/null; fi',

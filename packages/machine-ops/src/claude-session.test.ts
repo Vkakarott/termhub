@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readlinkSync, lstatSync, renameSync, rmSync, writeFileSync, symlinkSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readlinkSync, lstatSync, renameSync, rmSync, utimesSync, writeFileSync, symlinkSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -90,6 +90,18 @@ describe('claudeLinkScript', () => {
     expect(run(h, claudeLinkScript(src, SID, null))).toBe('linked');
     const t = path.join(h, '.claude', 'projects', '-home-p', `${SID}.jsonl`);
     expect(readlinkSync(t)).toBe(moved);
+  });
+  it('with the session id in more than one project dir, takes the newest file', () => {
+    const { h, a, src } = home();
+    const stale = path.join(a, 'projects', '-a-old', `${SID}.jsonl`);
+    mkdirSync(path.dirname(stale), { recursive: true });
+    writeFileSync(stale, 'old');
+    utimesSync(stale, new Date(2020, 0, 1), new Date(2020, 0, 1));
+    const moved = path.join(a, 'projects', '-z-main', `${SID}.jsonl`);
+    mkdirSync(path.dirname(moved), { recursive: true });
+    renameSync(src, moved);
+    expect(run(h, claudeLinkScript(src, SID, null))).toBe('linked');
+    expect(readlinkSync(path.join(h, '.claude', 'projects', '-z-main', `${SID}.jsonl`))).toBe(moved);
   });
   it('replaces a link it left dangling (the transcript moved after the first link)', () => {
     const { h, src } = home();

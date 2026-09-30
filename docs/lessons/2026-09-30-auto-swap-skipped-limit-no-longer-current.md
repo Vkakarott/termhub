@@ -26,12 +26,17 @@ Three problems stacked up, so no tab was moved to another account:
 
 ## Fix
 
-- Only a normal `Stop` of the main thread clears `rate_limited_at`. Prompts, session starts, tool
-  calls, and a subagent's `Stop` do not.
+- `rate_limited_at` is cleared only by these events:
+  - a normal `Stop` of the main thread;
+  - the Claude leaving (`SessionEnd`);
+  - a `SessionStart` of a *different* session.
+
+  Prompts, tool calls, a subagent's `Stop` and a resume of the same session no longer clear it.
 - `rate_limited_at` is when the incident began, so a second `StopFailure` keeps it.
 - `autoSwapOnLimit` skips a second call while the first one waits, and starts the cooldown only when it
   actually attempts a swap.
 - `claude_auto_swap` is on by default (migration `20260930070000_claude_auto_swap_default_on`).
+  `autoSwapOnLimit` stays silent on a machine with a single Claude login.
 - The unregistered default login counts as a second account in the settings.
 
 ## How to check
