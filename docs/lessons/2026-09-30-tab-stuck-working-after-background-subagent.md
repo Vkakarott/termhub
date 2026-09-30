@@ -3,6 +3,7 @@ symptom: "a Claude Code tab stays working for hours while the screen shows an em
 tags: [monitor, hooks, subagent, background, claude-code]
 evidence: fixed
 card: TER-615
+pr: https://github.com/engenhariainversa/termhub/pull/261
 agent: claude
 date: 2026-09-30
 ---
