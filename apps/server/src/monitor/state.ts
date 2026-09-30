@@ -223,11 +223,11 @@ function interpretCodexHook(ev: Record<string, unknown>, name: string): Interpre
       // written for the person, so it is the text. Nothing else of `tool_input` is read — the command
       // is the person's and never leaves here. No question card: answering one types into Claude's
       // dialog layout (chat/permission-dialog.ts), which Codex's menu does not share.
-      const tool = str(ev.tool_name);
       const description = isObj(ev.tool_input) ? str(ev.tool_input.description) : null;
-      const valid = parsePermissionTool(tool)?.tool_name;
+      // The whole payload is untrusted: only the validated name is kept, in the text and in meta.
+      const valid = parsePermissionTool(str(ev.tool_name))?.tool_name ?? null;
       const text = cap(description) ?? (valid ? `O Codex precisa da sua permissão para usar ${valid}` : 'O Codex precisa da sua permissão');
-      return { kind: 'waiting_permission', text, meta: { event: name, tool } };
+      return { kind: 'waiting_permission', text, meta: { event: name, tool: valid } };
     }
     case 'Stop':
       // The same finished turn the `notify` that follows reports: decideWait pairs the two into one wait.

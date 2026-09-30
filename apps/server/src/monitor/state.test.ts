@@ -203,6 +203,11 @@ describe('interpretHookEvent — codex hooks', () => {
     expect(interpretHookEvent('codex', { hook_event_name: 'PermissionRequest' })?.text).toBe('O Codex precisa da sua permissão');
   });
 
+  it('keeps only a valid tool name in meta', () => {
+    expect(interpretHookEvent('codex', { ...permission, tool_name: 'bad name\n' })?.meta).toEqual({ event: 'PermissionRequest', tool: null });
+    expect(interpretHookEvent('codex', { ...permission, tool_name: 'x'.repeat(500) })?.meta).toMatchObject({ tool: null });
+  });
+
   it('caps a long description', () => {
     const text = interpretHookEvent('codex', { ...permission, tool_input: { description: 'x'.repeat(STATE_TEXT_MAX + 50) } })?.text;
     expect(text).toHaveLength(STATE_TEXT_MAX);
