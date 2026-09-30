@@ -13,16 +13,44 @@ function same(a: ChatMessage, b: ChatMessage): boolean {
   return a.text === b.text && a.error_code === b.error_code && a.role === b.role && a.created_at === b.created_at && sameAttachments(a.attachments, b.attachments);
 }
 
+const isAnswered = (m: ChatMessage): boolean => m.role === 'assistant' && (Boolean(m.text) || Boolean(m.error_code));
+const isEmptyAnswer = (m: ChatMessage): boolean => m.role === 'assistant' && !m.text && !m.error_code;
+
 /**
  * Applies one `message` event to the list of messages: replaces the row with that id, or appends the
- * row when it is new. Returns `list` itself when the stored row says nothing new — every other row keeps
+ * row when it is new, but never a final answer by an empty one. Returns `list` itself when the stored row says nothing new — every other row keeps
  * its object either way, so a memoised row only re-renders when its own message changed.
  */
 export function mergeMessage(list: readonly ChatMessage[], msg: ChatMessage): ChatMessage[] {
   const at = list.findIndex((m) => m.id === msg.id);
   if (at === -1) return [...list, msg];
+  // An answer never goes from final back to empty: the empty version is older, whatever brought it.
+  if (isAnswered(list[at]) && isEmptyAnswer(msg)) return list as ChatMessage[];
   if (same(list[at], msg)) return list as ChatMessage[];
   const next = list.slice();
   next[at] = msg;
   return next;
+}
+
+/**
+ * A re-read of the same conversation into the thread on screen (spec 2026-09-29 §5), what the phone's
+ * `mergeThread` does: a row the screen holds as final keeps its version over the snapshot's empty one;
+ * a row the screen saw removed is left out; a row the snapshot lacks goes, unless it is newer than the
+ * snapshot's newest row (its `message` event landed while the read was in flight); every other row is
+ * the snapshot's. The very same `current` back when nothing changed.
+ */
+export function mergeThread(current: readonly ChatMessage[], server: readonly ChatMessage[], removed: ReadonlySet<string>): ChatMessage[] {
+  const listed = server.filter((m) => !removed.has(m.id));
+  const ids = new Set(listed.map((m) => m.id));
+  const newest = listed.reduce((max, m) => (m.created_at > max ? m.created_at : max), '');
+  const byId = new Map(current.map((m) => [m.id, m]));
+  const merged = listed.map((m) => {
+    const old = byId.get(m.id);
+    if (!old) return m;
+    if (isAnswered(old) && isEmptyAnswer(m)) return old;
+    return same(old, m) ? old : m;
+  });
+  const newer = current.filter((m) => !ids.has(m.id) && !removed.has(m.id) && m.created_at > newest);
+  const next = [...merged, ...newer];
+  return next.length === current.length && next.every((m, i) => m === current[i]) ? (current as ChatMessage[]) : next;
 }

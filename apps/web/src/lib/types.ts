@@ -1203,6 +1203,12 @@ export type ChatEvent =
   | { type: 'action_result'; message_id: string; tool_use_id: string; ok: boolean; conversation_id?: string }
   /** the server retried the run on a fresh CLI session: drop whatever streamed for this message so far */
   | { type: 'reset'; message_id: string; conversation_id?: string }
+  /** An answer row is open: a process has its turn, or the queue holds it. Sent again when a queued row is taken. */
+  | { type: 'run_started'; message_id: string; conversation_id?: string }
+  /** A run ended. With no `message_id` it could not even be attempted, and its answer row is gone. */
+  | { type: 'run_finished'; message_id: string | null; ok: boolean; error_code: string | null; conversation_id?: string }
+  /** An answer row was deleted on the server: drop it. */
+  | { type: 'message_removed'; message_id: string; conversation_id?: string }
   /** A new pending action to show a card for, enriched exactly like `GET /api/chat`'s `actions` —
    * never resolve a name from this event, the server already did it. */
   | ({ type: 'confirmation'; action_id: string; conversation_id?: string } & Omit<ChatAction, 'id' | 'status'>)

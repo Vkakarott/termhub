@@ -16,7 +16,7 @@ import { patchMessageAttachment } from '../../lib/attachments';
 import { useChatStream } from '../../lib/chat';
 import { compactDoneText, compactFailedText, isCompactCommand, isCompactShortcut } from '../../lib/chat-context';
 import { useChatLive } from '../../lib/chat-live';
-import { mergeMessage } from '../../lib/chat-merge';
+import { mergeMessage, mergeThread } from '../../lib/chat-merge';
 import { chatTimeline, groupPendingActions } from '../../lib/chat-timeline';
 import { activeGrantsLabel } from './grant-list-text';
 import { isGrantActive } from './grant-time';
@@ -48,6 +48,8 @@ const COMPOSER_REASON: Record<Exclude<ChatHostState['kind'], 'ready'>, string> =
 const HOST_CODES = new Set(['CHAT_NO_MACHINE', 'CHAT_HOST_NOT_CHOSEN', 'CHAT_HOST_OFFLINE', 'CHAT_AGENT_TOO_OLD']);
 /** How many early events (see `early` in the panel) are held while the conversation id is unknown. */
 const EARLY_EVENTS_CAP = 500;
+/** A run that could not even be attempted (`run_finished` with no message id): nobody awaits it, so the panel says it. */
+const SETUP_FAILED_TEXT = 'O concierge não conseguiu começar a resposta. Tente de novo.';
 
 /** A re-grant of the same kind on the same project replaces the older one, as on the server. */
 const upsertStandingGrant = (prev: ChatStandingGrant[], grant: ChatStandingGrant): ChatStandingGrant[] => [
@@ -216,11 +218,31 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const mine = useCallback((e: ChatEvent) => e.conversation_id === undefined || e.conversation_id === conversationId, [conversationId]);
 
+  /**
+   * What has streamed for each answer being written (text, tool chips, whether the run showed a sign
+   * of life), folded in one event at a time, and which answers are closed for good. `version` moves on
+   * every change, which is what re-renders this panel for a delta; the rows themselves are read through
+   * `fold.get` while rendering. `seed` marks the answers `GET /api/chat` lists as open; `clear` forgets
+   * everything when another conversation takes the screen.
+   */
+  const { fold, version, push, seed, clear } = useChatLive();
+  /** The conversation whose thread is on screen, as `load` last read it: a re-read of the same one merges. */
+  const shown = useRef<string | null>(null);
+
   const load = useCallback(async () => {
     // No project = the account-wide chat: called with no argument, because the response must be
     // `request<...>('GET', '/chat')` exactly — a server that predates project chats knows nothing else.
-    const { conversation, messages, actions, host, grants, project_grants, standing_grants, tab_questions, tab_suggestions, subagents, compacting } = projectId ? await api.chat(projectId) : await api.chat();
-    setMessages(messages);
+    const { conversation, messages, open_answer_ids, actions, host, grants, project_grants, standing_grants, tab_questions, tab_suggestions, subagents, compacting } = projectId ? await api.chat(projectId) : await api.chat();
+    // The same conversation: the snapshot merges into the thread, so a row that ended or was removed
+    // while this read was in flight is not brought back. Another one (a reset, another project)
+    // replaces the thread, and what was known about the old rows goes with it.
+    const same = shown.current === conversation.id;
+    shown.current = conversation.id;
+    if (!same) clear();
+    const removed = fold.removed();
+    setMessages((prev) => (same ? mergeThread(prev, messages, removed) : messages));
+    // An older server sends no list: nothing is seeded, and an empty row counts as started only on a sign of life.
+    seed(open_answer_ids ?? []);
     setActions(actions ?? []);
     setGrants(grants ?? []);
     setProjectGrants(project_grants ?? []);
@@ -234,7 +256,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
     setCompacting(compacting === true);
     setConversationId(conversation.id);
     setLoaded(true);
-  }, [projectId]);
+  }, [projectId, fold, seed, clear]);
 
   useEffect(() => {
     // A project deleted in another tab, or any other read failure, must not leave an unhandled
@@ -244,26 +266,38 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   }, [load]);
 
   /**
-   * What has streamed for each answer being written (text, tool chips, whether the run showed a sign
-   * of life), folded in one event at a time. `version` moves on every change, which is what re-renders
-   * this panel for a delta; the rows themselves are read through `fold.get` while rendering.
-   */
-  const { fold, version, push } = useChatLive();
-  /**
    * Live events tagged with a conversation id that arrived before this panel knew its own. Held, not
    * dropped: `load()` re-reads everything a REST read can give back, but the deltas and tool calls of
-   * an answer already under way exist nowhere else. Replayed into the fold (and only the fold) the
-   * moment `conversationId` is known — the ones of another conversation are dropped then. A layout
+   * an answer already under way exist nowhere else. Replayed through `applyOwn` (the fold and the
+   * thread) the moment `conversationId` is known — the ones of another conversation are dropped then. A layout
    * effect, not a passive one: `onEvent` below stops holding as soon as the id is in state, so a delta
    * arriving between that commit and a passive effect's flush would be folded in ahead of the held ones.
    */
   const early = useRef<ChatEvent[]>([]);
+
+  /** One event of this conversation, live or held: the fold takes what is its business, the thread the rest. */
+  const applyOwn = useCallback(
+    (e: ChatEvent) => {
+      push(e);
+      if (e.type === 'message') setMessages((prev) => mergeMessage(prev, e.message));
+      else if (e.type === 'message_removed') setMessages((prev) => (prev.some((m) => m.id === e.message_id) ? prev.filter((m) => m.id !== e.message_id) : prev));
+      else if (e.type === 'run_finished' && e.message_id === null && !e.ok) {
+        // The run could not even be attempted, and nobody awaits it any more: this is where it is said.
+        setError(SETUP_FAILED_TEXT);
+        void load().catch(() => undefined);
+      }
+    },
+    [push, load],
+  );
+
   useLayoutEffect(() => {
     if (conversationId === null) return;
     const held = early.current;
     early.current = [];
-    for (const e of held) if (e.conversation_id === conversationId) push(e);
-  }, [conversationId, push]);
+    // Through the same path as a live event, not into the fold alone: a held final `message` or
+    // `message_removed` is newer than the snapshot `load` just put on screen, and the thread must take it.
+    for (const e of held) if (e.conversation_id === conversationId) applyOwn(e);
+  }, [conversationId, applyOwn]);
 
   // A `message` event carries the stored row (the user's message, the announced empty answer, or the
   // final text): it is merged in place by id — no refetch, so no row gets a new object for nothing and
@@ -287,10 +321,10 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
         return;
       }
       if (!mine(e)) return;
-      // The fold takes what is its business (deltas, tool calls, resets, announcements) and ignores the rest.
-      push(e);
-      if (e.type === 'message') setMessages((prev) => mergeMessage(prev, e.message));
-      else if (e.type === 'confirmation') {
+      // The fold takes what is its business (deltas, tool calls, resets, run starts and ends, removals),
+      // the thread the stored rows and the removals.
+      applyOwn(e);
+      if (e.type === 'confirmation') {
         // Enriched server-side exactly like GET /api/chat's trail (same summary, same ids): no name
         // is resolved and no sentence is built here. A repeated event for an id already on screen is
         // the live run telling us which subagent proposed it after the card was already published
@@ -328,7 +362,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
         else if (e.state === 'failed') setError(compactFailedText(e.error_code));
       }
     },
-    [conversationId, mine, push, projectId],
+    [conversationId, mine, applyOwn, projectId],
   );
   const { connected } = useChatStream(load, onEvent);
 
@@ -700,8 +734,10 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
 
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
-  /** Whether an answer is being written right now — the only time a reset is refused (409). */
-  const answering = sending || (lastMessageId !== null && fold.get(lastMessageId)?.started === true && !messages[messages.length - 1]?.text && !messages[messages.length - 1]?.error_code);
+  /** Whether an answer is being written right now — the only time a reset is refused (409): any row the
+   *  thread lists, empty and started. With injected and queued messages the open row is not always the
+   *  newest. Read on every render, which `version` triggers on a fold change. */
+  const answering = sending || messages.some((m) => m.role === 'assistant' && !m.text && !m.error_code && fold.get(m.id)?.started === true);
 
   /** "Nova conversa": archives the current conversation (its transcript is kept, just off this screen)
    *  and swaps in the fresh one `load()` brings back. */

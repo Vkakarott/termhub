@@ -181,7 +181,7 @@ export const api = {
    * predates trusted tabs, trusted projects or standing grants has none. */
   chat: Object.assign(
     (projectId?: string | null) =>
-      request<{ conversation: ChatConversation; messages: ChatMessage[]; actions: ChatAction[]; host: ChatHostState; grants?: ChatGrant[]; project_grants?: ChatProjectGrant[]; standing_grants?: ChatStandingGrant[]; tab_questions?: TabQuestion[]; tab_suggestions?: TabSuggestion[]; subagents?: SubagentView[]; compacting?: boolean }>('GET', projectId ? `/chat?project=${encodeURIComponent(projectId)}` : '/chat'),
+      request<{ conversation: ChatConversation; messages: ChatMessage[]; actions: ChatAction[]; host: ChatHostState; grants?: ChatGrant[]; project_grants?: ChatProjectGrant[]; standing_grants?: ChatStandingGrant[]; tab_questions?: TabQuestion[]; tab_suggestions?: TabSuggestion[]; subagents?: SubagentView[]; compacting?: boolean; open_answer_ids?: string[] }>('GET', projectId ? `/chat?project=${encodeURIComponent(projectId)}` : '/chat'),
     {
       /** Files attached to a message before it is sent (spec §5.3). */
       attachments: {
