@@ -25,6 +25,7 @@ empty. "Newer" means its `message` event reached the page while the read was in 
 `created_at`: an answer is always newer than its question, so a comparison with the snapshot's newest
 row kept a deleted answer; the rows a merge drops are also closed in the fold. `answering` looks at
 every started empty row, not only the newest.
+On the phone, `applyEvent` drops the row on `message_removed` and the store's re-read merges through `mergeThread` over the ids that arrived during the read, closing what it drops (`apps/mobile/src/features/chat/model/events.ts`).
 
 Rule of thumb: a comment that says what another component does on an event is a claim to test in that
 component, not in the one that publishes.

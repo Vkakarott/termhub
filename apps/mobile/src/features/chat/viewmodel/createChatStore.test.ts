@@ -157,7 +157,9 @@ it('a mid-stream reconnect keeps the streamed text of a row the re-read still sh
   await jest.advanceTimersByTimeAsync(2000);
   expect(chat.getState().connected).toBe(true);
   expect(rows().find((m) => m.id === 'm-open')?.text).toBe('meio da resposta');
-  expect(chat.getState().live).toEqual(emptyFold());
+  // Changed on purpose (spec 2026-09-29 §5): the fold lets go and also remembers the row as closed.
+  expect(chat.getState().live).toEqual({ ...emptyFold(), closed: chat.getState().live.closed });
+  expect(chat.getState().live.closed.has('m-open')).toBe(true);
 });
 
 it('a re-read in flight never drops a row that a message event merged meanwhile; untouched rows keep their objects', async () => {
@@ -240,7 +242,9 @@ it('send shows the row at once, renamed on accept; the thread then grows through
   const final = rows().find((m) => m.id === assistantId)!;
   expect(final.text).toBe('Rodei `npm test` no jarvis: 1066 testes passaram, 137 pulados. Nada quebrou.');
   expect(final.text.startsWith(streaming!)).toBe(true);
-  expect(chat.getState().live).toEqual(emptyFold());
+  // Changed on purpose (spec 2026-09-29 §5): nothing streamed or started is left, and the row is closed.
+  expect(chat.getState().live).toEqual({ ...emptyFold(), closed: chat.getState().live.closed });
+  expect(chat.getState().live.closed.has(assistantId)).toBe(true);
   expect(read).not.toHaveBeenCalled();
 });
 
@@ -795,6 +799,7 @@ it('events of another conversation never touch the open one', async () => {
   const { chat, api, handlers } = await setup();
   await openAndConnect(chat, 'p-termhub');
   const before = slot(chat, 'p-termhub');
+  const liveBefore = chat.getState().live;
   const read = jest.spyOn(api, 'chat');
 
   handlers().onEvent({ type: 'delta', user_id: 'u1', conversation_id: 'c-opapingou', message_id: 'm1', delta: 'x' });
@@ -806,7 +811,10 @@ it('events of another conversation never touch the open one', async () => {
     message: { id: 'm2', conversation_id: 'c-opapingou', role: 'user', text: 'oi', usage: null, error_code: null, created_at: new Date().toISOString() },
   });
 
-  expect(chat.getState().live).toEqual(emptyFold());
+  // Changed on purpose (spec 2026-09-29 §5): the load closes the thread's answered rows, so the fold
+  // is no longer empty; the other conversation's events still leave it as it was, object and all.
+  expect(chat.getState().live).toBe(liveBefore);
+  expect(chat.getState().live).toEqual({ ...emptyFold(), closed: liveBefore.closed });
   expect(slot(chat, 'p-termhub')).toBe(before);
   expect(read).not.toHaveBeenCalled();
 });
@@ -1320,4 +1328,157 @@ it('forgetDecision surfaces "Não foi possível esquecer a decisão" on a non-se
   jest.spyOn(api, 'forgetChatDecision').mockRejectedValueOnce(new ApiError(500, 'INTERNAL_ERROR', 'Erro interno do servidor'));
   await chat.getState().forgetDecision('d-worktree');
   expect(chat.getState().error).toBe('Não foi possível esquecer a decisão');
+});
+
+describe('run state (spec 2026-09-29 §5)', () => {
+  const answer = (id: string, text = ''): TChatMessage => ({ id, conversation_id: 'c-termhub', role: 'assistant', text, usage: null, error_code: null, created_at: new Date().toISOString() });
+
+  /** `api.chat` for p-termhub with `patch` applied to the mock's answer; the other slots answer as they are. */
+  function serve(api: ReturnType<typeof setupSession>['api'], patch: (res: Awaited<ReturnType<typeof api.chat>>) => Awaited<ReturnType<typeof api.chat>>) {
+    const real = api.chat.bind(api);
+    return jest.spyOn(api, 'chat').mockImplementation(async (auth, projectId) => {
+      const res = await real(auth, projectId);
+      return projectId === 'p-termhub' ? patch(res) : res;
+    });
+  }
+
+  it('a refresh marks the rows the server lists as open', async () => {
+    const { chat, api } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    serve(api, (res) => ({ ...res, messages: [...res.messages, answer('a1')], open_answer_ids: ['a1'] }));
+
+    await chat.getState().refresh('p-termhub');
+    expect(slot(chat, 'p-termhub').messages.at(-1)?.id).toBe('a1');
+    expect(chat.getState().live.started.has('a1')).toBe(true);
+  });
+
+  it('a refresh against a server that sends no open_answer_ids marks nothing', async () => {
+    const { chat, api } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    serve(api, (res) => {
+      const { open_answer_ids: _ids, ...older } = res;
+      return { ...older, messages: [...res.messages, answer('a1')] } as typeof res;
+    });
+
+    await chat.getState().refresh('p-termhub');
+    expect(slot(chat, 'p-termhub').messages.at(-1)?.id).toBe('a1');
+    expect(chat.getState().live.started.has('a1')).toBe(false);
+  });
+
+  it('a refresh of another conversation starts from an empty fold, then seeds', async () => {
+    const { chat, api, handlers } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    handlers().onEvent({ type: 'delta', user_id: 'u1', conversation_id: 'c-termhub', message_id: 'm-x', delta: 'meio' });
+    handlers().onEvent({ type: 'message_removed', user_id: 'u1', conversation_id: 'c-termhub', message_id: 'a2' });
+    expect(chat.getState().live.removed.has('a2')).toBe(true);
+    // A reset elsewhere: the next read is another conversation, which happens to reuse nothing.
+    serve(api, (res) => ({ ...res, conversation: { ...res.conversation, id: 'c-termhub-2' }, messages: [{ ...answer('a2'), conversation_id: 'c-termhub-2' }], open_answer_ids: ['a2'] }));
+
+    await chat.getState().refresh('p-termhub');
+    const { live } = chat.getState();
+    expect(live.deltas.size).toBe(0);
+    expect(live.removed.size).toBe(0);
+    expect(live.closed.size).toBe(0);
+    expect([...live.started]).toEqual(['a2']);
+    expect(slot(chat, 'p-termhub').messages.map((m) => m.id)).toEqual(['a2']);
+  });
+
+  it('a row that ended while the refresh was in flight stays final', async () => {
+    const { chat, api, handlers } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    handlers().onEvent({ type: 'message', user_id: 'u1', conversation_id: 'c-termhub', message: answer('a1') });
+    expect(chat.getState().live.started.has('a1')).toBe(true);
+
+    const real = api.chat.bind(api);
+    let release!: () => void;
+    jest.spyOn(api, 'chat').mockImplementation(async (auth, projectId) => {
+      const res = await real(auth, projectId);
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      // The snapshot was taken before the answer ended: `a1` is still empty, and listed as open.
+      return { ...res, messages: [...res.messages, answer('a1')], open_answer_ids: ['a1'] };
+    });
+    const refreshing = chat.getState().refresh('p-termhub');
+    await flush();
+    handlers().onEvent({ type: 'message', user_id: 'u1', conversation_id: 'c-termhub', message: answer('a1', 'pronto') });
+
+    release();
+    await refreshing;
+    expect(slot(chat, 'p-termhub').messages.find((m) => m.id === 'a1')?.text).toBe('pronto');
+    expect(chat.getState().live.started.has('a1')).toBe(false);
+  });
+
+  it('a removed row leaves the thread and a later snapshot does not bring it back', async () => {
+    const { chat, api, handlers } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    handlers().onEvent({ type: 'message', user_id: 'u1', conversation_id: 'c-termhub', message: answer('a1') });
+    expect(slot(chat, 'p-termhub').messages.some((m) => m.id === 'a1')).toBe(true);
+
+    handlers().onEvent({ type: 'message_removed', user_id: 'u1', conversation_id: 'c-termhub', message_id: 'a1' });
+    expect(slot(chat, 'p-termhub').messages.some((m) => m.id === 'a1')).toBe(false);
+    expect(chat.getState().live.started.has('a1')).toBe(false);
+
+    // A snapshot older than the deletion still lists the row, open.
+    serve(api, (res) => ({ ...res, messages: [...res.messages, answer('a1')], open_answer_ids: ['a1'] }));
+    await chat.getState().refresh('p-termhub');
+    expect(slot(chat, 'p-termhub').messages.some((m) => m.id === 'a1')).toBe(false);
+    expect(chat.getState().live.started.has('a1')).toBe(false);
+  });
+
+  it('a row the snapshot lacks, whose event did not arrive during the read, leaves the thread and is closed', async () => {
+    const { chat, api, handlers } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    // Announced, then deleted while the socket was down: its `message_removed` never reached the phone.
+    handlers().onEvent({ type: 'message', user_id: 'u1', conversation_id: 'c-termhub', message: answer('a1') });
+    expect(chat.getState().live.started.has('a1')).toBe(true);
+
+    const read = jest.spyOn(api, 'chat');
+    await chat.getState().refresh('p-termhub');
+    expect(read).toHaveBeenCalled();
+    expect(slot(chat, 'p-termhub').messages.some((m) => m.id === 'a1')).toBe(false);
+    expect(chat.getState().live.started.has('a1')).toBe(false);
+    expect(chat.getState().live.closed.has('a1')).toBe(true);
+  });
+
+  it('a row the server accepted (its 202) while a read was in flight survives that read', async () => {
+    const { chat, api } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    const real = api.chat.bind(api);
+    let release!: () => void;
+    jest.spyOn(api, 'chat').mockImplementation(async (auth, projectId) => {
+      const res = await real(auth, projectId);
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      // The snapshot was taken before the send: it does not have the person's row.
+      return { ...res, messages: res.messages.filter((m) => m.id !== 'u-new') };
+    });
+    jest.spyOn(api, 'sendMessage').mockResolvedValueOnce({ conversation_id: 'c-termhub', user_message_id: 'u-new', assistant_message_id: 'a-new' } as never);
+    const refreshing = chat.getState().refresh('p-termhub');
+    await flush();
+    await chat.getState().send('oi de novo');
+    expect(slot(chat, 'p-termhub').messages.at(-1)).toMatchObject({ id: 'u-new', text: 'oi de novo' });
+
+    release();
+    await refreshing;
+    expect(slot(chat, 'p-termhub').messages.some((m) => m.id === 'u-new')).toBe(true);
+  });
+
+  it('a run that could not start refreshes the conversation and says so', async () => {
+    const { chat, api, handlers } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    const read = jest.spyOn(api, 'chat');
+
+    handlers().onEvent({ type: 'run_finished', user_id: 'u1', conversation_id: 'c-opapingou', message_id: null, ok: false, error_code: 'SETUP_FAILED' });
+    await flush();
+    expect(read).not.toHaveBeenCalled();
+    expect(chat.getState().error).toBeNull();
+
+    handlers().onEvent({ type: 'run_finished', user_id: 'u1', conversation_id: 'c-termhub', message_id: null, ok: false, error_code: 'SETUP_FAILED' });
+    await flush();
+    await flush();
+    expect(read).toHaveBeenCalledWith(expect.anything(), 'p-termhub');
+    expect(chat.getState().error).toBe('O concierge não conseguiu começar a resposta. Tente de novo.');
+  });
 });

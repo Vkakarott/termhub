@@ -18,7 +18,7 @@ const readyHost = {
   sessionAtStake: false,
 };
 
-const fixture = { conversation, messages: [], actions: [], grants: [], project_grants: [], standing_grants: [], tab_questions: [], tab_suggestions: [], subagents: [], host: readyHost };
+const fixture = { conversation, messages: [], actions: [], grants: [], project_grants: [], standing_grants: [], tab_questions: [], tab_suggestions: [], subagents: [], open_answer_ids: [], host: readyHost };
 
 describe('chatResponse', () => {
   it('parses a ready host', () => {
@@ -43,6 +43,15 @@ describe('chatResponse', () => {
   it('defaults standing_grants to empty when an older server sends none (TER-386)', () => {
     const { standing_grants: _standingGrants, ...withoutStandingGrants } = fixture;
     expect(chatResponse.parse(withoutStandingGrants)).toEqual(fixture);
+  });
+
+  it('defaults open_answer_ids to empty when an older server sends none (spec 2026-09-29)', () => {
+    const { open_answer_ids: _openAnswerIds, ...withoutOpenAnswers } = fixture;
+    expect(chatResponse.parse(withoutOpenAnswers)).toEqual(fixture);
+  });
+
+  it('keeps the open answer ids the server lists', () => {
+    expect(chatResponse.parse({ ...fixture, open_answer_ids: ['a1', 'a2'] }).open_answer_ids).toEqual(['a1', 'a2']);
   });
 
   it('defaults tab_questions to empty when an older server sends none', () => {

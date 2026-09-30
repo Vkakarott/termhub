@@ -1,5 +1,5 @@
 import type { ChatEvent, ChatMessage } from './types';
-import { applyLive, emptyFold, foldLive, pruneLive } from './live';
+import { applyLive, closeLive, emptyFold, foldLive, pruneLive, seedLive } from './live';
 
 const USER_ID = 'u1';
 const CONVERSATION_ID = 'c1';
@@ -127,12 +127,106 @@ describe('foldLive', () => {
   });
 });
 
-it('ignores run_finished: nothing streamed is dropped or marked started', () => {
-  const finished: ChatEvent = { type: 'run_finished', user_id: USER_ID, conversation_id: CONVERSATION_ID, message_id: 'm1', ok: true, error_code: null };
-  const folded = foldLive([delta('m1', 'oi'), finished]);
-  expect(folded.deltas.get('m1')).toBe('oi');
-  expect([...folded.started]).toEqual(['m1']);
-  expect(foldLive([finished])).toEqual({ deltas: new Map(), actions: new Map(), started: new Set() });
+function runStarted(messageId: string): ChatEvent {
+  return { type: 'run_started', user_id: USER_ID, conversation_id: CONVERSATION_ID, message_id: messageId };
+}
+
+function runFinished(messageId: string | null, ok = true): ChatEvent {
+  return { type: 'run_finished', user_id: USER_ID, conversation_id: CONVERSATION_ID, message_id: messageId, ok, error_code: ok ? null : 'SETUP_FAILED' };
+}
+
+function messageRemoved(messageId: string): ChatEvent {
+  return { type: 'message_removed', user_id: USER_ID, conversation_id: CONVERSATION_ID, message_id: messageId };
+}
+
+// Rewritten on purpose (spec 2026-09-29 §5): `run_finished` with an id used to be ignored; it now
+// closes the row, and only the null id (a run that could not start) leaves the fold alone.
+it('run_finished with an id closes the row: what streamed goes, the started mark goes, and nothing opens it again', () => {
+  const folded = foldLive([delta('m1', 'oi'), runFinished('m1')]);
+  expect(folded.deltas.has('m1')).toBe(false);
+  expect(folded.started.has('m1')).toBe(false);
+  expect(folded.closed.has('m1')).toBe(true);
+  expect(folded.removed.has('m1')).toBe(false);
+  expect(applyLive(folded, runFinished('m1'))).toBe(folded);
+  expect(applyLive(folded, runStarted('m1'))).toBe(folded);
+  expect(applyLive(folded, delta('m1', 'late'))).toBe(folded);
+});
+
+it('run_finished with message_id null returns the very same fold', () => {
+  const fold = foldLive([delta('m1', 'oi')]);
+  expect(applyLive(fold, runFinished(null, false))).toBe(fold);
+  expect(applyLive(fold, runFinished(null, true))).toBe(fold);
+});
+
+describe('run state (spec 2026-09-29 §5)', () => {
+  it('emptyFold has empty closed and removed sets', () => {
+    const fold = emptyFold();
+    expect(fold.closed.size).toBe(0);
+    expect(fold.removed.size).toBe(0);
+  });
+
+  it('run_started marks the row started, and the same fold comes back the second time', () => {
+    const fold = applyLive(emptyFold(), runStarted('m1'));
+    expect(fold.started.has('m1')).toBe(true);
+    expect(applyLive(fold, runStarted('m1'))).toBe(fold);
+  });
+
+  it('seedLive adds the listed ids, skips closed ones, and returns the very same fold when nothing is new', () => {
+    const closed = applyLive(emptyFold(), runFinished('m2'));
+    const seeded = seedLive(closed, ['m1', 'm2']);
+    expect(seeded.started.has('m1')).toBe(true);
+    expect(seeded.started.has('m2')).toBe(false);
+    expect(seedLive(seeded, ['m1', 'm2'])).toBe(seeded);
+    expect(seedLive(seeded, [])).toBe(seeded);
+  });
+
+  it('a final message closes the row: seedLive, run_started and an empty message for that id all return the same fold', () => {
+    const done = applyLive(applyLive(emptyFold(), delta('m1', 'oi')), assistantMessage('m1', { text: 'oi' }));
+    expect(done.closed.has('m1')).toBe(true);
+    expect(done.started.has('m1')).toBe(false);
+    expect(seedLive(done, ['m1'])).toBe(done);
+    expect(applyLive(done, runStarted('m1'))).toBe(done);
+    expect(applyLive(done, assistantMessage('m1'))).toBe(done);
+    const failed = applyLive(emptyFold(), assistantMessage('m2', { error_code: 'HOST_GONE' }));
+    expect(failed.closed.has('m2')).toBe(true);
+  });
+
+  it('message_removed closes the row, drops what streamed and adds the id to removed', () => {
+    const fold = foldLive([delta('m1', 'oi'), toolCall('m1', 'Bash'), delta('m2', 'x')]);
+    const gone = applyLive(fold, messageRemoved('m1'));
+    expect(gone.deltas.has('m1')).toBe(false);
+    expect(gone.actions.has('m1')).toBe(false);
+    expect(gone.started.has('m1')).toBe(false);
+    expect(gone.closed.has('m1')).toBe(true);
+    expect(gone.removed.has('m1')).toBe(true);
+    expect(gone.deltas.get('m2')).toBe('x');
+    expect(applyLive(gone, messageRemoved('m1'))).toBe(gone);
+  });
+
+  it('message_removed for an id the fold never saw still adds it to removed and closed', () => {
+    const gone = applyLive(emptyFold(), messageRemoved('m9'));
+    expect(gone.removed.has('m9')).toBe(true);
+    expect(gone.closed.has('m9')).toBe(true);
+    expect(seedLive(gone, ['m9'])).toBe(gone);
+  });
+
+  it('a removed mark outlives a later final message for the same id', () => {
+    const gone = applyLive(emptyFold(), messageRemoved('m1'));
+    expect(applyLive(gone, assistantMessage('m1', { text: 'x' })).removed.has('m1')).toBe(true);
+  });
+
+  it('closeLive closes the listed rows without marking them removed; the same fold when nothing is new', () => {
+    const fold = foldLive([delta('m1', 'oi'), delta('m2', 'x')]);
+    const closed = closeLive(fold, ['m1', 'm3']);
+    expect(closed.deltas.has('m1')).toBe(false);
+    expect(closed.started.has('m1')).toBe(false);
+    expect(closed.closed.has('m1')).toBe(true);
+    expect(closed.closed.has('m3')).toBe(true);
+    expect(closed.removed.size).toBe(0);
+    expect(closed.deltas.get('m2')).toBe('x');
+    expect(closeLive(closed, ['m1', 'm3'])).toBe(closed);
+    expect(closeLive(fold, [])).toBe(fold);
+  });
 });
 
 describe('applyLive', () => {
@@ -183,6 +277,14 @@ describe('applyLive', () => {
       expect(pruned.deltas.get('m3')).toBe('c');
       expect(pruned.started.has('m3')).toBe(true);
       expect(pruned.deltas.get('m4')).toBe('d');
+    });
+
+    it('closes the rows the thread shows finished: nothing opens them again', () => {
+      const pruned = pruneLive(emptyFold(), [row('m1', { text: 'done' }), row('m2')]);
+      expect(pruned.closed.has('m1')).toBe(true);
+      expect(pruned.closed.has('m2')).toBe(false);
+      expect(seedLive(pruned, ['m1'])).toBe(pruned);
+      expect(applyLive(pruned, runStarted('m1'))).toBe(pruned);
     });
 
     it('hands back the very same fold when nothing is finished, and ignores user rows', () => {

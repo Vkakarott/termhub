@@ -37,33 +37,55 @@ function sameAttachments(a: readonly TChatAttachment[] = NO_ATTACHMENTS, b: read
   return a.every((x, i) => x.id === b[i]!.id && x.status === b[i]!.status && x.error_code === b[i]!.error_code);
 }
 
+const isAnswered = (m: ChatMessage): boolean => m.role === 'assistant' && (Boolean(m.text) || Boolean(m.error_code));
+const isEmptyAnswer = (m: ChatMessage): boolean => m.role === 'assistant' && !m.text && !m.error_code;
+
 /**
  * The web's `lib/chat-merge.ts` (`mergeMessage`): `msg` into `list` by id — appended when new,
  * replaced when something changed, and the very same `list` (same row objects) when nothing did, so
  * a memoised row keeps its props. `usage` is the server's JSON: compared by value. Attachments count
  * too: a re-read is how a status event the phone missed (backgrounded, offline) gets corrected.
+ * A final answer is never replaced by an empty one.
  */
 export function mergeMessage(list: ChatMessage[], msg: ChatMessage): ChatMessage[] {
   const i = list.findIndex((m) => m.id === msg.id);
   if (i < 0) return [...list, msg];
   const old = list[i]!;
+  // An answer never goes from final back to empty: the empty version is older, whatever brought it.
+  if (isAnswered(old) && isEmptyAnswer(msg)) return list;
   const same =
     old.text === msg.text && old.error_code === msg.error_code && old.created_at === msg.created_at && JSON.stringify(old.usage ?? null) === JSON.stringify(msg.usage ?? null) && sameAttachments(old.attachments, msg.attachments);
   return same ? list : list.map((m, j) => (j === i ? msg : m));
 }
 
 /**
- * A re-read's snapshot into the thread it refreshes (same conversation): every server row merges by
- * id (`mergeMessage`: the server's version wins, untouched rows keep their objects); a row the
- * snapshot lacks stays when it is this device's own (`local`) or newer than the snapshot's newest
- * row — a `message` event that landed while the GET was in flight — and goes otherwise (the server
- * no longer has it). The very same `current` back when nothing changed.
+ * The rows of the thread on screen that a re-read of the same conversation drops (the web's
+ * `droppedRows`): the snapshot lacks them, they are not this device's own, and their `message`
+ * event did not reach the store while the read was in flight. The server deleted them (an answer
+ * that never started, a `message_removed` missed while the socket was down, a server that predates
+ * that event), so nothing will ever answer them: the caller closes them in the fold.
  */
-export function mergeThread(current: ChatMessage[], server: ChatMessage[]): ChatMessage[] {
+export function droppedRows(current: readonly ChatMessage[], server: readonly ChatMessage[], arrived: ReadonlySet<string>): string[] {
   const ids = new Set(server.map((m) => m.id));
-  const newest = server.reduce((max, m) => (m.created_at > max ? m.created_at : max), '');
-  const kept = current.filter((m) => ids.has(m.id) || m.local !== undefined || m.created_at > newest);
-  return server.reduce(mergeMessage, kept.length === current.length ? current : kept);
+  return current.filter((m) => !ids.has(m.id) && m.local === undefined && !arrived.has(m.id)).map((m) => m.id);
+}
+
+/**
+ * A re-read's snapshot into the thread it refreshes (same conversation, spec 2026-09-29 §5): a row
+ * the phone saw removed is left out of the snapshot; every other server row merges by id
+ * (`mergeMessage`: the server's version wins, except an empty one over a final one, and untouched
+ * rows keep their objects); a row the snapshot lacks stays when it is this device's own (`local`) or
+ * its `message` event reached the store while the GET was in flight (`arrived`), and goes otherwise
+ * (the server no longer has it). The very same `current` back when nothing changed.
+ *
+ * Not a comparison of `created_at` with the snapshot's newest row: an answer is always newer than its
+ * question, so a deleted answer would pass it and stay on screen for good.
+ */
+export function mergeThread(current: ChatMessage[], server: ChatMessage[], removed: ReadonlySet<string>, arrived: ReadonlySet<string>): ChatMessage[] {
+  const listed = removed.size === 0 ? server : server.filter((m) => !removed.has(m.id));
+  const ids = new Set(listed.map((m) => m.id));
+  const kept = current.filter((m) => ids.has(m.id) || m.local !== undefined || (arrived.has(m.id) && !removed.has(m.id)));
+  return listed.reduce(mergeMessage, kept.length === current.length ? current : kept);
 }
 
 /**
@@ -175,9 +197,16 @@ export function applyEvent(slice: EventSlice, e: ChatEvent): EventSlice {
       return slice.cancelFailed.includes(e.subagent_id) ? slice : { ...slice, cancelFailed: [...slice.cancelFailed, e.subagent_id] };
     case 'delta':
     case 'action':
-    case 'reset': {
+    case 'reset':
+    case 'run_started':
+    case 'run_finished': {
       const live = applyLive(slice.live, e);
       return live === slice.live ? slice : { ...slice, live };
+    }
+    case 'message_removed': {
+      const live = applyLive(slice.live, e);
+      const messages = slice.messages.some((m) => m.id === e.message_id) ? slice.messages.filter((m) => m.id !== e.message_id) : slice.messages;
+      return messages === slice.messages && live === slice.live ? slice : { ...slice, messages, live };
     }
     default:
       return slice;

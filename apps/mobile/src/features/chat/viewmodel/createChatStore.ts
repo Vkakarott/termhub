@@ -20,10 +20,10 @@ import { ApiError } from '@/services/api/errors';
 import { randomId } from '@/services/crypto/random';
 import type { MobileApi } from '@/services/api/types';
 import { mmkvStateStorage } from '@/services/storage';
-import { applyEvent, applyStandingGrantEvent, mergeThread, settlePending, upsertTabQuestion } from '../model/events';
+import { applyEvent, applyStandingGrantEvent, droppedRows, mergeThread, settlePending, upsertTabQuestion } from '../model/events';
 import { belongsTo } from '../model/filter';
 import { CHAT_MSG } from '../model/messages';
-import { emptyFold, pruneLive, type LiveFold } from '../model/live';
+import { closeLive, emptyFold, pruneLive, seedLive, type LiveFold } from '../model/live';
 import type { PickedFile } from './attachments';
 import { createThrottledStorage } from './throttled-storage';
 import type { ChatAction, ChatConversation, ChatEvent, ChatGrant, ChatHostState, ChatMessage, ChatProjectGrant, ChatStandingGrant, SubagentView, TabQuestion, TabSuggestion } from '../model/types';
@@ -193,6 +193,9 @@ const emptySlot = (): ConversationSlot => ({ conversation: null, messages: [], a
 const keyOf = (projectId: string | null): string => projectId ?? '';
 const projectOf = (key: string): string | null => (key === '' ? null : key);
 
+/** No ids: what a re-read of a slot that is not on screen merges with (its fold is not in the store). */
+const NO_IDS: ReadonlySet<string> = new Set();
+
 const isApiError = (e: unknown, code?: string): e is ApiError => e instanceof ApiError && (code === undefined || e.code === code);
 const isLocked = (e: unknown) => e instanceof Error && e.message === 'LOCKED';
 const isCancelled = (e: unknown) => e instanceof Error && e.message === 'CANCELLED';
@@ -209,6 +212,16 @@ export function createChatStore(deps: ChatDeps) {
   let closeSocket: (() => void) | null = null;
   /** Per conversation, the latest `GET chat` in flight: an older answer never overwrites a newer. */
   const readSeq = new Map<string, number>();
+  /**
+   * Per conversation key, one set per `GET chat` in flight, filled with the ids whose `message` event
+   * (or whose 202, for the person's own row) reached the store meanwhile: those rows are newer than
+   * the snapshot, and a row it lacks is kept only if it is one of them (spec 2026-09-29 §5 rule 3).
+   */
+  const reads = new Map<string, Set<Set<string>>>();
+  /** Tells every read of `key` in flight that row `id` arrived after its snapshot. */
+  const arrivedDuringReads = (key: string, id: string): void => {
+    reads.get(key)?.forEach((arrived) => arrived.add(id));
+  };
   /** App-level taps into every raw event (`subscribeEvents`), independent of the open conversation
    * and never cleared by `close()`/`generation` — a subscriber outlives any one socket connection. */
   const eventListeners = new Set<(e: ChatEvent) => void>();
@@ -252,17 +265,24 @@ export function createChatStore(deps: ChatDeps) {
           const seq = (readSeq.get(key) ?? 0) + 1;
           readSeq.set(key, seq);
           const stale = () => gen !== generation || readSeq.get(key) !== seq;
+          const arrived = new Set<string>();
+          const inFlight = reads.get(key) ?? new Set<Set<string>>();
+          reads.set(key, inFlight.add(arrived));
           try {
             const res = await api.chat(session().auth(), projectOf(key));
             if (stale()) return;
-            // The same conversation: the snapshot merges into the thread by id, so a row a `message`
-            // event brought while the GET was in flight (a final answer, the person's row renamed on
-            // its 202) survives the older snapshot. Another conversation (a reset, here or elsewhere)
-            // replaces the thread. This device's own unsent rows stay either way.
+            // The same conversation: the snapshot merges into the thread by id (spec 2026-09-29 §5):
+            // a row that ended or was removed while the GET was in flight is not brought back, a row
+            // whose `message` event landed meanwhile (a final answer, the person's row renamed on its
+            // 202) survives the older snapshot, and a row the server no longer has leaves. Another
+            // conversation (a reset, here or elsewhere) replaces the thread. This device's own unsent
+            // rows stay either way.
             const same = get().conversations[key]?.conversation?.id === res.conversation.id;
+            const onScreen = key === activeKey();
+            const dropped = same && onScreen ? droppedRows(get().conversations[key]?.messages ?? [], res.messages, arrived) : [];
             patchSlot(key, (slot) => ({
               conversation: res.conversation,
-              messages: same ? mergeThread(slot.messages, res.messages) : [...res.messages, ...slot.messages.filter((m) => m.local !== undefined)],
+              messages: same ? mergeThread(slot.messages, res.messages, onScreen ? get().live.removed : NO_IDS, arrived) : [...res.messages, ...slot.messages.filter((m) => m.local !== undefined)],
               actions: res.actions,
               grants: res.grants,
               projectGrants: res.project_grants,
@@ -275,14 +295,21 @@ export function createChatStore(deps: ChatDeps) {
               error: null,
             }));
             // The fold is the open conversation's: a row the snapshot shows answered carries its text
-            // now, so what streamed for it goes; one still empty keeps its streamed prefix on screen.
-            if (key === activeKey()) {
-              const live = same ? pruneLive(get().live, res.messages) : emptyFold();
+            // now, so what streamed for it goes and it is closed; a row the merge dropped is closed too
+            // (its started mark must not outlive it); one still empty keeps its streamed prefix on
+            // screen. Then the rows the server lists as still to be answered are started, unless
+            // closed. An older server sends no list (`[]` by default): nothing is seeded.
+            if (onScreen) {
+              const live = seedLive(same ? closeLive(pruneLive(get().live, res.messages), dropped) : emptyFold(), res.open_answer_ids);
               if (live !== get().live) set({ live });
             }
           } catch (e) {
             if (stale() || isLocked(e) || session().handleApiError(e)) return;
             patchSlot(key, () => ({ error: isApiError(e) ? e.message : CHAT_MSG.network }));
+          } finally {
+            // Not a `.finally` on the GET: that would add a tick between its answer and the merge.
+            inFlight.delete(arrived);
+            if (inFlight.size === 0 && reads.get(key) === inFlight) reads.delete(key);
           }
         };
 
@@ -357,9 +384,19 @@ export function createChatStore(deps: ChatDeps) {
                 : {}),
             }));
           }
+          if (e.type === 'message') arrivedDuringReads(key, e.message.id);
           if (e.type === 'attachment_status') set((s) => ({ attachmentStatuses: { ...s.attachmentStatuses, [e.attachment.id]: e.attachment } }));
           // The answer is complete (or failed): what streamed in is worth an MMKV write now.
           if (e.type === 'run_finished') storage.flush();
+          // A run that could not even be attempted: nobody awaits it, so this is where it is said.
+          // Only for the conversation on screen: `belongsTo` above already dropped the others. The
+          // line is the screen's banner, where a failed send's goes, set after the re-read.
+          if (e.type === 'run_finished' && e.message_id === null && !e.ok) {
+            const gen = generation;
+            void reread(key).then(() => {
+              if (gen === generation) set({ error: CHAT_MSG.setupFailed });
+            });
+          }
         };
 
         const ensureSocket = (): void => {
@@ -495,6 +532,8 @@ export function createChatStore(deps: ChatDeps) {
               // A `409 ATTACHMENT_UNAVAILABLE` takes the generic path below: its pt-BR message is the server's.
               const accepted = await api.sendMessage(session().auth(), { text: body, project_id: projectId, ...(attachments.length > 0 ? { attachment_ids: attachments.map((a) => a.id) } : {}) });
               if (gen !== generation) return false;
+              // Accepted: the row exists on the server now, newer than any snapshot still in flight.
+              arrivedDuringReads(key, accepted.user_message_id);
               patchSlot(key, (slot) => ({
                 // The socket's echo may have landed first: then the local row simply goes; otherwise
                 // it becomes the server's row where it is, and the echo merges into it by id.
