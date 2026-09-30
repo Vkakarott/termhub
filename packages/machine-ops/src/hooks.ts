@@ -51,6 +51,25 @@ export const CLAUDE_HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolU
 const CLAUDE_TOOL_EVENTS: ReadonlySet<string> = new Set(['PreToolUse', 'PermissionRequest']);
 
 /**
+ * Codex hook events we subscribe to (~/.codex/hooks.json; Codex reads the same shape as Claude Code's
+ * settings.json; see the server's monitor/state.ts). `notify` in config.toml stays as well: it needs no
+ * trust and keeps reporting the end of each turn until the person trusts these hooks.
+ * No `SessionStart`: it fires when Codex opens, with nobody's turn behind it, and would read as working.
+ * `Interrupt` is what Esc sends, and nothing else (no `Stop`, no notify) tells the monitor the turn is over;
+ * Codex clamps its timeout to 3 s and warns at startup about a longer one, so ours is 3.
+ * The script prints nothing on every path, so none of these ever answers a permission check.
+ * Hooks need the person's review: a new or changed one opens "Hooks need review" the next time Codex
+ * starts, and termhub does not write that trust (it is Codex's safety check, and the person's call).
+ */
+export const CODEX_HOOK_EVENTS = ['UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'PostToolUse', 'Stop', 'Interrupt'] as const;
+
+/** Where Codex reads its hooks from, relative to $HOME. */
+export const CODEX_HOOKS_REL = '.codex/hooks.json';
+
+/** Events Codex runs per tool: their entry needs a matcher ('*' = every tool). */
+const CODEX_TOOL_EVENTS: ReadonlySet<string> = new Set(['PreToolUse', 'PermissionRequest', 'PostToolUse']);
+
+/**
  * Cursor CLI hook events we subscribe to (~/.cursor/hooks.json; see the server's monitor/state.ts).
  * No hook that answers a permission check: `beforeShellExecution`, `beforeMCPExecution`,
  * `beforeReadFile` and `preToolUse` can allow or deny, and ours must never be in that position.
@@ -64,8 +83,8 @@ export const CURSOR_HOOK_EVENTS = ['sessionStart', 'beforeSubmitPrompt', 'afterA
 export const HOOK_SCRIPT = `#!/bin/sh
 # termhub monitor hook — installed by termhub; forwards Claude Code / Codex / Cursor CLI hook
 # events to termhub tagged with the tmux session, so the app knows which tab is waiting for you.
-# Safe to delete (also remove the entries in ~/.claude/settings.json, ~/.codex/config.toml and
-# ~/.cursor/hooks.json).
+# Safe to delete (also remove the entries in ~/.claude/settings.json, ~/.codex/config.toml,
+# ~/.codex/hooks.json and ~/.cursor/hooks.json).
 TOOL="\${1:-claude}"
 [ -f "$HOME/${HOOK_ENV_REL}" ] || exit 0
 . "$HOME/${HOOK_ENV_REL}"
@@ -74,9 +93,10 @@ TOOL="\${1:-claude}"
 PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 SESSION=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null) || exit 0
 [ -n "$SESSION" ] || exit 0
-if [ "$TOOL" = codex ]; then EVENT="$2"; else EVENT=$(cat 2>/dev/null); fi
+# Codex's notify passes the payload as an argument; its hooks (like Claude's and Cursor's) send it on stdin.
+if [ "$TOOL" = codex ] && [ -n "$2" ]; then EVENT="$2"; else EVENT=$(cat 2>/dev/null); fi
 [ -n "$EVENT" ] || EVENT='{}'
-# Tool calls: only the tool's name travels (never its input), with the spinner's verb when one is on
+# Tool calls (Claude's PreToolUse, Codex's PreToolUse and PostToolUse): only the tool's name travels (never its input), with the spinner's verb when one is on
 # screen, and only when the pair changed since the last one for this session — twenty edits in a row
 # are one request as long as the verb stays the same (a new verb mid-run is a new request). The marker is per tmux
 # session, under TMPDIR, with the session name reduced to filename-safe characters.
@@ -103,7 +123,7 @@ BEFORE_KIND=\${EVENT%%'"hook_event_name"'*}
 SUB=
 case "$BEFORE_KIND" in *'"agent_id":'*) SUB=',"subagent":true' ;; esac
 case "$KIND" in
-  PreToolUse)
+  PreToolUse | PostToolUse)
     # The event's own tool name is the FIRST "tool_name" of the payload (Claude Code serialises it
     # before tool_input), so the shortest prefix is cut — a "tool_name" nested in a tool's input
     # must not win. Only letters, digits, "_", "." and "-" are posted (a bare Claude Code tool name,
@@ -115,6 +135,9 @@ case "$KIND" in
     REST=\${REST#*'"'}
     NAME=\${REST%%'"'*}
     case "$NAME" in '' | *[!A-Za-z0-9_.-]*) exit 0 ;; esac
+    # A PostToolUse (Codex only) is reduced exactly like a PreToolUse and shares its marker: the pair
+    # of one tool call is one request, and it is the marker that stops a tool's own PostToolUse from
+    # repeating what its PreToolUse just said. The reduced body keeps the event's own name.
     # AskUserQuestion's input is the question itself, written to be shown to the person (spec
     # 2026-09-25 §4.1): the whole event goes as it came — the server keeps tool_use_id and
     # tool_input and drops the rest — and the marker is neither read nor written, so two questions
@@ -124,7 +147,7 @@ case "$KIND" in
     # tool_name) and NAME does not name the real tool — fall back to the ordinary name-only path below
     # (which, worst case, mislabels that one event; it never forwards the input).
     ASK=false
-    if [ "$NAME" = AskUserQuestion ]; then
+    if [ "$KIND" = PreToolUse ] && [ "$NAME" = AskUserQuestion ]; then
       case "$REST" in
         *'"tool_name"'*) ;;
         *) ASK=true ;;
@@ -151,22 +174,31 @@ case "$KIND" in
       [ "$(cat "$MARK" 2>/dev/null)" = "$KEY" ] && exit 0
       printf '%s' "$KEY" 2>/dev/null > "$MARK"
       if [ -n "$VERB" ]; then
-        EVENT=$(printf '{"hook_event_name":"PreToolUse","tool_name":"%s","verb":"%s"%s}' "$NAME" "$VERB" "$SUB")
+        EVENT=$(printf '{"hook_event_name":"%s","tool_name":"%s","verb":"%s"%s}' "$KIND" "$NAME" "$VERB" "$SUB")
       else
-        EVENT=$(printf '{"hook_event_name":"PreToolUse","tool_name":"%s"%s}' "$NAME" "$SUB")
+        EVENT=$(printf '{"hook_event_name":"%s","tool_name":"%s"%s}' "$KIND" "$NAME" "$SUB")
       fi
     fi
     ;;
   PermissionRequest)
-    # A permission prompt: only the tool's name travels, exactly like a tool call (never its input,
-    # never the suggestions). AskUserQuestion's own prompt is dropped — its PreToolUse already carried
-    # the question. Same first-"tool_name" rule and character set as above.
+    # A permission prompt. Claude's: only the tool's name travels, exactly like a tool call (never its
+    # input, never the suggestions). AskUserQuestion's own prompt is dropped — its PreToolUse already
+    # carried the question. Same first-"tool_name" rule and character set as above.
+    # Codex's travels whole (spec 2026-09-29 D2), once NAME passed the same check: its "description" is
+    # the question Codex shows above the approval menu, written to be shown to the person, and the
+    # server keeps only that and the tool name. It also clears the marker: the tool the person approves
+    # is the one that set it, and without the reset its PostToolUse would be suppressed and nothing
+    # would say the tab is working again.
     REST=\${EVENT#*'"tool_name"'}
     [ "$REST" != "$EVENT" ] || exit 0
     REST=\${REST#*'"'}
     NAME=\${REST%%'"'*}
     case "$NAME" in '' | *[!A-Za-z0-9_.-]* | AskUserQuestion) exit 0 ;; esac
-    EVENT=$(printf '{"hook_event_name":"PermissionRequest","tool_name":"%s"%s}' "$NAME" "$SUB")
+    if [ "$TOOL" = codex ]; then
+      rm -f "$MARK"
+    else
+      EVENT=$(printf '{"hook_event_name":"PermissionRequest","tool_name":"%s"%s}' "$NAME" "$SUB")
+    fi
     ;;
   # A new turn starts fresh, and so does an answered notification: a permission prompt takes the tab
   # out of working, and the tool the person approves is the same one that set the marker, so without
@@ -201,8 +233,15 @@ const asHooksRecord = (v: unknown): Record<string, unknown> | null => {
 
 const isOurs = (e: HookEntry) => !!e && typeof e === 'object' && Array.isArray(e.hooks) && e.hooks.some((h) => typeof h?.command === 'string' && h.command.includes(HOOK_MARK));
 
-/** Merges our entries into Claude Code's settings.json; keeps everything else. Throws on a file that is not a JSON object. */
-export function mergeClaudeSettings(current: string, scriptPath: string, shown = '~/.claude/settings.json'): string {
+/** What one of our entries looks like for an event: whether it filters by tool, and its timeout. */
+type EntryShape = { matcher?: string; timeout: number };
+
+/**
+ * Merges our entry for each of `events` into a settings-shaped JSON file (`{ hooks: { Event: [{ matcher?,
+ * hooks: [{ type, command, timeout }] }] } }`: Claude Code's settings.json and Codex's hooks.json);
+ * keeps everything else. Throws on a file that is not a JSON object.
+ */
+function mergeHooksFile(current: string, shown: string, events: readonly string[], command: string, shape: (event: string) => EntryShape): string {
   let settings: Record<string, unknown> = {};
   if (current.trim()) {
     const parsed = JSON.parse(current) as unknown;
@@ -213,17 +252,34 @@ export function mergeClaudeSettings(current: string, scriptPath: string, shown =
   const hooks = asHooksRecord(settings.hooks);
   if (settings.hooks != null && hooks === null) throw new Error(`${shown}: o campo "hooks" não é um objeto`);
   const next = hooks ?? {};
-  for (const event of CLAUDE_HOOK_EVENTS) {
+  for (const event of events) {
     const list = (Array.isArray(next[event]) ? next[event] : []) as HookEntry[];
     const others = list.filter((e) => !isOurs(e));
-    const entry: HookEntry = { hooks: [{ type: 'command', command: `${scriptPath} claude`, timeout: 10 } as { type: string; command: string }] };
-    // A tool event's entry is filtered by tool name; '*' says every tool explicitly (so would no matcher).
-    if (CLAUDE_TOOL_EVENTS.has(event)) entry.matcher = '*';
+    const { matcher, timeout } = shape(event);
+    const entry: HookEntry = { hooks: [{ type: 'command', command, timeout } as { type: string; command: string }] };
+    if (matcher !== undefined) entry.matcher = matcher;
     others.push(entry);
     next[event] = others;
   }
   settings.hooks = next;
   return `${JSON.stringify(settings, null, 2)}\n`;
+}
+
+/** Merges our entries into Claude Code's settings.json; keeps everything else. Throws on a file that is not a JSON object. */
+export function mergeClaudeSettings(current: string, scriptPath: string, shown = '~/.claude/settings.json'): string {
+  // A tool event's entry is filtered by tool name; '*' says every tool explicitly (so would no matcher).
+  return mergeHooksFile(current, shown, CLAUDE_HOOK_EVENTS, `${scriptPath} claude`, (event) => ({
+    ...(CLAUDE_TOOL_EVENTS.has(event) ? { matcher: '*' } : {}),
+    timeout: 10,
+  }));
+}
+
+/** Merges our entries into Codex's ~/.codex/hooks.json (Claude-shaped); keeps everything else. Throws on a file that is not a JSON object. */
+export function mergeCodexHooks(current: string, scriptPath: string, shown = '~/.codex/hooks.json'): string {
+  return mergeHooksFile(current, shown, CODEX_HOOK_EVENTS, `${scriptPath} codex`, (event) => ({
+    ...(CODEX_TOOL_EVENTS.has(event) ? { matcher: '*' } : {}),
+    timeout: event === 'Interrupt' ? 3 : 10,
+  }));
 }
 
 /** Removes our entries; drops `hooks` keys left empty. Leaves anything that is not a JSON object alone. */
@@ -244,6 +300,27 @@ export function stripClaudeSettings(current: string): string {
     if (Object.keys(h).length === 0) delete settings.hooks;
   }
   return `${JSON.stringify(settings, null, 2)}\n`;
+}
+
+/** Removes our entries from Codex's hooks.json: the format is Claude's, so it is the same strip. */
+export const stripCodexHooks = stripClaudeSettings;
+
+/**
+ * True when a Codex hooks.json holds nothing but an empty object: what `stripCodexHooks` leaves of a
+ * file termhub created itself. Uninstall deletes such a file instead of writing it back. Anything the
+ * person has in it makes this false, and so does a file that is empty or that we cannot parse: those
+ * are never ours to delete.
+ */
+export function isBareCodexHooks(body: string): boolean {
+  if (!body.trim()) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return false;
+  }
+  const file = asObject(parsed);
+  return file !== null && Object.keys(file).length === 0;
 }
 
 /** Codex reads `notify = [...]` from config.toml: replaces an existing line or prepends ours. */

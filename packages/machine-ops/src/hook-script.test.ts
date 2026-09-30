@@ -487,3 +487,84 @@ describe('hook script — Cursor CLI', () => {
     expect(runAs('cursor', { hook_event_name: 'beforeSubmitPrompt' })).toBe('');
   });
 });
+
+describe('hook script — Codex', () => {
+  const base = { session_id: 's1', turn_id: 't1', transcript_path: '/x', cwd: '/w' };
+  const pre = { ...base, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'cat /secret' }, tool_use_id: 'exec-1' };
+  const post = { ...base, hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'cat /secret' }, tool_response: 'top secret output', tool_use_id: 'exec-1' };
+
+  /** notify passes the payload as $2 and nothing on stdin. */
+  function runNotify(payload: string): string {
+    const r = spawnSync('sh', [join(bin, 'termhub-hook'), 'codex', payload], {
+      input: '',
+      env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TMUX_PANE: '%1', TMPDIR: tmp },
+      timeout: 5000,
+    });
+    expect(r.status).toBe(0);
+    return r.stdout.toString();
+  }
+
+  it('posts a notify payload from argv as it came', async () => {
+    const payload = JSON.stringify({ type: 'agent-turn-complete', 'turn-id': 't1', 'last-assistant-message': 'done' });
+    expect(runNotify(payload)).toBe('');
+    const [body] = await bodies(1);
+    expect(JSON.parse(body)).toEqual({ tool: 'codex', session: 'th-abc', event: JSON.parse(payload) });
+  });
+
+  it('reads a hook payload from stdin and reduces PreToolUse to the tool name', async () => {
+    expect(runAs('codex', pre)).toBe('');
+    const [body] = await bodies(1);
+    expect(JSON.parse(body)).toEqual({ tool: 'codex', session: 'th-abc', event: { hook_event_name: 'PreToolUse', tool_name: 'Bash' } });
+    expect(body).not.toContain('secret');
+  });
+
+  it('reduces PostToolUse the same way, keeping its own name, and dedupes it against the PreToolUse', async () => {
+    runAs('codex', pre);
+    await bodies(1);
+    runAs('codex', post);
+    // a different tool is not a duplicate: it doubles as the proof that the PostToolUse above was held back
+    runAs('codex', { ...post, tool_name: 'apply_patch' });
+    const sent = await bodies(2);
+    await sleep(200);
+    expect(logged().map(eventOf)).toEqual([
+      { hook_event_name: 'PreToolUse', tool_name: 'Bash' },
+      { hook_event_name: 'PostToolUse', tool_name: 'apply_patch' },
+    ]);
+    expect(sent.join('')).not.toContain('secret');
+  });
+
+  it('reduces a PostToolUse that comes first, and never leaks tool_response', async () => {
+    runAs('codex', post);
+    const [body] = await bodies(1);
+    expect(JSON.parse(body).event).toEqual({ hook_event_name: 'PostToolUse', tool_name: 'Bash' });
+    expect(body).not.toContain('secret');
+  });
+
+  it('posts a PermissionRequest whole and clears the marker, so the approved tool\'s PostToolUse gets through', async () => {
+    const request = { ...base, hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'touch hello.txt', description: 'Allow creating hello.txt?' } };
+    runAs('codex', pre);
+    await bodies(1);
+    expect(runAs('codex', request)).toBe('');
+    await bodies(2);
+    runAs('codex', post);
+    const sent = await bodies(3);
+    expect(sent.map(eventOf)).toEqual([
+      { hook_event_name: 'PreToolUse', tool_name: 'Bash' },
+      request,
+      { hook_event_name: 'PostToolUse', tool_name: 'Bash' },
+    ]);
+  });
+
+  it('drops a Codex PermissionRequest whose tool name is odd or missing', async () => {
+    runAs('codex', { ...base, hook_event_name: 'PermissionRequest', tool_name: 'Ev"il' });
+    runAs('codex', { ...base, hook_event_name: 'PermissionRequest' });
+    await onlySentinelPosted();
+  });
+
+  it('forwards the events without a tool as they came', async () => {
+    const stop = { ...base, hook_event_name: 'Stop', stop_hook_active: false, last_assistant_message: 'done' };
+    runAs('codex', stop);
+    const [body] = await bodies(1);
+    expect(eventOf(body)).toEqual(stop);
+  });
+});

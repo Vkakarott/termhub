@@ -1,17 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
   CLAUDE_HOOK_EVENTS,
+  CODEX_HOOKS_REL,
+  CODEX_HOOK_EVENTS,
   CURSOR_HOOK_EVENTS,
   HOOK_SCRIPT,
   claudeConfigDirs,
   expandHome,
   hookEnvFile,
+  isBareCodexHooks,
   isBareCursorHooks,
   mergeClaudeSettings,
   mergeCodexConfig,
+  mergeCodexHooks,
   mergeCursorHooks,
   stripClaudeSettings,
   stripCodexConfig,
+  stripCodexHooks,
   stripCursorHooks,
 } from './hooks.js';
 
@@ -200,4 +205,67 @@ describe('expandHome', () => {
 
 it('subscribes to StopFailure (usage limits end a turn with it)', () => {
   expect(CLAUDE_HOOK_EVENTS).toContain('StopFailure');
+});
+
+describe('codex hooks.json', () => {
+  type Entry = { matcher?: string; hooks: { type: string; command: string; timeout: number }[] };
+  type CodexFile = { hooks: Record<string, Entry[]> };
+
+  it('adds one entry per event to an empty or missing file, with matchers on tool events and a short Interrupt timeout', () => {
+    const out = JSON.parse(mergeCodexHooks('', script)) as CodexFile;
+    expect(CODEX_HOOKS_REL).toBe('.codex/hooks.json');
+    expect([...CODEX_HOOK_EVENTS]).toEqual(['UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'PostToolUse', 'Stop', 'Interrupt']);
+    expect(Object.keys(out.hooks).sort()).toEqual([...CODEX_HOOK_EVENTS].sort());
+    const command = `${script} codex`;
+    expect(out.hooks.UserPromptSubmit).toEqual([{ hooks: [{ type: 'command', command, timeout: 10 }] }]);
+    expect(out.hooks.Stop).toEqual([{ hooks: [{ type: 'command', command, timeout: 10 }] }]);
+    expect(out.hooks.Interrupt).toEqual([{ hooks: [{ type: 'command', command, timeout: 3 }] }]);
+    for (const event of ['PreToolUse', 'PermissionRequest', 'PostToolUse']) {
+      expect(out.hooks[event]).toEqual([{ matcher: '*', hooks: [{ type: 'command', command, timeout: 10 }] }]);
+    }
+    // launching Codex is nobody's turn: SessionStart would read as working
+    expect(out.hooks.SessionStart).toBeUndefined();
+  });
+
+  it('keeps the person\'s own entries and other keys, replaces our old entry, and is idempotent', () => {
+    const current = JSON.stringify({
+      theme: 'x',
+      hooks: {
+        Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }, { hooks: [{ type: 'command', command: '/old/path/termhub-hook codex' }] }],
+        PreCompact: [{ hooks: [{ type: 'command', command: './compact.sh' }] }],
+      },
+    });
+    const once = mergeCodexHooks(current, script);
+    expect(mergeCodexHooks(once, script)).toBe(once);
+    expect(once.endsWith('\n')).toBe(true);
+    const out = JSON.parse(once) as CodexFile & { theme: string };
+    expect(out.theme).toBe('x');
+    expect(out.hooks.PreCompact).toEqual([{ hooks: [{ type: 'command', command: './compact.sh' }] }]);
+    expect(out.hooks.Stop.map((e) => e.hooks[0].command)).toEqual(['say done', `${script} codex`]);
+  });
+
+  it('refuses a file that is not a JSON object, or a `hooks` that is not one', () => {
+    expect(() => mergeCodexHooks('[1]', script)).toThrow('~/.codex/hooks.json não é um objeto JSON');
+    expect(() => mergeCodexHooks('{nope', script)).toThrow();
+    expect(() => mergeCodexHooks('{"hooks":"x"}', script)).toThrow('~/.codex/hooks.json: o campo "hooks" não é um objeto');
+    expect(() => mergeCodexHooks('[1]', script, '/h/hooks.json')).toThrow('/h/hooks.json não é um objeto JSON');
+  });
+
+  it('strips only our entries and leaves a file we created as an empty object', () => {
+    const merged = mergeCodexHooks(JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] } }), script);
+    expect(JSON.parse(stripCodexHooks(merged))).toEqual({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] } });
+    expect(stripCodexHooks(mergeCodexHooks('', script))).toBe('{}\n');
+    expect(stripCodexHooks('[1]')).toBe('[1]');
+    expect(stripCodexHooks('')).toBe('');
+  });
+
+  it('tells a hooks.json with nothing left from one that holds something of the person', () => {
+    expect(isBareCodexHooks(stripCodexHooks(mergeCodexHooks('', script)))).toBe(true);
+    expect(isBareCodexHooks('{}')).toBe(true);
+    expect(isBareCodexHooks('{"hooks":{"Stop":[{"hooks":[]}]}}')).toBe(false);
+    expect(isBareCodexHooks('{"theme":"x"}')).toBe(false);
+    expect(isBareCodexHooks('')).toBe(false);
+    expect(isBareCodexHooks('[1]')).toBe(false);
+    expect(isBareCodexHooks('{nope')).toBe(false);
+  });
 });
