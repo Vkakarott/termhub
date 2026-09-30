@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { run } = vi.hoisted(() => ({ run: vi.fn() }));
+const { run, sh } = vi.hoisted(() => ({ run: vi.fn(), sh: vi.fn() }));
 vi.mock('../exec.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../exec.js')>();
-  return { ...actual, run };
+  return { ...actual, run, sh };
 });
 // Deterministic buffer name so the paste tests can assert the exact argv instead of a pattern.
 vi.mock('node:crypto', async (importOriginal) => {
@@ -11,10 +11,12 @@ vi.mock('node:crypto', async (importOriginal) => {
   return { ...actual, randomUUID: () => 'fixed-uuid' };
 });
 
-import { capture, ensure, kill, list, sendKey, sendText } from './tmux.js';
+import { buildScrollScript, shellQuote } from '@termhub/machine-ops';
+import { capture, ensure, kill, list, scroll, sendKey, sendText } from './tmux.js';
 
 beforeEach(() => {
   run.mockReset();
+  sh.mockReset();
 });
 
 afterEach(() => {
@@ -190,5 +192,28 @@ describe('sendKey', () => {
     run.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
     await expect(sendKey({ session: 's1', key: 'C-c' })).resolves.toEqual({ sent: true });
     expect(run).toHaveBeenCalledWith('tmux', ['send-keys', '-t', '=s1:', 'C-c']);
+  });
+});
+
+describe('scroll', () => {
+  it('runs the shared scroll script with sh, tmux quoted, and answers done', async () => {
+    sh.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await expect(scroll({ session: 's1', lines: -3 })).resolves.toEqual({ done: true });
+    expect(sh).toHaveBeenCalledWith(buildScrollScript('s1', -3, shellQuote('tmux')));
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('uses TMUX_PATH, quoted, when it is set', async () => {
+    process.env.TMUX_PATH = '/opt/my tmux/bin/tmux';
+    sh.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await scroll({ session: 's1', lines: 0 });
+    expect(sh).toHaveBeenCalledWith(buildScrollScript('s1', 0, "'/opt/my tmux/bin/tmux'"));
+  });
+
+  it('raises notfound with tmux\'s message when the script fails, timeout on a timeout', async () => {
+    sh.mockResolvedValue({ code: 1, stdout: '', stderr: "can't find session: s1\n", timedOut: false });
+    await expect(scroll({ session: 's1', lines: 2 })).rejects.toMatchObject({ code: 'notfound', message: "can't find session: s1" });
+    sh.mockResolvedValue({ code: null, stdout: '', stderr: '', timedOut: true });
+    await expect(scroll({ session: 's1', lines: 2 })).rejects.toMatchObject({ code: 'timeout' });
   });
 });
