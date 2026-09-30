@@ -1,0 +1,22 @@
+● ok
+
+✻ Sautéed for 39s · done 4:03 AM
+
+❯ Launch a general-purpose subagent in the background whose task is: run Bash "echo a" then reply ok. Right after launching it, in this same turn, ask me with AskUserQuestion: north or south?
+
+● Agent(Echo a then reply ok)
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Direction
+
+Do you prefer north or south?
+
+❯ 1. North
+     You prefer north.
+  2. South
+     You prefer south.
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

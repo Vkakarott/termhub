@@ -1,0 +1,22 @@
+
+❯ Launch a general-purpose subagent in the background whose task is: run in Bash (timeout 120000) "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do sleep 5; done", then reply ok. End your turn right away
+  replying only "launched".
+
+● Agent(Run 60s sleep loop, reply ok)
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+● launched
+
+✻ Waiting for 1 background agent to finish
+
+● How is Claude doing this session? (optional)
+  1: Bad    2: Fine   3: Good   0: Dismiss
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 5.5 work | ctx 5% (47k/1000k) | $0.8694 (0 tok) | 5h 2% (4h11m) | 7d 49% (5d 16h)
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent
+
+  ● main
+  ◯ general-purpose  Run 60s sleep loop, reply ok                                                                                                                                 16s · ↓ 26.1k tokens

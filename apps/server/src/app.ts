@@ -35,6 +35,7 @@ import { defaultFrontendDirs, registerFrontend } from './frontend.js';
 import { loadPublicIdKey, setPublicIdKey } from './public/public-id.js';
 import { hooksRoutes } from './routes/hooks.js';
 import { monitorRoutes } from './routes/monitor.js';
+import { startStaleWorkingSweeper } from './monitor/stale-working.js';
 import { registerMonitorWs } from './monitor/ws.js';
 import { chatRoutes } from './routes/chat.js';
 import { chatAttachmentRoutes, type ChatAttachmentDeps } from './routes/chat-attachments.js';
@@ -298,6 +299,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
   const stopCiSync = startCiSyncScheduler(repos, fastify.log);
   const stopAgentUpdates = startAgentUpdateScheduler(repos, fastify.log);
   const stopTabQuestionExpiry = startTabQuestionExpiry(repos, fastify.log);
+  // Claude tabs the hooks left working with nothing since: their screen says what they wait for (TER-615).
+  const stopStaleWorking = startStaleWorkingSweeper(repos, fastify.log);
   void expireOrphanTabQuestions(repos, fastify.log);
   const stopDecisionSweeper = startDecisionSweeper(repos, fastify.log);
   const stopMemorySweeper = startMemorySweeper(repos, fastify.log);
@@ -341,6 +344,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
     stopCiSync();
     stopAgentUpdates();
     stopTabQuestionExpiry();
+    stopStaleWorking();
     stopDecisionSweeper();
     stopMemorySweeper();
     // Before the database closes: a send in flight finishes (or records its failure) first.

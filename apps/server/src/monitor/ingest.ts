@@ -41,8 +41,12 @@ export async function ingestHookEvent(
   const recorded = await recordInterpretation(repos, log, current, input.tool, interpreted);
   // Dropped by the wait rule (a Cursor session start that arrived after its own prompt, a Codex
   // PostToolUse that trails an Esc): nothing changed, so no card opens or closes and no suggestion
-  // check is scheduled.
-  if (recorded.dropped) return { ok: false, reason: 'ignored' };
+  // check is scheduled. A background subagent's tool call dropped because the tab waits on its main
+  // thread (TER-615) still does that subagent's card bookkeeping: it closes only its own card.
+  if (recorded.dropped) {
+    if (interpreted.meta.subagent === true) await noteHookEvent(repos, log, current, interpreted, waker);
+    return { ok: false, reason: 'ignored' };
+  }
   const updated = recorded.tab;
   // After the tab row (spec 2026-09-25 §4.2): a question opens a card in the project's chat, any
   // other event closes the one on screen. Never throws.
