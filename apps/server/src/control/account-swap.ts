@@ -8,7 +8,7 @@ import { monitorBus } from '../monitor/bus.js';
 import { applyState } from '../monitor/ingest.js';
 import { sendKeyToSession, sendTextToSession } from '../terminal/session-ops.js';
 import { RESUME_PROMPT, resumeLine } from './agents.js';
-import { accountsOn, loadProjectAi } from '../ai/project-accounts.js';
+import { projectAccountsOn } from '../ai/project-accounts.js';
 import { notifyLimitInChat } from '../chat/tab-limits.js';
 import { ControlError } from './context.js';
 import { offline } from './screen.js';
@@ -76,8 +76,7 @@ export interface SwapPreferences {
 }
 
 export async function swapPreferences(repos: Repositories, tab: Tab, machine: Machine): Promise<SwapPreferences> {
-  const { ai, accounts } = await loadProjectAi(repos, tab.project_id, machine.owner_id);
-  const listed = accountsOn(ai, accounts, machine.id, 'claude');
+  const { ai, listed } = await projectAccountsOn(repos, tab.project_id, machine.owner_id, machine.id, 'claude');
   return { ...(listed.length > 0 ? { priority: listed.map((a) => a.id) } : {}), ...(ai.models.claude ? { model: ai.models.claude } : {}) };
 }
 

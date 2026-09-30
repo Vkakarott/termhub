@@ -1,7 +1,7 @@
 import { linkClaudeSession } from '../ai/claude-session.js';
 import { getAccountUsage, type AiAccountUsage } from '../ai/index.js';
 import { rankCandidates } from '../control/account-swap.js';
-import { accountsOn } from '../ai/project-accounts.js';
+import { projectAccountsOn } from '../ai/project-accounts.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { AiAccount, Machine } from '../db/repositories/types.js';
 
@@ -25,7 +25,7 @@ async function otherAccounts(repos: Pick<Repositories, 'aiAccounts'>, machine: M
  * `projectId` is for TER-589, which orders a configured project's chat by the project's own priority.
  */
 export async function fallbackCandidates(
-  repos: Pick<Repositories, 'aiAccounts'> & Partial<Pick<Repositories, 'projectSetup'>>,
+  repos: Pick<Repositories, 'aiAccounts'> & Partial<Pick<Repositories, 'projectSetup' | 'projectMachines'>>,
   machine: Machine,
   currentAccountId: string | null,
   tried: ReadonlySet<string>,
@@ -35,9 +35,8 @@ export async function fallbackCandidates(
   // A project that lists Claude accounts on this machine keeps its chat on them, in its order
   // (TER-589, spec 2026-09-30 project AI accounts §7.1); any other chat ranks by room, as before.
   let priority: string[] | undefined;
-  if (projectId !== null && repos.projectSetup) {
-    const { ai } = (await repos.projectSetup.get(projectId)).data;
-    const listed = accountsOn(ai, await repos.aiAccounts.list(machine.owner_id), machine.id, 'claude');
+  if (projectId !== null && repos.projectSetup && repos.projectMachines) {
+    const { listed } = await projectAccountsOn({ ...repos, projectSetup: repos.projectSetup, projectMachines: repos.projectMachines }, projectId, machine.owner_id, machine.id, 'claude');
     if (listed.length > 0) priority = listed.map((a) => a.id);
   }
   const usage = new Map<string, AiAccountUsage>();
@@ -83,7 +82,7 @@ export interface FallbackPick {
  * exhausted accounts).
  */
 export async function pickFallback(
-  repos: Pick<Repositories, 'aiAccounts'> & Partial<Pick<Repositories, 'projectSetup'>>,
+  repos: Pick<Repositories, 'aiAccounts'> & Partial<Pick<Repositories, 'projectSetup' | 'projectMachines'>>,
   input: { machine: Machine; currentAccountId: string | null; tried: Set<string>; projectId: string | null; sessionDir: string | null; sessionId: string | null },
 ): Promise<FallbackPick | null> {
   const candidates = await fallbackCandidates(repos, input.machine, input.currentAccountId, input.tried, input.projectId);

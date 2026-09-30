@@ -69,6 +69,8 @@ const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() } as 
 let stored: Tab;
 /** The tab's project setup (TER-589): nothing configured unless a test says so. */
 let projectSetup: Record<string, unknown> = {};
+/** Machines linked to the tab's project. */
+let linked: string[] = ['m1'];
 function makeRepos() {
   const repos = {
     tabs: {
@@ -82,6 +84,7 @@ function makeRepos() {
     machines: { findById: vi.fn(async () => machine()) },
     apiTokens: { hasLiveForTab: vi.fn(async () => false) },
     projectSetup: { get: vi.fn(async (projectId: string) => ({ project_id: projectId, version: 2, data: normalizeSetup(projectSetup, 2), updated_at: null })) },
+    projectMachines: { find: vi.fn(async (_p: string, m: string) => (linked.includes(m) ? { machine_id: m } : undefined)) },
   };
   return { repos, r: repos as unknown as Repositories };
 }
@@ -102,6 +105,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   stored = baseTab();
   projectSetup = {};
+  linked = ['m1'];
   awaitAgent.mockResolvedValue(true);
   getAccountUsage.mockImplementation(async (a: AiAccount) => usage(a.id, USAGE[a.id] ?? null));
   linkClaudeSession.mockResolvedValue('linked');
@@ -625,6 +629,9 @@ describe('autoSwapOnLimit', () => {
     await expect(swapPreferences(r, baseTab(), machine())).resolves.toEqual({});
     projectSetup = { ai: { accounts: ['x1', 'c1', 'a3', 'gone', 'a1'], models: { claude: 'opus', chatgpt: 'gpt-5' } } };
     await expect(swapPreferences(r, baseTab(), machine())).resolves.toEqual({ priority: ['a3', 'a1'], model: 'opus' });
+    // a machine no longer linked to the project: its accounts are not the project's any more
+    linked = [];
+    await expect(swapPreferences(r, baseTab(), machine())).resolves.toEqual({ model: 'opus' });
   });
 
   it('records a failed automatic swap on the tab and never throws', async () => {

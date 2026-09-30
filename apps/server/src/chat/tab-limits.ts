@@ -1,6 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { getAccountUsage, type AiAccountUsage } from '../ai/index.js';
-import { accountsOn, loadProjectAi } from '../ai/project-accounts.js';
+import { projectAccountsOn } from '../ai/project-accounts.js';
 import { rankCandidates, swapAccount } from '../control/account-swap.js';
 import { ControlError, type ControlContext } from '../control/context.js';
 import type { Repositories } from '../db/repositories/index.js';
@@ -61,8 +61,7 @@ export async function notifyLimitInChat(repos: Repositories, log: Log, tab: Tab,
     const owner = (await repos.projects.findById(tab.project_id))?.owner_id;
     const conversation = owner ? await repos.chat.findLatestActiveForProject(tab.project_id, owner) : undefined;
     if (!conversation) return;
-    const { ai, accounts } = await loadProjectAi(repos, tab.project_id, machine.owner_id);
-    const listed = accountsOn(ai, accounts, machine.id, 'claude');
+    const [{ listed }, accounts] = await Promise.all([projectAccountsOn(repos, tab.project_id, machine.owner_id, machine.id, 'claude'), repos.aiAccounts.list(machine.owner_id)]);
     const others = listed.filter((a) => a.id !== tab.ai_account_id);
     if (others.length === 0) return;
     const current = accounts.find((a) => a.id === tab.ai_account_id && a.machine_id === machine.id) ?? null;
@@ -127,5 +126,7 @@ export async function answerTabLimit(ctx: ControlContext, log: FastifyBaseLogger
     if (e instanceof ControlError) throw conflict(e.message);
     throw e;
   }
-  return closeAs('swapped', accountId);
+  const swapped = await ctx.repos.tabLimitNotices.markSwapped(notice.id, accountId);
+  if (!swapped) throw conflict('Este aviso já foi respondido ou expirou');
+  return (await publish(ctx.repos, 'tab_limit_closed', [swapped]))[0];
 }

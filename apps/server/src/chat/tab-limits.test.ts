@@ -21,12 +21,14 @@ const usage = (peak: number | null, resets: string | null = null) =>
 const log = { info: vi.fn(), warn: vi.fn() };
 
 let setup: Record<string, unknown>;
+let linked = true;
 function build() {
   let row: TabLimitNotice | undefined;
   const r = {
     projects: { findById: vi.fn(async () => ({ id: 'p1', owner_id: 'u1' })) },
     chat: { findLatestActiveForProject: vi.fn(async () => ({ id: 'c1' })) },
     projectSetup: { get: vi.fn(async () => ({ data: normalizeSetup(setup, 2) })) },
+    projectMachines: { find: vi.fn(async () => (linked ? { machine_id: 'm1' } : undefined)) },
     aiAccounts: { list: vi.fn(async () => accounts) },
     tabs: { findByIdsForOwner: vi.fn(async () => [{ id: 't1', name: 'api' }]) },
     tabLimitNotices: {
@@ -36,6 +38,7 @@ function build() {
       }),
       findForUser: vi.fn(async (_id: string, userId: string) => (userId === 'u1' ? row : undefined)),
       close: vi.fn(async (_id: string, status: TabLimitNotice['status'], result: string | null = null) => (row && row.status === 'open' ? (row = { ...row, status, result }) : undefined)),
+      markSwapped: vi.fn(async (_id: string, accountId: string) => (row && (row.status === 'open' || row.status === 'expired') ? (row = { ...row, status: 'swapped', result: accountId }) : undefined)),
     },
   };
   return { r, repos: r as unknown as Repositories, row: () => row };
@@ -44,6 +47,7 @@ function build() {
 beforeEach(() => {
   vi.clearAllMocks();
   setup = { ai: { accounts: ['a1', 'a3', 'a2'] } };
+  linked = true;
   getAccountUsage.mockImplementation(async (a: AiAccount) => usage(a.id === 'a1' ? 100 : 20, a.id === 'a1' ? '2026-09-30T03:20:00.000Z' : null));
 });
 
@@ -78,6 +82,13 @@ describe('notifyLimitInChat', () => {
     }
   });
 
+  it('opens nothing when the machine is no longer linked to the project', async () => {
+    linked = false;
+    const { r, repos } = build();
+    await notifyLimitInChat(repos, log, tab(), machine);
+    expect(r.tabLimitNotices.open).not.toHaveBeenCalled();
+  });
+
   it('opens nothing without a chat for the project, or once the limit is over', async () => {
     const { r, repos } = build();
     r.chat.findLatestActiveForProject.mockResolvedValue(undefined as never);
@@ -110,6 +121,18 @@ describe('answerTabLimit', () => {
     expect(swapAccount).toHaveBeenCalledWith(ctx.repos, log, expect.objectContaining({ id: 't1' }), machine, { accountId: 'a3', auto: false });
     expect(view).toMatchObject({ status: 'swapped', result: 'a3' });
     expect(publish).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'tab_limit_closed' }));
+  });
+
+  it('ends as swapped even when the swap itself expired the card on the way (SessionEnd clears the limit)', async () => {
+    const { ctx, r, row } = await opened();
+    swapAccount.mockImplementation(async () => {
+      // what ingest does when the swap's /exit reports SessionEnd: the limit ends, the card expires
+      await r.tabLimitNotices.close('n1', 'expired');
+      return { from: null, to: { id: 'a3', label: 'conta a3' } };
+    });
+    const view = await answerTabLimit(ctx, log as never, 'n1', 'a3');
+    expect(view).toMatchObject({ status: 'swapped', result: 'a3' });
+    expect(row()?.status).toBe('swapped');
   });
 
   it('"Esperar" dismisses the card without touching the tab', async () => {

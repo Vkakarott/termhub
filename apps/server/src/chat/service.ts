@@ -63,7 +63,7 @@ class LimitFallback {
   private readonly projectRun: boolean;
 
   constructor(
-    private repos: Pick<Repositories, 'aiAccounts' | 'chat'> & Partial<Pick<Repositories, 'projectSetup'>>,
+    private repos: Pick<Repositories, 'aiAccounts' | 'chat'> & Partial<Pick<Repositories, 'projectSetup' | 'projectMachines'>>,
     private machine: Machine,
     private projectId: string | null,
     private conversationId: string,

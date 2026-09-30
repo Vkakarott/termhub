@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizeSetup } from '../setup/schema.js';
 import type { AiAccount, Machine, User } from '../db/repositories/types.js';
 import { resolveHost, type HostChoice, type HostContext } from './host.js';
@@ -316,6 +316,10 @@ it('never waits for a moving agent unless asked to: a read of the screen answers
 });
 
 describe('a project chat with the project setup (TER-589)', () => {
+  let unlinked = false;
+  beforeEach(() => {
+    unlinked = false;
+  });
   const m1 = machine('m1', 'jarvis');
   const accs = [account('a1', 'm1', null, { label: 'pessoal' }), account('a2', 'm1', '~/.claude-2', { label: 'trabalho' }), account('b1', 'm2', null), account('c1', 'm1', null, { provider: 'chatgpt' })];
   const withSetup = (ai: unknown, conversation: { ai_account_id?: string | null } = {}) => {
@@ -323,6 +327,7 @@ describe('a project chat with the project setup (TER-589)', () => {
     Object.assign(built.repos, {
       projectSetup: { get: vi.fn(async () => ({ data: normalizeSetup({ ai }, 2) })) },
       aiAccounts: { ...built.repos.aiAccounts, list: vi.fn(async () => accs) },
+      projectMachines: { find: vi.fn(async (_p: string, m: string) => (unlinked ? undefined : { machine_id: m })) },
     });
     return built;
   };
@@ -345,6 +350,12 @@ describe('a project chat with the project setup (TER-589)', () => {
   it("keeps the person's own pick when the project lists no account on the host, with the project's model", async () => {
     const { ctx } = withSetup({ accounts: ['b1'], models: { claude: 'sonnet' } }, { ai_account_id: 'a1' });
     expect(await resolveHost(ctx, user, { project: { id: 'p1', accountId: null } })).toMatchObject({ configDir: null, account: { kind: 'chosen', id: 'a1', label: 'pessoal' }, model: 'sonnet' });
+  });
+
+  it("keeps the person's own pick when the host machine is no longer linked to the project", async () => {
+    unlinked = true;
+    const { ctx } = withSetup({ accounts: ['a2'] }, { ai_account_id: 'a1' });
+    expect(await resolveHost(ctx, user, { project: { id: 'p1', accountId: null } })).toMatchObject({ account: { kind: 'chosen', id: 'a1', label: 'pessoal' } });
   });
 
   it('the account-wide chat never reads the project setup', async () => {

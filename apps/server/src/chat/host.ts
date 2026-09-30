@@ -1,5 +1,5 @@
 import { CAPABILITY_CLAUDE } from '@termhub/agent-protocol';
-import { accountsOn } from '../ai/project-accounts.js';
+import { projectAccountsOn } from '../ai/project-accounts.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, User } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
@@ -24,7 +24,7 @@ export interface HostAgents {
 /** Everything `resolveHost` needs, so it can be exercised without a server: the owner-scoped reads
  *  and the live registry, both as narrow interfaces. */
 export interface HostContext {
-  repos: Pick<Repositories, 'chat' | 'machines' | 'aiAccounts'> & Partial<Pick<Repositories, 'projectSetup'>>;
+  repos: Pick<Repositories, 'chat' | 'machines' | 'aiAccounts'> & Partial<Pick<Repositories, 'projectSetup' | 'projectMachines'>>;
   agents: HostAgents;
 }
 
@@ -144,9 +144,8 @@ export async function resolveHost(
     return { kind: 'agent_too_old', machine, version: ctx.agents.info(machine.id)?.agent_version ?? machine.agent_version ?? '' };
   }
 
-  if (opts.project && ctx.repos.projectSetup) {
-    const { ai } = (await ctx.repos.projectSetup.get(opts.project.id)).data;
-    const listed = accountsOn(ai, await ctx.repos.aiAccounts.list(user.id), machine.id, 'claude');
+  if (opts.project && ctx.repos.projectSetup && ctx.repos.projectMachines) {
+    const { ai, listed } = await projectAccountsOn({ ...ctx.repos, projectSetup: ctx.repos.projectSetup, projectMachines: ctx.repos.projectMachines }, opts.project.id, user.id, machine.id, 'claude');
     const model = ai.models.claude;
     if (listed.length > 0) {
       // The project's account (spec 2026-09-30 project AI accounts §7.1): the one this project chat last

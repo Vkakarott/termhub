@@ -39,3 +39,19 @@ export async function loadProjectAi(repos: Pick<Repositories, 'projectSetup' | '
   const [setup, accounts] = await Promise.all([repos.projectSetup.get(projectId), repos.aiAccounts.list(ownerId)]);
   return { ai: setup.data.ai, accounts };
 }
+
+/**
+ * The project's accounts of one machine, in priority order, only while that machine is still linked to
+ * the project (spec §3 read-time tolerance): unlinked, it has none, and every path falls back to what it
+ * did before. `ai` comes along for the model, which is the project's whatever the machine.
+ */
+export async function projectAccountsOn(
+  repos: Pick<Repositories, 'projectSetup' | 'aiAccounts' | 'projectMachines'>,
+  projectId: string,
+  ownerId: string | null,
+  machineId: string,
+  provider?: AgentProvider,
+): Promise<{ ai: ProjectAi; listed: AiAccount[] }> {
+  const [{ ai, accounts }, link] = await Promise.all([loadProjectAi(repos, projectId, ownerId), repos.projectMachines.find(projectId, machineId)]);
+  return { ai, listed: link ? accountsOn(ai, accounts, machineId, provider) : [] };
+}

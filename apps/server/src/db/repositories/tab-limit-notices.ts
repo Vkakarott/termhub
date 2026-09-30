@@ -78,6 +78,17 @@ export class TabLimitNoticesRepository {
     return row ? map(row) : undefined;
   }
 
+  /**
+   * The swap the card asked for went through. Also from `expired`: the swap's own `/exit` ends the limit
+   * (SessionEnd), which expires the card while the swap is still running.
+   */
+  async markSwapped(id: string, accountId: string): Promise<TabLimitNotice | undefined> {
+    const done = await this.db.tabLimitNotice.updateMany({ where: { id, status: { in: ['open', 'expired'] } }, data: { status: 'swapped', result: accountId, closedAt: new Date() } });
+    if (done.count === 0) return undefined;
+    const row = await this.db.tabLimitNotice.findUnique({ where: { id }, include: withOwner });
+    return row ? map(row) : undefined;
+  }
+
   /** Every open card of the tab, closed as `status` (the limit ended, the tab was removed). */
   async closeOpenForTab(tabId: string, status: Exclude<TabLimitStatus, 'open'>): Promise<TabLimitNotice[]> {
     const open = await this.db.tabLimitNotice.findMany({ where: { tabId, status: 'open' }, select: { id: true } });

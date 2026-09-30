@@ -32,7 +32,8 @@ beforeEach(() => {
 });
 
 describe('fallbackCandidates in a project chat (TER-589)', () => {
-  const withProject = (ai: unknown) => ({ ...repos, projectSetup: { get: vi.fn(async () => ({ data: normalizeSetup({ ai }, 2) })) } }) as unknown as Repositories;
+  const withProject = (ai: unknown, linked = true) =>
+    ({ ...repos, projectSetup: { get: vi.fn(async () => ({ data: normalizeSetup({ ai }, 2) })) }, projectMachines: { find: vi.fn(async () => (linked ? { machine_id: 'm1' } : undefined)) } }) as unknown as Repositories;
 
   it("follows the project's order over room, and never leaves its list", async () => {
     // c has more room than b, but the project lists b first; the machine's other accounts are not the project's
@@ -43,6 +44,10 @@ describe('fallbackCandidates in a project chat (TER-589)', () => {
   it('still skips accounts already tried and those at their limit', async () => {
     peaks.b = 95;
     expect((await fallbackCandidates(withProject({ accounts: ['a', 'b', 'c'] }), machine, 'a', new Set(['c']), 'p1')).map((a) => a.id)).toEqual([]);
+  });
+
+  it('ranks by room as before when the machine is no longer linked to the project', async () => {
+    expect((await fallbackCandidates(withProject({ accounts: ['a', 'b'] }, false), machine, 'a', new Set(), 'p1')).map((a) => a.id)).toEqual(['c', 'b']);
   });
 
   it('ranks by room as before for a project without Claude accounts on this machine', async () => {

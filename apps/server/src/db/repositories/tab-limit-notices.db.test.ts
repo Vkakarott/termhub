@@ -40,5 +40,8 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabLimitNoticesRepository
     const next = await repo.open({ tab_id: 't1', project_id: projectId, conversation_id: conv, limited_at: new Date('2026-09-30T08:00:00Z'), payload });
     expect((await repo.closeOpenForTab('t1', 'expired')).map((r) => r.id)).toEqual([next!.id]);
     expect((await repo.listByConversation(conv)).map((r) => r.status)).toEqual(['expired', 'swapped']);
+    // the swap's own /exit expired it: the swap that went through still marks it swapped, once
+    expect((await repo.markSwapped(next!.id, 'a2'))?.status).toBe('swapped');
+    expect(await repo.markSwapped(next!.id, 'a2')).toBeUndefined();
   });
 });

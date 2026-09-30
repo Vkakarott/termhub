@@ -278,7 +278,10 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
     tabs: { findByIdsForOwner: ownedBy(tab) },
     tasks: { findByIdsForOwner: vi.fn(async () => []) },
     projects: { findByIdsForOwner: ownedBy(project), list: vi.fn(async (f: { owner?: string | null } = {}) => projectRows.filter((r) => !f.owner || r.owner_id === f.owner)) },
-    projectMachines: { listByProject: vi.fn(async (): Promise<{ machine_id: string; cwd: string }[]> => [{ machine_id: 'm1', cwd: '/srv/app' }]) },
+    projectMachines: {
+      listByProject: vi.fn(async (): Promise<{ machine_id: string; cwd: string }[]> => [{ machine_id: 'm1', cwd: '/srv/app' }]),
+      find: vi.fn(async (_p: string, m: string) => (m === 'm1' ? { machine_id: 'm1', cwd: '/srv/app' } : undefined)),
+    },
     machines: { findByIdsForOwner: ownedBy(machine), list: vi.fn(async (owner: string | null) => (owner === user.id ? (opts.host?.machines ?? [host]) : [])) },
     aiAccounts: { findById: vi.fn(async () => opts.host?.account), list: vi.fn(async (owner: string) => (owner === user.id ? (opts.accounts ?? []) : [])) },
     chatGrants: { revokeForConversation: vi.fn(async () => 0), findActiveBySourceAction: vi.fn(async () => undefined) },
