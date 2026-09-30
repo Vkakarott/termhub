@@ -104,9 +104,17 @@ describe('launchLine', () => {
     expect(launchLine('claude', null, 'write a spec')).toBe("claude 'write a spec'");
   });
 
-  it('starts codex under CODEX_HOME', () => {
-    expect(launchLine('chatgpt', '/Users/p/.codex-work', 'fix it')).toBe("CODEX_HOME='/Users/p/.codex-work' codex 'fix it'");
-    expect(launchLine('chatgpt', null, 'fix it')).toBe("codex 'fix it'");
+  it('starts codex under CODEX_HOME, out of the alternate screen', () => {
+    expect(launchLine('chatgpt', '/Users/p/.codex-work', 'fix it')).toBe("CODEX_HOME='/Users/p/.codex-work' codex --no-alt-screen 'fix it'");
+    expect(launchLine('chatgpt', null, 'fix it')).toBe("codex --no-alt-screen 'fix it'");
+  });
+
+  // TER-465: in the alternate screen Codex's messages never reach the pane history, so the mouse wheel has
+  // nothing to scroll; Claude turns mouse tracking on and scrolls by itself, so its line stays as it was.
+  it('passes --no-alt-screen to codex only, with or without the tab MCP', () => {
+    expect(launchLine('chatgpt', null, 'x', { tabId: 'abc', url: MCP_URL })).toContain(' codex --no-alt-screen -c ');
+    for (const mcp of [null, { tabId: 'abc', url: MCP_URL }]) expect(launchLine('claude', null, 'x', mcp)).not.toContain('--no-alt-screen');
+    expect(resumeLine(null, '123e4567-e89b-12d3-a456-426614174000', 'x')).not.toContain('--no-alt-screen');
   });
 
   it('keeps quotes, spaces, newlines and ; inert in the prompt and the config dir', () => {
@@ -116,7 +124,7 @@ describe('launchLine', () => {
 
   it("leaves a config dir's ~ for the machine's shell to expand, the rest still quoted", () => {
     expect(launchLine('claude', '~/.claude-work', 'write a spec')).toBe("CLAUDE_CONFIG_DIR=\"$HOME\"/'.claude-work' claude 'write a spec'");
-    expect(launchLine('chatgpt', '~', 'fix it')).toBe('CODEX_HOME="$HOME" codex \'fix it\'');
+    expect(launchLine('chatgpt', '~', 'fix it')).toBe('CODEX_HOME="$HOME" codex --no-alt-screen \'fix it\'');
     // Only the leading ~/ is outside the quotes: a tilde further in, and anything else, stays literal.
     expect(launchLine('claude', "~/it's $HOME; rm -rf /", 'x')).toBe("CLAUDE_CONFIG_DIR=\"$HOME\"/'it'\\''s $HOME; rm -rf /' claude 'x'");
     expect(launchLine('claude', '/tmp/~/x', 'x')).toBe("CLAUDE_CONFIG_DIR='/tmp/~/x' claude 'x'");
@@ -129,7 +137,7 @@ describe('launchLine', () => {
 
   it('gives codex the server by -c overrides and the token through an env var read from the tab file', () => {
     expect(launchLine('chatgpt', '/Users/p/.codex-work', 'fix it', { tabId: 'abc', url: MCP_URL })).toBe(
-      `TERMHUB_MCP_TOKEN="$(cat "$HOME"/'.termhub/tabs/abc/token')" CODEX_HOME='/Users/p/.codex-work' codex -c 'mcp_servers.termhub_tab.url="https://termhub.dev/mcp"' -c 'mcp_servers.termhub_tab.bearer_token_env_var="TERMHUB_MCP_TOKEN"' 'fix it'`,
+      `TERMHUB_MCP_TOKEN="$(cat "$HOME"/'.termhub/tabs/abc/token')" CODEX_HOME='/Users/p/.codex-work' codex --no-alt-screen -c 'mcp_servers.termhub_tab.url="https://termhub.dev/mcp"' -c 'mcp_servers.termhub_tab.bearer_token_env_var="TERMHUB_MCP_TOKEN"' 'fix it'`,
     );
   });
 
@@ -151,7 +159,7 @@ describe('launchLine', () => {
 
   it('is exactly the plain line without mcp', () => {
     expect(launchLine('claude', null, 'x', null)).toBe("claude 'x'");
-    expect(launchLine('chatgpt', null, 'x', undefined)).toBe("codex 'x'");
+    expect(launchLine('chatgpt', null, 'x', undefined)).toBe("codex --no-alt-screen 'x'");
   });
 
   it('refuses gemini and antigravity for now', () => {

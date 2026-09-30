@@ -97,7 +97,7 @@ export function run(file: string, args: string[], opts: RunOptions = {}): Promis
 /**
  * Runs `script` through `/bin/sh -c`. `script` must be a constant imported from
  * `@termhub/machine-ops` (e.g. `DETECT_SCRIPT`, `HARDWARE_SCRIPT`) or built by one of its
- * builders (`buildFsListScript`, `buildMkdirScript`, `buildPasteScript`, `credentialScript`) —
+ * builders (`buildFsListScript`, `buildMkdirScript`, `buildPasteScript`, `credentialScript`, `buildScrollScript`) —
  * never a value that came from the server, which would let it inject shell syntax.
  */
 export function sh(script: string, opts: RunOptions = {}): Promise<RunResult> {

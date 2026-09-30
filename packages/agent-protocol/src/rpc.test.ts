@@ -6,7 +6,7 @@ describe('rpc catalog', () => {
     expect([...RPC_METHODS].sort()).toEqual([
       'agent.update', 'ai.credential', 'claude.linkSession', 'docs.read', 'docs.scan', 'file.paste', 'fs.list', 'fs.mkdir', 'hooks.install',
       'hooks.uninstall', 'hw.probe', 'secret.read', 'sim.boot', 'sim.list', 'tab.mcp.remove', 'tab.mcp.write', 'tmux.capture', 'tmux.ensure',
-      'tmux.kill', 'tmux.list', 'tmux.sendKey', 'tmux.sendText', 'tools.detect', 'wda.runner.alive', 'wda.runner.start', 'wda.runner.tail',
+      'tmux.kill', 'tmux.list', 'tmux.scroll', 'tmux.sendKey', 'tmux.sendText', 'tools.detect', 'wda.runner.alive', 'wda.runner.start', 'wda.runner.tail',
       'wda.setup.start', 'wda.setup.state',
     ]);
   });
@@ -165,6 +165,14 @@ describe('terminal RPCs', () => {
     expect(RPC['tmux.sendText'].params.safeParse({ session: 's', text: 'oi', enter: true, paste: false }).success).toBe(true);
     const parsed = RPC['tmux.sendText'].params.safeParse({ session: 's', text: 'oi', enter: true });
     expect(parsed.success && parsed.data.paste).toBeUndefined();
+  });
+
+  it('tmux.scroll takes a signed whole line count within ±500 and answers done', () => {
+    for (const lines of [-500, -3, 0, 7, 500]) expect(RPC['tmux.scroll'].params.safeParse({ session: 's', lines }).success).toBe(true);
+    for (const lines of [-501, 501, 1.5, '3', null]) expect(RPC['tmux.scroll'].params.safeParse({ session: 's', lines }).success).toBe(false);
+    expect(RPC['tmux.scroll'].params.safeParse({ session: 'bad name', lines: 1 }).success).toBe(false);
+    expect(RPC['tmux.scroll'].result.safeParse({ done: true }).success).toBe(true);
+    expect(RPC['tmux.scroll'].result.safeParse({ done: false }).success).toBe(false);
   });
 
   it('tmux.sendKey only accepts the closed key list', () => {

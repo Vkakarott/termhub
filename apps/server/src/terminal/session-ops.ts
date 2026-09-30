@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { type TmuxKey } from '@termhub/agent-protocol';
+import { buildScrollScript } from '@termhub/machine-ops';
 import { agentRpc, requireAgentVersion } from '../agent/errors.js';
 import type { Machine } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
@@ -14,6 +15,9 @@ export const TERMINAL_RPC_MIN_AGENT_VERSION = '0.2.0';
  * request exists to avoid — so a paste is refused outright instead of degrading to typing.
  */
 export const TERMINAL_PASTE_MIN_AGENT_VERSION = '0.3.0';
+
+/** The agent release that answers `tmux.scroll` (TER-465): the mouse wheel over a terminal tab. */
+export const TERMINAL_SCROLL_MIN_AGENT_VERSION = '0.12.0';
 
 /** The largest text the monitor's input route (or a future MCP tool) may type in one call. */
 export const INPUT_MAX_CHARS = 4000;
@@ -95,4 +99,19 @@ export async function sendKeyToSession(machine: Machine, session: string, key: T
   }
   // `key` comes from TMUX_KEYS, so it is already a fixed token; quoting it keeps the rule "quote everything".
   await shell(machine, `tmux send-keys -t ${shellQuote(`=${session}:`)} ${shellQuote(key)}`);
+}
+
+/**
+ * A mouse-wheel scroll over the tab (TER-465): `lines` < 0 up, > 0 down, 0 leaves copy-mode. The agent and
+ * ssh/local run the same script (`buildScrollScript`), which checks the session name and line count and
+ * quotes the target itself — it throws on a bad value before anything reaches the machine.
+ */
+export async function scrollSession(machine: Machine, session: string, lines: number): Promise<void> {
+  const script = buildScrollScript(session, lines);
+  if (machine.type === 'agent') {
+    requireAgentVersion(machine, TERMINAL_SCROLL_MIN_AGENT_VERSION);
+    await agentRpc(machine, 'tmux.scroll', { session, lines });
+    return;
+  }
+  await shell(machine, script);
 }
