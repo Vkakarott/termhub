@@ -3,6 +3,7 @@ symptom: "an answer bubble says \"pensando…\" for ever after a message typed w
 tags: [chat, web, mobile, events]
 evidence: fixed
 card: TER-416
+pr: https://github.com/engenhariainversa/termhub/pull/231
 agent: claude
 date: 2026-09-29
 ---

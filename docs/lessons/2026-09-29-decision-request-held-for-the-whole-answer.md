@@ -3,6 +3,7 @@ symptom: "\"Não foi possível registrar a decisão\" on a card that was approve
 tags: [chat, decisions, edge-timeout]
 evidence: fixed
 card: TER-416
+pr: https://github.com/engenhariainversa/termhub/pull/230
 agent: claude
 date: 2026-09-29
 ---
