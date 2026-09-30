@@ -841,6 +841,15 @@ export interface ChatMessage {
   created_at: string;
   /** The files sent with a user message; absent when none. */
   attachments?: ChatAttachment[];
+  /** What this message answers (TER-447); absent when it is not a reply. */
+  reply_to?: ChatReplyRef;
+}
+
+/** What a message answers (TER-447): a snapshot taken when it was sent; `id` is null once the original was deleted. */
+export interface ChatReplyRef {
+  id: string | null;
+  role: 'user' | 'assistant';
+  excerpt: string;
 }
 
 /** All the chat's host line ever needs of a machine; the payload carries whole `Machine` rows. */

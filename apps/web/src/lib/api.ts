@@ -244,13 +244,15 @@ export const api = {
    *  neither text nor attachments; 409 CHAT_NO_MACHINE / CHAT_HOST_NOT_CHOSEN / CHAT_HOST_OFFLINE /
    *  CHAT_AGENT_TOO_OLD when the host cannot run it, 409 CHAT_ARCHIVED or CHAT_BUSY while a reset is
    *  under way (each with its pt-BR sentence); 409 ATTACHMENT_UNAVAILABLE when an id is not this
-   *  conversation's, already sent or invalid (the text and chips stay in the box). `text` may be empty
+   *  conversation's, already sent or invalid (the text and chips stay in the box); 409 REPLY_UNAVAILABLE
+   *  when the quoted message (`replyToId`, TER-447) is gone or empty. `text` may be empty
    *  when there is at least one attachment. */
-  sendChatMessage: (text: string, projectId?: string | null, attachmentIds?: string[]) =>
+  sendChatMessage: (text: string, projectId?: string | null, attachmentIds?: string[], replyToId?: string) =>
     request<{ conversation_id: string; user_message_id: string; assistant_message_id: string }>('POST', '/chat/messages', {
       text,
       ...(projectId ? { project_id: projectId } : {}),
       ...(attachmentIds && attachmentIds.length > 0 ? { attachment_ids: attachmentIds } : {}),
+      ...(replyToId ? { reply_to_id: replyToId } : {}),
       wait: false,
     }),
   /** "Nova conversa": archives the scope's active conversation (the transcript is kept) and answers the

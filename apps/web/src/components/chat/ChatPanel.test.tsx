@@ -1538,3 +1538,59 @@ describe('pending cards at hand (TER-477)', () => {
     expect(await screen.findByRole('button', { name: /1 pendente$/ })).toBeInTheDocument();
   });
 });
+
+describe('replies (TER-447)', () => {
+  const thread = [
+    msg({ id: 'm0', role: 'user', text: 'abre a aba', created_at: '2026-09-21T00:00:00.000Z' }),
+    msg({ id: 'm1', role: 'assistant', text: 'Abri a aba **build**', created_at: '2026-09-21T00:00:01.000Z' }),
+  ];
+
+  it('"Responder" quotes the row in the composer and sends reply_to_id; a failed send brings the quote back', async () => {
+    const { ApiError } = await import('../../lib/api');
+    chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: thread, actions: [], host: READY });
+    sendMock.mockRejectedValueOnce(new ApiError(409, 'A mensagem citada não está mais disponível. Cancele a citação e envie de novo.', 'REPLY_UNAVAILABLE'));
+    render(
+      <MemoryRouter>
+        <ChatPanel projectId="p1" />
+      </MemoryRouter>,
+    );
+    const answer = (await screen.findByText('Abri a aba', { exact: false })).closest('li')!;
+    fireEvent.click(within(answer).getByRole('button', { name: 'Responder' }));
+    expect(screen.getByText('Respondendo a Concierge')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'faz de novo' } });
+    fireEvent.click(screen.getByRole('button', { name: /enviar/i }));
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith('faz de novo', 'p1', [], 'm1'));
+    expect(await screen.findByText(/Cancele a citação/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Respondendo a Concierge')).toBeInTheDocument());
+
+    sendMock.mockResolvedValueOnce({ conversation_id: 'c_p1', user_message_id: 'm2', assistant_message_id: 'm3' });
+    fireEvent.click(screen.getByRole('button', { name: /enviar/i }));
+    await waitFor(() => expect(sendMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText('Respondendo a Concierge')).toBeNull());
+  });
+
+  it('a click on a quote scrolls to the original and rings it; an original that is not loaded says so', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    const replies = [
+      ...thread,
+      msg({ id: 'm2', role: 'user', text: 'faz de novo', created_at: '2026-09-21T00:00:02.000Z', reply_to: { id: 'm1', role: 'assistant', excerpt: 'Abri a aba build' } }),
+      msg({ id: 'm4', role: 'user', text: 'e aquela?', created_at: '2026-09-21T00:00:03.000Z', reply_to: { id: 'old', role: 'user', excerpt: 'uma antiga' } }),
+    ];
+    chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: replies, actions: [], host: READY });
+    const { container } = render(
+      <MemoryRouter>
+        <ChatPanel projectId="p1" />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver mensagem original: Concierge, Abri a aba build' }));
+    const original = container.querySelector('[data-message-id="m1"]')!;
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView.mock.contexts[0]).toBe(original);
+    expect(original.className).toContain('ring-accent/60');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver mensagem original: Você, uma antiga' }));
+    expect(screen.getByText('Mensagem original indisponível')).toBeInTheDocument();
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+});

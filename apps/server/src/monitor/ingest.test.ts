@@ -314,24 +314,56 @@ describe('ingestHookEvent — claude session and rate limit (spec 2026-09-26 acc
     expect(autoSwapOnLimit).toHaveBeenCalledWith(r, log, res.ok && res.tab);
   });
 
-  it('clears rate_limited_at once Claude runs again, only when it was set', async () => {
+  // TER-587: right after the StopFailure, Claude Code dequeues a queued prompt (a background task's
+  // notification) and subagents keep calling tools. None of that proves the account works again.
+  it.each([
+    ['a prompt (a queued task notification)', { hook_event_name: 'UserPromptSubmit' }],
+    ['a session start', { hook_event_name: 'SessionStart' }],
+    ['a tool call', { hook_event_name: 'PreToolUse', tool_name: 'Bash' }],
+    ["a subagent's tool call", { hook_event_name: 'PreToolUse', tool_name: 'Bash', subagent: true }],
+    ["a subagent's Stop", { hook_event_name: 'Stop', agent_id: 'a1b2c3' }],
+  ])('%s does not clear rate_limited_at', async (_label, event) => {
     const limited = repos(tab({ rate_limited_at: '2026-01-01T00:00:00.000Z' }));
-    await ingestHookEvent(limited.r, log, { machineId: 'm1', tool: 'claude', session: 'th-t1', event: { hook_event_name: 'UserPromptSubmit' } });
-    expect(limited.setAgentFields).toHaveBeenCalledWith('t1', { rate_limited_at: null });
-
-    const notLimited = repos(tab({ rate_limited_at: null }));
-    await ingestHookEvent(notLimited.r, log, { machineId: 'm1', tool: 'claude', session: 'th-t1', event: { hook_event_name: 'UserPromptSubmit' } });
-    expect(notLimited.setAgentFields).not.toHaveBeenCalled();
+    await ingestHookEvent(limited.r, log, { machineId: 'm1', tool: 'claude', session: 'th-t1', event });
+    expect(limited.setAgentFields).not.toHaveBeenCalled();
   });
 
-  it('a normal Stop clears rate_limited_at (the account works again); a rate_limit StopFailure still sets it', async () => {
+  it("a normal Stop of the main thread clears rate_limited_at (the account works again), only when it was set", async () => {
     const limited = repos(tab({ rate_limited_at: '2026-01-01T00:00:00.000Z' }));
     await ingestHookEvent(limited.r, log, { machineId: 'm1', tool: 'claude', session: 'th-t1', event: { hook_event_name: 'Stop' } });
     expect(limited.setAgentFields).toHaveBeenCalledWith('t1', { rate_limited_at: null });
 
+    const notLimited = repos(tab({ rate_limited_at: null }));
+    await ingestHookEvent(notLimited.r, log, { machineId: 'm1', tool: 'claude', session: 'th-t1', event: { hook_event_name: 'Stop' } });
+    expect(notLimited.setAgentFields).not.toHaveBeenCalled();
+  });
+
+  // A limit must not outlive the Claude that hit it: otherwise the banner (and its stale time) would come
+  // back on the next session of the tab.
+  it('the Claude leaving (SessionEnd) clears rate_limited_at', async () => {
+    const limited = repos(tab({ rate_limited_at: '2026-01-01T00:00:00.000Z' }));
+    await ingestHookEvent(limited.r, log, { machineId: 'm1', tool: 'claude', session: 'th-t1', event: { hook_event_name: 'SessionEnd', reason: 'prompt_input_exit' } });
+    expect(limited.setAgentFields).toHaveBeenCalledWith('t1', { rate_limited_at: null });
+  });
+
+  it('a SessionStart of another session clears rate_limited_at; the same session (a resume) does not', async () => {
+    const OTHER = '0e9c1d2a-0000-4000-8000-000000000000';
+    const fresh = repos(tab({ rate_limited_at: '2026-01-01T00:00:00.000Z', agent_session_id: SID, agent_transcript_path: TRANSCRIPT }));
+    await ingestHookEvent(fresh.r, log, sessionStart(OTHER, `/h/.claude/projects/-p/${OTHER}.jsonl`));
+    expect(fresh.setAgentFields).toHaveBeenCalledWith('t1', expect.objectContaining({ agent_session_id: OTHER, rate_limited_at: null }));
+
+    const resumed = repos(tab({ rate_limited_at: '2026-01-01T00:00:00.000Z', agent_session_id: SID, agent_transcript_path: TRANSCRIPT }));
+    await ingestHookEvent(resumed.r, log, sessionStart(SID, TRANSCRIPT));
+    expect(resumed.setAgentFields).not.toHaveBeenCalled();
+  });
+
+  it('a second rate_limit StopFailure keeps the time of the first (one incident, one automatic swap)', async () => {
+    autoSwapOnLimit.mockClear();
     const again = repos(tab({ rate_limited_at: '2026-01-01T00:00:00.000Z' }));
-    await ingestHookEvent(again.r, log, { machineId: 'm1', tool: 'claude', session: 'th-t1', event: { hook_event_name: 'StopFailure', error: 'rate_limit' } });
-    expect(again.setAgentFields).toHaveBeenCalledWith('t1', { rate_limited_at: expect.any(Date) });
+    const res = await ingestHookEvent(again.r, log, { machineId: 'm1', tool: 'claude', session: 'th-t1', event: { hook_event_name: 'StopFailure', error: 'rate_limit' } });
+    expect(again.setAgentFields).not.toHaveBeenCalled();
+    expect(res.ok && res.tab.rate_limited_at).toBe('2026-01-01T00:00:00.000Z');
+    expect(autoSwapOnLimit).toHaveBeenCalledTimes(1);
   });
 
   it('another API error neither sets rate_limited_at nor swaps', async () => {

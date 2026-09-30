@@ -232,3 +232,38 @@ registering the second login (`~/.claude` vs `~/.claude_pedrogoiania`) in Config
 - Swap button in the mobile app and in the needs-you list.
 - Same flow for Codex (`CODEX_HOME`, `codex resume`).
 - Offer to go back to the original account after its reset.
+
+## 11. Addendum 2026-09-30 (TER-587): the automatic swap that never happened
+
+On 2026-09-30 the default Claude login of a machine hit its 5h limit. Eight tabs stopped, and none was
+swapped. What changed after that:
+
+- **On by default.** `machines.claude_auto_swap` defaults to `true`, and a migration turns it on for
+  existing machines, which all still had the old default. This replaces decision §9.1 (owner decision).
+  It stays switchable per machine in Contas de IA. With it off, the limit banner says the automatic
+  swap is off, next to the button.
+- **Unregistered default login.** The machine's default login counts as a Claude account in
+  `AutoSwapSettings` when the machine has `claude` and none of its registered accounts is the default
+  login. Its tabs can move to a registered account. Nothing moves back to it until it is registered,
+  and the settings say so.
+- **§4.3.** `rate_limited_at` is cleared by a normal `Stop` of the main thread, by `SessionEnd`, or by a
+  `SessionStart` of a different session. `UserPromptSubmit`, `PreToolUse`, a subagent's `Stop` and a
+  resume of the same session no longer clear it. Claude Code dequeues a queued background-task
+  notification right after the `StopFailure`, and subagents keep calling tools. A second `StopFailure`
+  keeps the first `rate_limited_at`.
+- **§4.5.** One automatic swap is scheduled per incident. The cooldown starts only when a swap is
+  attempted. A machine with a single Claude login is skipped silently: no failure notice on every
+  limit.
+- **§4.4 step 4.** The link is made again after Claude exits. Leaving a worktree without changes
+  removes it, and the transcript moves to the main repository's project dir. The move is done before
+  the `SessionEnd` hook, whose `transcript_path` is already the new path; the relink uses it. The script looks up a
+  missing transcript by session id in the account's other project dirs (the newest file wins). It replaces a link that points
+  nowhere, and moves an older prefix copy aside (`.termhub-old-<epoch>`) instead of answering
+  `conflict`.
+- **TER-589 extension point.** `swapPreferences(repos, tab)` returns
+  `{ priority?, model? }`. It is empty until TER-589 fills it from the project setup. Whether the swap
+  happens by itself stays the machine's setting alone.
+
+Impact on other users: machines where the swap applies now swap by themselves, unless the person
+turns it off. That means machines with two Claude accounts, or one registered account plus the
+unregistered default login. Nothing changes on machines with a single Claude login.
