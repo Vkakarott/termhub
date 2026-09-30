@@ -117,6 +117,19 @@ export class TabsRepository {
     return rows.map(mapTab);
   }
 
+  /**
+   * Claude Code tabs left `working` with no hook event since `before` (TER-615), oldest first, at most
+   * `limit`: the tabs whose screen the monitor reads again (monitor/stale-working.ts).
+   */
+  async listStaleWorking(before: Date, limit = 50): Promise<Tab[]> {
+    const rows = await this.db.tab.findMany({
+      where: { kind: 'terminal', tmuxSession: { not: null }, state: 'working', stateTool: 'claude', stateAt: { lt: before } },
+      orderBy: [{ stateAt: 'asc' }],
+      take: limit,
+    });
+    return rows.map(mapTab);
+  }
+
   /** Every tab on one machine. */
   async listByMachine(machineId: string): Promise<Tab[]> {
     const rows = await this.db.tab.findMany({ where: { machineId }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
@@ -180,6 +193,12 @@ export class TabsRepository {
       keepsWaitText?: boolean;
       /** The whole answer of the turn (monitor/state.ts `Interpreted.answer`), stored apart from the tab. */
       answer?: string;
+      /**
+       * Only for a state read off the screen (monitor/stale-working.ts): the tab's `state_at` when the
+       * screen was captured. The event is dropped unless the tab is still `working` since then — a
+       * hook that landed meanwhile knows better than the capture.
+       */
+      ifStateAt?: string;
     },
   ): Promise<{ tab: Tab; event: TabEvent | null; rearm: Rearm | null }> {
     const [e, t, rearm] = await this.db.$transaction(async (tx) => {
@@ -202,7 +221,8 @@ export class TabsRepository {
         seenAgeMs: current?.stateSeenAt ? at.getTime() - current.stateSeenAt.getTime() : null,
       };
       const incoming = { kind: event.kind, name: eventName(event.meta), continuesWait: !!event.continuesWait, keepsWaitText: !!event.keepsWaitText, subagent: subagentOf(event.meta) };
-      const outcome = decideWait(now, history, incoming);
+      const outdated = event.ifStateAt !== undefined && (current?.state !== 'working' || current.stateAt?.toISOString() !== event.ifStateAt);
+      const outcome = outdated ? ({ action: 'drop' } as const) : decideWait(now, history, incoming);
       if (outcome.action === 'drop') {
         return [null, await tx.tab.findUniqueOrThrow({ where: { id: tabId } }), null] as const;
       }
