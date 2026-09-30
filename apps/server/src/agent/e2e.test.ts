@@ -23,6 +23,7 @@ import { captureScreen } from './screen.js';
 // server test suite's, not the agent's).
 import { runAgent } from '../../../agent/src/run.js';
 import type { AgentConfig } from '../../../agent/src/config.js';
+import { removeTempDir } from '../../test/temp-dir.js';
 
 const { resolveUserMock, canAccessMock } = vi.hoisted(() => ({
   resolveUserMock: vi.fn(),
@@ -222,11 +223,11 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
       /* no session left, or tmux server already gone — fine */
     }
     if (server) await shutdown(server);
-    fs.rmSync(tmuxTmpDir, { recursive: true, force: true });
+    removeTempDir(tmuxTmpDir);
     fs.rmSync(projectCwd, { recursive: true, force: true });
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
-    fs.rmSync(agentHome, { recursive: true, force: true });
+    removeTempDir(agentHome);
 
     if (prevTmuxTmpDir === undefined) delete process.env.TMUX_TMPDIR;
     else process.env.TMUX_TMPDIR = prevTmuxTmpDir;
