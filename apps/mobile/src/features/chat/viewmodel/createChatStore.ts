@@ -215,6 +215,12 @@ export function createChatStore(deps: ChatDeps) {
   const { api, session } = deps;
 
   let generation = 0;
+  /** Favorite writes in flight, by project (TER-541): the last tap's number and the chain of its writes. */
+  const favoriteWrites = new Map<string, { seq: number; done: Promise<unknown> }>();
+  /** The number of the last tap on each project's pin, kept after its write: a list read that
+   * started before that tap holds an older state than the row. */
+  const favoriteTapped = new Map<string, number>();
+  let favoriteSeq = 0;
   let closeSocket: (() => void) | null = null;
   /** Per conversation, the latest `GET chat` in flight: an older answer never overwrites a newer. */
   const readSeq = new Map<string, number>();
@@ -491,8 +497,13 @@ export function createChatStore(deps: ChatDeps) {
             const gen = generation;
             if (!quiet) set({ loadingProjects: true, error: null });
             try {
-              const { projects } = await api.chatProjects(session().auth());
+              const readFrom = favoriteSeq;
+              const read = await api.chatProjects(session().auth());
               if (gen !== generation) return;
+              // A pin still being written wins over a list read that may have started before it.
+              const local = new Map(get().projects.map((p) => [p.id, p.favorite_position]));
+              const newer = (id: string) => favoriteWrites.has(id) || (favoriteTapped.get(id) ?? 0) > readFrom;
+              const projects = read.projects.map((p) => (newer(p.id) && local.has(p.id) ? { ...p, favorite_position: local.get(p.id) ?? null } : p));
               set(quiet ? { projects } : { projects, loadingProjects: false });
             } catch (e) {
               if (!quiet) {
@@ -513,12 +524,20 @@ export function createChatStore(deps: ChatDeps) {
             const next = favorite ? (before ?? Math.max(-1, ...places) + 1) : null;
             const put = (value: number | null) => set((s) => ({ projects: s.projects.map((p) => (p.id === projectId ? { ...p, favorite_position: value } : p)) }));
             put(next);
+            // One write at a time per project, in tap order, so the server ends where the last tap says.
+            const seq = ++favoriteSeq;
+            favoriteTapped.set(projectId, seq);
+            const previous = favoriteWrites.get(projectId)?.done ?? Promise.resolve();
+            const done = previous.then(() => api.setProjectFavorite(session().auth(), projectId, favorite));
+            favoriteWrites.set(projectId, { seq, done: done.catch(() => undefined) });
             try {
-              await api.setProjectFavorite(session().auth(), projectId, favorite);
+              await done;
             } catch (e) {
               // A later tap on the same row owns it now: this failure must not undo it.
-              if (gen === generation && placeOf(projectId) === next) put(before);
+              if (gen === generation && favoriteWrites.get(projectId)?.seq === seq) put(before);
               fail(gen, e);
+            } finally {
+              if (favoriteWrites.get(projectId)?.seq === seq) favoriteWrites.delete(projectId);
             }
           },
 

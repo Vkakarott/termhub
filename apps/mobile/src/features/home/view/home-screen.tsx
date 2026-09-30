@@ -38,7 +38,8 @@ export function HomeScreen() {
         {error ? <Banner tone="danger" text={error} /> : null}
         {favorites.length > 0 ? <AppText variant="muted">Favoritos</AppText> : null}
       </View>
-      {favorites.length === 0 && !loading ? (
+      {/* No list at all after a failure: the banner says why, and "nothing pinned" would not be true. */}
+      {favorites.length === 0 && !loading && (projects.length > 0 || !error) ? (
         <EmptyState
           title="Nenhum projeto fixado"
           hint="Na aba Chats, toque no alfinete de um projeto, ou segure a linha, para fixá-lo aqui."

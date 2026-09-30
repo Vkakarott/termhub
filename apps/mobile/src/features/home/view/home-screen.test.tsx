@@ -87,4 +87,12 @@ describe('Home (TER-541)', () => {
     await render(<HomeScreen />);
     expect(screen.queryByText('Nenhum projeto fixado')).toBeNull();
   });
+
+  it('after a failed first load, shows the error without claiming nothing is pinned', async () => {
+    await act(() => useChatStore.setState({ projects: [] }));
+    jest.spyOn(stores.api, 'chatProjects').mockRejectedValueOnce(new Error('offline'));
+    await render(<HomeScreen />);
+    expect(await screen.findByText('Não foi possível falar com o servidor. Tente de novo.', undefined, LOAD)).toBeTruthy();
+    expect(screen.queryByText('Nenhum projeto fixado')).toBeNull();
+  });
 });
