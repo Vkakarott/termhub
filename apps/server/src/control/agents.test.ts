@@ -97,16 +97,32 @@ beforeEach(() => {
 const NOTE = 'O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou perguntar algo, e read_screen para ver a tela.';
 const MCP_URL = 'https://termhub.dev/mcp';
 const MCP_FLAGS = `--mcp-config "$HOME"/'.termhub/tabs/abc/mcp.json' --allowedTools 'mcp__termhub_tab__search_memory' 'mcp__termhub_tab__record_lesson'`;
+/** What the line of an account without a config dir starts with: the CLI's variable cleared in the tab's shell (TER-499). */
+const CLEAR_CLAUDE = 'command -v unset >/dev/null 2>&1 && unset CLAUDE_CONFIG_DIR; ';
+const CLEAR_CODEX = 'command -v unset >/dev/null 2>&1 && unset CODEX_HOME; ';
 
 describe('launchLine', () => {
   it('starts claude with the prompt as its argument, under CLAUDE_CONFIG_DIR when the account has one', () => {
     expect(launchLine('claude', '/Users/p/.claude-work', 'write a spec')).toBe("CLAUDE_CONFIG_DIR='/Users/p/.claude-work' claude 'write a spec'");
-    expect(launchLine('claude', null, 'write a spec')).toBe("claude 'write a spec'");
+  });
+
+  // TER-499: no config dir is the machine's default login, so a variable the tab's shell inherited must
+  // not pick another one. `unset`, not `env -u`: the person's alias or function for the binary still runs.
+  it("clears the CLI's config variable for an account without a config dir, and only for it", () => {
+    expect(launchLine('claude', null, 'write a spec')).toBe(`${CLEAR_CLAUDE}claude 'write a spec'`);
+    expect(launchLine('chatgpt', null, 'fix it')).toBe(`${CLEAR_CODEX}codex --no-alt-screen 'fix it'`);
+    expect(launchLine('claude', '~/.claude-work', 'x')).not.toContain('unset');
+    expect(launchLine('chatgpt', '/Users/p/.codex-work', 'x', { tabId: 'abc', url: MCP_URL })).not.toContain('unset');
+  });
+
+  it('clears the variable before the token assignment of a codex tab with the MCP', () => {
+    expect(launchLine('chatgpt', null, 'fix it', { tabId: 'abc', url: MCP_URL })).toBe(
+      `${CLEAR_CODEX}TERMHUB_MCP_TOKEN="$(cat "$HOME"/'.termhub/tabs/abc/token')" codex --no-alt-screen -c 'mcp_servers.termhub_tab.url="https://termhub.dev/mcp"' -c 'mcp_servers.termhub_tab.bearer_token_env_var="TERMHUB_MCP_TOKEN"' 'fix it'`,
+    );
   });
 
   it('starts codex under CODEX_HOME, out of the alternate screen', () => {
     expect(launchLine('chatgpt', '/Users/p/.codex-work', 'fix it')).toBe("CODEX_HOME='/Users/p/.codex-work' codex --no-alt-screen 'fix it'");
-    expect(launchLine('chatgpt', null, 'fix it')).toBe("codex --no-alt-screen 'fix it'");
   });
 
   // TER-465: in the alternate screen Codex's messages never reach the pane history, so the mouse wheel has
@@ -131,7 +147,7 @@ describe('launchLine', () => {
   });
 
   it('points claude at the tab config and pre-allows only the memory tools, `--` before the prompt', () => {
-    expect(launchLine('claude', null, 'write a spec', { tabId: 'abc', url: MCP_URL })).toBe(`claude ${MCP_FLAGS} -- 'write a spec'`);
+    expect(launchLine('claude', null, 'write a spec', { tabId: 'abc', url: MCP_URL })).toBe(`${CLEAR_CLAUDE}claude ${MCP_FLAGS} -- 'write a spec'`);
     expect(launchLine('claude', '~/.claude-work', 'x', { tabId: 'abc', url: MCP_URL })).toBe(`CLAUDE_CONFIG_DIR="$HOME"/'.claude-work' claude ${MCP_FLAGS} -- 'x'`);
   });
 
@@ -158,8 +174,8 @@ describe('launchLine', () => {
   });
 
   it('is exactly the plain line without mcp', () => {
-    expect(launchLine('claude', null, 'x', null)).toBe("claude 'x'");
-    expect(launchLine('chatgpt', null, 'x', undefined)).toBe("codex --no-alt-screen 'x'");
+    expect(launchLine('claude', '/c', 'x', null)).toBe("CLAUDE_CONFIG_DIR='/c' claude 'x'");
+    expect(launchLine('chatgpt', '/c', 'x', undefined)).toBe("CODEX_HOME='/c' codex --no-alt-screen 'x'");
   });
 
   it('refuses gemini and antigravity for now', () => {
@@ -173,8 +189,10 @@ describe('resumeLine', () => {
   it('resumes the session under the account, prompt quoted', () => {
     expect(resumeLine('~/.claude_b', SID, RESUME_PROMPT)).toBe(`CLAUDE_CONFIG_DIR="$HOME"/'.claude_b' claude --resume ${SID} 'A conta anterior atingiu o limite de uso. Continue a tarefa de onde parou.'`);
   });
-  it('no env for the default account', () => {
-    expect(resumeLine(null, SID, 'x')).toBe(`claude --resume ${SID} 'x'`);
+  it('clears an inherited config dir for the default account', () => {
+    expect(resumeLine(null, SID, 'x')).toBe(`${CLEAR_CLAUDE}claude --resume ${SID} 'x'`);
+    expect(resumeLine(null, SID, 'x', 'abc')).toBe(`${CLEAR_CLAUDE}claude ${MCP_FLAGS} --resume ${SID} -- 'x'`);
+    expect(resumeLine('~/.claude_b', SID, 'x')).not.toContain('unset');
   });
   it('refuses a session id that is not a uuid', () => {
     expect(() => resumeLine(null, "x'; rm -rf ~", 'x')).toThrow(ControlError);
@@ -186,7 +204,7 @@ describe('resumeLine', () => {
 
   it('keeps the tab config when the tab has a live tab token, `--` before the prompt', () => {
     expect(resumeLine('~/.claude_b', SID, 'x', 'abc')).toBe(`CLAUDE_CONFIG_DIR="$HOME"/'.claude_b' claude ${MCP_FLAGS} --resume ${SID} -- 'x'`);
-    expect(resumeLine(null, SID, 'x', null)).toBe(`claude --resume ${SID} 'x'`);
+    expect(resumeLine(null, SID, 'x', null)).toBe(`${CLEAR_CLAUDE}claude --resume ${SID} 'x'`);
     expect(() => resumeLine(null, SID, 'x', '../x')).toThrow(ControlError);
   });
 });
