@@ -255,3 +255,12 @@ describe('integration and repository setup tools', () => {
     expect(full).toEqual(expect.arrayContaining(['create_integration', 'set_project_repo']));
   });
 });
+
+it('start_agent and wait_for_state say to follow a tab with wait_for_state / read_last_answer, not a polling subagent', () => {
+  const start = TOOLS.find((t) => t.name === 'start_agent')!.description;
+  expect(start).toContain('wait_for_state and read_last_answer');
+  expect(start).toMatch(/never a subagent polling it/);
+  const wait = TOOLS.find((t) => t.name === 'wait_for_state')!.description;
+  expect(wait).toMatch(/instead of a subagent polling it/);
+  expect(wait).toContain('read_last_answer');
+});

@@ -27,3 +27,12 @@ it('goes first, with the project prompt after it, and fits the protocol cap with
   expect(streamedSystemPrompt('projeto')).toBe(`${ORCHESTRATOR_PROMPT}\n\nprojeto`);
   expect(streamedSystemPrompt('x'.repeat(4000)).length).toBeLessThanOrEqual(8000);
 });
+
+it('tells the concierge to follow tabs with wait_for_state and read_last_answer, never a watcher subagent', () => {
+  expect(ORCHESTRATOR_PROMPT).not.toContain('waiting on an agent');
+  expect(ORCHESTRATOR_PROMPT).toMatch(/Claude Code, Codex or Cursor report their state through hooks/);
+  expect(ORCHESTRATOR_PROMPT).toMatch(/cards in this chat/);
+  expect(ORCHESTRATOR_PROMPT).toMatch(/Never launch a subagent to watch or poll a tab/);
+  expect(ORCHESTRATOR_PROMPT).toContain('wait_for_state');
+  expect(ORCHESTRATOR_PROMPT).toContain('read_last_answer');
+});

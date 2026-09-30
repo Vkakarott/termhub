@@ -94,7 +94,7 @@ beforeEach(() => {
   cfg.mcpUrl = null;
 });
 
-const NOTE = 'O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou perguntar algo, e read_screen para ver a tela.';
+const NOTE = 'O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou parar, e read_last_answer para a resposta dele (read_screen só para o que está na tela). Perguntas e permissões chegam como cards no chat. Não abra um subagente para monitorar a aba em laço.';
 const MCP_URL = 'https://termhub.dev/mcp';
 const MCP_FLAGS = `--mcp-config "$HOME"/'.termhub/tabs/abc/mcp.json' --allowedTools 'mcp__termhub_tab__search_memory' 'mcp__termhub_tab__record_lesson'`;
 
