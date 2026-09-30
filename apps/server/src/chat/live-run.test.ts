@@ -254,6 +254,40 @@ it('giveWay leaves a process with nothing in the background to finish, and stops
   await consumed;
 });
 
+/** A shutdown in the middle of a turn the CLI started on its own, with a message of the person's
+ *  written and not yet replayed. */
+async function cutByShutdown() {
+  const a = await h.turn(U1, 'a');
+  const b = await h.turn(U2, 'b');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1)); s.push(background(1)); s.push(delta('disparei')); s.push(result());
+  await settle();
+  h.live.add(b.t);
+  s.push(delta('o subagente terminou'));
+  await settle();
+  s.end();
+  await consumed;
+  return { b };
+}
+
+it('rejectOpen (a shutdown) stores what a turn of the CLI\'s own had said, and leaves the person\'s turn open for the resume (TER-498)', async () => {
+  const { b } = await cutByShutdown();
+  await h.live.rejectOpen(new Error('restarting'));
+  await expect(b.done).rejects.toThrow('restarting');
+  expect(h.rows.find((r) => r.id === b.t.answer.id)).toMatchObject({ text: '', error_code: null });
+  // Nobody resumes a turn the CLI started: its row would stay empty for good.
+  expect(h.rows.at(-1)).toMatchObject({ role: 'assistant', text: 'o subagente terminou', error_code: null });
+});
+
+it('rejectOpen never throws: a row that cannot be stored still leaves every turn of the person\'s rejected', async () => {
+  const { b } = await cutByShutdown();
+  h.chat.updateMessage.mockRejectedValueOnce(new Error('db gone'));
+  await expect(h.live.rejectOpen(new Error('restarting'))).resolves.toBeUndefined();
+  await expect(b.done).rejects.toThrow('restarting');
+});
+
 it('a stream that ends with turns open fails each one', async () => {
   const a = await h.turn(U1, 'a');
   const b = await h.turn(U2, 'b');

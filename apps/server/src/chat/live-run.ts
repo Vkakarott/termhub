@@ -353,12 +353,19 @@ export class LiveRun {
   }
 
   /** The server is shutting down (spec 2026-09-26 panel §3): every open turn's `done` rejects with `err`
-   *  so no request waits on it, and no row is written — the answers stay open for the instance that
-   *  resumes them. */
-  rejectOpen(err: unknown): void {
+   *  so no request waits on it, and its row is not written — the answers stay open for the instance that
+   *  resumes them. A turn the CLI started on its own is resumed by nobody: what it said is stored now
+   *  (an empty row goes), or the row would stay empty for good. Never throws: a shutdown must go on. */
+  async rejectOpen(err: unknown): Promise<void> {
     this.inputOpen = false;
     const cur = this.current;
     for (const t of [...(cur?.turn ? [cur.turn] : []), ...(cur?.merged ?? []), ...this.waiting]) t.settle.reject(err);
+    if (!cur || cur.turn !== null) return;
+    try {
+      await this.finish(cur, null);
+    } catch (e) {
+      console.error('chat: the row of a turn the CLI started could not be closed', { conversation_id: this.deps.conversationId, error: failureLabel(e) });
+    }
   }
 
   /** Nothing ran and nothing will (a setup failure): the answers go, every open turn rejects. */

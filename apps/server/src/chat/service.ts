@@ -1347,7 +1347,7 @@ export class ChatService {
         // effect already is the mediation the gate exists to add.
         token = await mintConciergeToken(this.deps.repos, user.id, conversation.id, ['read', 'tasks', 'terminals', 'memory'], { accountWide: conversation.project_id === null });
       } catch {
-        if (this.suspending) live.rejectOpen(serverRestarting());
+        if (this.suspending) await live.rejectOpen(serverRestarting());
         else await live.failOpen('TOKEN_FAILED');
         return;
       }
@@ -1377,7 +1377,7 @@ export class ChatService {
         // A graceful shutdown killed the process: its turns stay open, for the instance that resumes
         // them, and whoever waits on one is answered now instead of never.
         if (this.suspending) {
-          live.rejectOpen(serverRestarting());
+          await live.rejectOpen(serverRestarting());
           return;
         }
         if (resume && outcome.missingSession && live.endedTurns === 0 && attempt === 0) {
@@ -1391,7 +1391,7 @@ export class ChatService {
       // A database failure mid-run must not leave `done` hanging for ever, nor escape as an unhandled
       // rejection: the open turns are failed as a runner failure, and only the label is logged.
       console.error('chat: live run failed', { conversation_id: conversation.id, error: failureLabel(err) });
-      if (this.suspending) live.rejectOpen(serverRestarting());
+      if (this.suspending) await live.rejectOpen(serverRestarting());
       else await live.failOpen('RUNNER_FAILED').catch(() => {});
     } finally {
       this.live.delete(conversation.id);
