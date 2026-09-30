@@ -1,7 +1,8 @@
 import '../global.css';
 import { Stack, useRouter, useSegments, type Href } from 'expo-router';
+import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { AppState, Linking } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { PinPromptSheet } from '@/features/session/view/pin-prompt-sheet';
@@ -9,6 +10,7 @@ import { usePhaseRedirect } from '@/features/session/view/use-phase-redirect';
 import { useSessionStore } from '@/features/session/viewmodel/useSessionStore';
 import { appBackgrounded } from '@/features/shared/signals';
 import { logScreen } from '@/services/analytics';
+import { configurePush, pushConversationId } from '@/services/push';
 import { socketWake } from '@/services/api/wake';
 import { ThemeProvider, useSchemeName } from '@/ui/theme-provider';
 
@@ -24,6 +26,8 @@ function chatIdFromUrl(url: string): string | null {
   const i = parts.indexOf('chat');
   return i >= 0 ? (parts[i + 1] ?? null) : null;
 }
+
+configurePush();
 
 /**
  * Route groups follow the flow of spec §11.2: enrolment (Início → Aguardando aprovação → Criar PIN),
@@ -59,13 +63,19 @@ function Navigator() {
     return () => sub.remove();
   }, []);
 
-  useEffect(() => {
-    const handle = (url: string) => {
-      const id = chatIdFromUrl(url);
-      if (!id) return;
+  const openChat = useCallback(
+    (id: string) => {
       // Already unlocked: navigate at once, no need to stash and wait for `usePhaseRedirect`.
       if (useSessionStore.getState().phase === 'unlocked') router.push(`/chat/${id}` as Href);
       else useSessionStore.getState().setPendingRoute(`/chat/${id}`);
+    },
+    [router],
+  );
+
+  useEffect(() => {
+    const handle = (url: string) => {
+      const id = chatIdFromUrl(url);
+      if (id) openChat(id);
     };
     Linking.getInitialURL()
       .then((url) => {
@@ -74,7 +84,17 @@ function Navigator() {
       .catch(() => undefined);
     const sub = Linking.addEventListener('url', ({ url }) => handle(url));
     return () => sub.remove();
-  }, [router]);
+  }, [openChat]);
+
+  // A tapped push — on a cold start too — opens its conversation, after the PIN when locked (P§9).
+  // Cleared once followed, so a remount never opens it a second time.
+  const tapped = Notifications.useLastNotificationResponse();
+  useEffect(() => {
+    if (!tapped || tapped.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
+    Notifications.clearLastNotificationResponse();
+    const id = pushConversationId(tapped.notification.request.content.data);
+    if (id) openChat(id);
+  }, [tapped, openChat]);
 
   return (
     <>

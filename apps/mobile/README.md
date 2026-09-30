@@ -41,10 +41,11 @@ src/services/
               http mode, and the key diagnostic in every mode outside Jest)
   vault.ts    the SecureStore wrapper for the app's few secrets (a closed set of `VaultKey`s)
   storage.ts  the MMKV instance and the zustand StateStorage every persisted store uses
+  push.ts     expo-notifications: the phone's Expo push token, the foreground handler, a push's chat
 
 src/ui/       Screen, Text, Button, Field, PinInput, Sheet, Card, Banner… (NativeWind v4)
 src/theme/tokens.ts  the termhub palette (CSS variables), both colour schemes
-test/         jest setup, fakes for MMKV/SecureStore/expo-device/expo-local-authentication/the
+test/         jest setup, fakes for MMKV/SecureStore/expo-device/expo-local-authentication/expo-notifications/the
               hardware key module, and shared test helpers (`test/helpers/enrolled-session.ts`,
               `test/helpers/ui-stores.ts`)
 ```
@@ -105,7 +106,7 @@ Prerequisites on the Mac: Xcode, CocoaPods, Node 22, and an Apple ID of team **8
 4. `npm run release:ios -w @termhub/mobile -- --upload` repeats the build and exports with `destination = upload`, which sends it to App Store Connect under the same Apple ID.
 5. In App Store Connect → TestFlight, wait for the build to finish processing, answer the export compliance question if asked (`ITSAppUsesNonExemptEncryption` is `false`, so it normally is not), fill in "What to Test" and add it to the testers' group.
 
-Push to real devices is not wired yet (the app registers only the mock push token); when it is, the APNs key it needs is set up then.
+Push needs the APNs key registered with Expo (see "Push notifications" below); without it, iOS phones register a token but never receive a push.
 
 ## Releasing to Firebase App Distribution (Android)
 
@@ -144,6 +145,17 @@ The token is a publishing API key of the termhub app on xprem: `EOO_TOKEN` when 
 The script bakes in the same `EXPO_PUBLIC_*` values as the store builds and runs `eoas publish --branch production --platform all`. A rollout is then widened, ended or reverted in the dashboard; a bad update is reverted by republishing an earlier one or with a rollback to the embedded bundle (dashboard, or `republish_update` / `rollback_branch` in the MCP).
 
 Manifests are code-signed: the server holds the app's private key, and `certs/certificate.pem` (public, committed) goes into every build. `expo start` cannot sign development manifests without the private key, so `npm start`, `npm run ios` and `npm run android` set `DISABLE_CODE_SIGNING=1`; the release scripts leave it unset. A development build loads its JS from Metro, not from the OTA server.
+
+## Push notifications
+
+`expo-notifications` (spec §9). The server sends through the Expo Push Service to the token the app registers with `PUT push-token`; `src/services/push.ts` reads that token:
+
+- **Registration.** At every session start (activation or unlock, never a silent renewal) the session store asks for the phone's Expo push token and sends it, fire-and-forget. The first time, this is where the OS permission prompt appears (on Android 13+ only after the `default` channel exists, which `expoPushToken` creates first). A simulator, a refused permission or a build without `extra.eas.projectId` has no token, and nothing is sent. Mock mode keeps sending the fake `ExponentPushToken[mock-…]`.
+- **Tokens are per EAS project.** `getExpoPushTokenAsync` needs `extra.eas.projectId` (`app.json`, project `0614ffa1-…` of the `engenharia-inversa` Expo account). If that id changes, every phone's token changes with it.
+- **Taps.** `app/_layout.tsx` opens `data.conversation_id` the same way as a `termhub://chat/<id>` deep link, straight away when unlocked or after the PIN otherwise; a cold start from a tap works the same way. A `device_request` push names no conversation and just opens the app.
+- **In the foreground** a push is still shown as a banner: the server only skips phones with a live chat socket, so one that arrives while the app is open is about something the screen may not be showing.
+
+Delivery to real phones needs credentials on the Expo project, set once with `eas credentials` (or expo.dev → the project → Credentials), logged in to `engenharia-inversa` (see the root `CLAUDE.md`, "Mobile (EAS)"): an **APNs key** for `dev.termhub.app` (iOS) and a **FCM V1 service account key** of the Firebase project `apptermhub` (Android). If the Expo account enables enhanced push security, the server's `EXPO_PUSH_ACCESS_TOKEN` must be an access token of that same account.
 
 ## Firebase
 

@@ -29,6 +29,9 @@ export interface SessionDeps {
   now?: () => number;
   mockControls: MockControls | null;
   localAuth?: LocalAuth;
+  /** This phone's Expo push token (`expo-notifications`), or `null` when there is none (a
+   * simulator, a refused permission). Asked for at every session start outside mock mode. */
+  pushToken?: () => Promise<string | null>;
 }
 
 export interface SessionState {

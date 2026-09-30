@@ -4,6 +4,7 @@
 import * as LocalAuthentication from 'expo-local-authentication';
 import { api, mockControls, setTokenRenewer, setTokenStaleCheck } from '@/services/api';
 import { deviceKey } from '@/services/key';
+import { expoPushToken } from '@/services/push';
 import { vault } from '@/services/vault';
 import type { LocalAuth } from '../model/session.types';
 import { createSessionStore } from './createSessionStore';
@@ -13,7 +14,7 @@ const localAuth: LocalAuth = {
   authenticate: async () => (await LocalAuthentication.authenticateAsync({ promptMessage: 'Ativar a biometria' })).success,
 };
 
-export const useSessionStore = createSessionStore({ api, key: deviceKey, vault, mockControls, localAuth });
+export const useSessionStore = createSessionStore({ api, key: deviceKey, vault, mockControls, localAuth, pushToken: expoPushToken });
 
 setTokenRenewer(() => useSessionStore.getState().renewToken());
 setTokenStaleCheck(() => useSessionStore.getState().tokenStale());
