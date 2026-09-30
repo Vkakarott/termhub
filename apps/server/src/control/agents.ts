@@ -31,7 +31,7 @@ export function checkPrompt(prompt: string): string {
 /**
  * How each provider is started (spec §4.4). The prompt goes in as the CLI's own initial-prompt argument,
  * so the session is interactive from the first turn and nothing has to guess when the TUI is "ready".
- * The account is chosen through the CLI's config-dir variable; gemini and antigravity are not wired yet.
+ * The account is chosen through the CLI's config-dir variable (`accountEnv`); gemini and antigravity are not wired yet.
  * No permission-bypass flag, ever.
  */
 const LAUNCH: Partial<Record<AiProvider, Launcher>> = {
@@ -66,6 +66,18 @@ function configDirArg(dir: string): string {
   if (dir === '~') return '"$HOME"';
   if (dir.startsWith('~/')) return `"$HOME"/${shellQuote(dir.slice(2))}`;
   return shellQuote(dir);
+}
+
+/**
+ * How the line picks the account (spec 2026-09-30 TER-499 D2). With a config dir, the CLI's variable is a
+ * prefix of the command. Without one the account is the machine's default login, and a variable the tab's
+ * shell inherited must not stand in for it: it is cleared first. `unset`, not `env -u`, which would run the
+ * binary from PATH and skip the person's alias or shell function for it. The `command -v` guard keeps
+ * fish quiet (it has no `unset`); there the line behaves as it did before.
+ */
+function accountEnv(configEnv: string, configDir: string | null): { clear: string; prefix: string } {
+  if (configDir) return { clear: '', prefix: `${configEnv}=${configDirArg(configDir)} ` };
+  return { clear: `command -v unset >/dev/null 2>&1 && unset ${configEnv}; `, prefix: '' };
 }
 
 /** A file of the tab's MCP config dir as the machine's shell must read it: `$HOME` expanded there, the rest quoted. */
@@ -104,13 +116,13 @@ export const CODEX_TAB_MCP_ENABLED = true;
 export function launchLine(provider: AiProvider, configDir: string | null, prompt: string, mcp?: { tabId: string; url: string } | null): string {
   const { binary: bin, configEnv, flags } = launcher(provider);
   const binary = `${bin}${flags}`;
-  const env = configDir ? `${configEnv}=${configDirArg(configDir)} ` : '';
-  if (!mcp) return `${env}${binary} ${shellQuote(prompt)}`;
+  const { clear, prefix } = accountEnv(configEnv, configDir);
+  if (!mcp) return `${clear}${prefix}${binary} ${shellQuote(prompt)}`;
   if (!MCP_URL_RE.test(mcp.url)) throw new ControlError('INVALID_MCP_URL', 'MCP_URL inválido');
-  if (provider === 'claude') return `${env}${binary} ${claudeMcpFlags(mcp.tabId)} -- ${shellQuote(prompt)}`;
+  if (provider === 'claude') return `${clear}${prefix}${binary} ${claudeMcpFlags(mcp.tabId)} -- ${shellQuote(prompt)}`;
   const tokenEnv = `TERMHUB_MCP_TOKEN="$(cat ${tabMcpPath(mcp.tabId, 'token')})"`;
   const server = `mcp_servers.${TAB_MCP_SERVER}`;
-  return `${tokenEnv} ${env}${binary} -c ${shellQuote(`${server}.url="${mcp.url}"`)} -c ${shellQuote(`${server}.bearer_token_env_var="TERMHUB_MCP_TOKEN"`)} ${shellQuote(prompt)}`;
+  return `${clear}${tokenEnv} ${prefix}${binary} -c ${shellQuote(`${server}.url="${mcp.url}"`)} -c ${shellQuote(`${server}.bearer_token_env_var="TERMHUB_MCP_TOKEN"`)} ${shellQuote(prompt)}`;
 }
 
 /**
@@ -136,10 +148,10 @@ export const RESUME_PROMPT = 'A conta anterior atingiu o limite de uso. Continue
  */
 export function resumeLine(configDir: string | null, sessionId: string, prompt: string, mcpTabId?: string | null): string {
   if (!isClaudeSessionId(sessionId)) throw new ControlError('NO_SESSION', 'A sessão do Claude desta aba não é válida');
-  const env = configDir ? `CLAUDE_CONFIG_DIR=${configDirArg(configDir)} ` : '';
+  const { clear, prefix } = accountEnv('CLAUDE_CONFIG_DIR', configDir);
   const quoted = shellQuote(checkPrompt(prompt));
-  if (!mcpTabId) return `${env}claude --resume ${sessionId} ${quoted}`;
-  return `${env}claude ${claudeMcpFlags(mcpTabId)} --resume ${sessionId} -- ${quoted}`;
+  if (!mcpTabId) return `${clear}${prefix}claude --resume ${sessionId} ${quoted}`;
+  return `${clear}${prefix}claude ${claudeMcpFlags(mcpTabId)} --resume ${sessionId} -- ${quoted}`;
 }
 
 async function accountOnMachine(ctx: ControlContext, accountId: string, machine: Machine): Promise<AiAccount> {
