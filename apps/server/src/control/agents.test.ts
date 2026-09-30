@@ -14,6 +14,7 @@ vi.mock('../terminal/tab-mcp.js', async (orig) => ({ ...(await orig<typeof impor
 
 import type { Repositories } from '../db/repositories/index.js';
 import type { AiAccount, Machine, Project, Tab, Task } from '../db/repositories/types.js';
+import { TaskRuleError } from '../db/repositories/tasks.js';
 import { Scoped } from '../auth/scope.js';
 import { ControlError, type ControlContext } from './context.js';
 import { checkPrompt, CODEX_TAB_MCP_ENABLED, launchLine, LESSONS_REMINDER, linkTabTask, PROMPT_MAX_CHARS, RESUME_PROMPT, resumeLine, startAgent, withLessonsReminder } from './agents.js';
@@ -562,6 +563,12 @@ describe('linkTabTask', () => {
     const { c, repos } = ctx(['terminals:write']);
     await expect(linkTabTask(c, { tab_id: 't1', task_id: 'k1' })).rejects.toEqual(new ControlError('FORBIDDEN', 'Vincular a tarefa precisa da permissão tasks:update na sua role'));
     expect(repos.tasks.setTab).not.toHaveBeenCalled();
+  });
+
+  it('says a broken board rule as the board would, not as a server error', async () => {
+    const { c, repos } = ctx();
+    repos.tasks.startWork.mockRejectedValue(new TaskRuleError('COLUMN_NOT_FOUND'));
+    await expect(linkTabTask(c, { tab_id: 't1', task_id: 'k1' })).rejects.toEqual(new ControlError('COLUMN_NOT_FOUND', new TaskRuleError('COLUMN_NOT_FOUND').message));
   });
 
   it("404s another user's tab or card, the same way as one that does not exist", async () => {

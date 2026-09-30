@@ -6,7 +6,7 @@ import { mintTabToken, TAB_TOKEN_TOOLS } from '../mcp/tab-token.js';
 import { sendTextToSession } from '../terminal/session-ops.js';
 import { installTabMcp, TAB_MCP_SERVER, tabMcpSupported } from '../terminal/tab-mcp.js';
 import { ControlError, type ControlContext } from './context.js';
-import { boardUrl, taskOut, type TaskOut } from './tasks.js';
+import { boardUrl, rules, taskOut, type TaskOut } from './tasks.js';
 import { openTab } from './terminals.js';
 
 /** Same ceiling as one typed input: the prompt travels as a single command-line argument. */
@@ -278,7 +278,7 @@ export async function linkTabTask(ctx: ControlContext, input: { tab_id: string; 
   const { task } = await ctx.scoped.task(input.task_id);
   if (tab.kind !== 'terminal') throw new ControlError('TAB_NOT_TERMINAL', 'Só abas de terminal podem ser ligadas a uma tarefa');
   if (task.project_id !== tab.project_id) throw new ControlError('TASK_OTHER_PROJECT', `A tarefa "${task.title}" é de outro projeto, não o da aba`);
-  const linked = await attachTask(ctx, task.id, tab.id);
+  const linked = await rules(() => attachTask(ctx, task.id, tab.id));
   return {
     task: taskOut(linked ?? { ...task, tab_id: tab.id }),
     tab_id: tab.id,
