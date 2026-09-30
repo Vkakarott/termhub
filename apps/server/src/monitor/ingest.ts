@@ -118,15 +118,19 @@ export function publishTabChange(tab: Tab, projectId: string, machine: { id: str
 }
 
 /**
- * Events that mean the tab's Claude is running again: a usage limit it was stuck on is over. A turn
- * that ended normally (Stop) proves the account works again — Claude's own auto-continue after the
- * reset may produce nothing else.
+ * Only a turn of the main thread that ended normally proves the account works again (Claude's own
+ * auto-continue after the reset may produce nothing else). Prompts, session starts and tool calls do
+ * not (TER-587): right after the StopFailure, Claude Code dequeues a queued prompt (a background
+ * task's notification) and subagents keep calling tools, all while the account is still limited —
+ * and the hooks are posted in the background, so any of them may even land after the StopFailure.
  */
-const RUNNING_AGAIN = new Set(['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Stop']);
+const endsLimit = (i: Interpreted | null): boolean => !!i && i.meta.event === 'Stop' && i.meta.subagent !== true;
 
 /**
  * The tab's Claude bookkeeping (spec 2026-09-26 account swap): the session it runs (a `/clear` starts a
- * new one) and whether it is stuck on a usage limit. One write, only when something changed.
+ * new one) and whether it is stuck on a usage limit. `rate_limited_at` is when the incident began: a
+ * second StopFailure keeps it, so the automatic swap the first one scheduled still sees the same limit.
+ * One write, only when something changed.
  */
 async function noteClaudeSession(repos: Repositories, tab: Tab, event: unknown, interpreted: Interpreted | null): Promise<Tab> {
   const patch: Parameters<Repositories['tabs']['setAgentFields']>[1] = {};
@@ -135,9 +139,9 @@ async function noteClaudeSession(repos: Repositories, tab: Tab, event: unknown, 
     patch.agent_session_id = session.session_id;
     patch.agent_transcript_path = session.transcript_path;
   }
-  const name = interpreted?.meta.event;
-  if (isRateLimit(interpreted)) patch.rate_limited_at = new Date();
-  else if (tab.rate_limited_at && typeof name === 'string' && RUNNING_AGAIN.has(name)) patch.rate_limited_at = null;
+  if (isRateLimit(interpreted)) {
+    if (!tab.rate_limited_at) patch.rate_limited_at = new Date();
+  } else if (tab.rate_limited_at && endsLimit(interpreted)) patch.rate_limited_at = null;
   if (Object.keys(patch).length === 0) return tab;
   return (await repos.tabs.setAgentFields(tab.id, patch)) ?? tab;
 }
