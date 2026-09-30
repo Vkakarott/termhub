@@ -52,14 +52,13 @@ export function rankCandidates(accounts: AiAccount[], usage: Map<string, AiAccou
 
 /**
  * What the tab's project says about swapping (TER-589 fills this in): `priority` orders the candidate
- * accounts (ids), `model` is passed to the resumed session, and `autoSwap` turns the automatic swap on
- * for the project's tabs even when the machine has it off. Nothing is configured today: `{}` keeps the
- * machine's setting, the ranking by free room and the account's own default model.
+ * accounts (ids) and `model` is passed to the resumed session. Nothing is configured today: `{}` keeps
+ * the ranking by free room and the account's own default model. Whether the swap happens by itself is
+ * the machine's setting alone.
  */
 export interface SwapPreferences {
   priority?: string[];
   model?: string | null;
-  autoSwap?: boolean;
 }
 
 export async function swapPreferences(_repos: Repositories, _tab: Tab): Promise<SwapPreferences> {
@@ -217,7 +216,7 @@ const lastAuto = new Map<string, number>();
 const scheduled = new Set<string>();
 
 /**
- * A tab hit a usage limit: when its machine (or its project, TER-589) wants it, swap it by itself — at
+ * A tab hit a usage limit: when its machine wants it (the default), swap it by itself — at
  * most one attempt per tab per AUTO_SWAP_COOLDOWN_MS, so two exhausted accounts never ping-pong. The
  * cooldown counts from an attempt, not from a call that found the limit already over, and a second
  * StopFailure of the same incident (a queued prompt failing too) is skipped while the first call
@@ -227,8 +226,7 @@ const scheduled = new Set<string>();
 export function autoSwapOnLimit(repos: Repositories, log: FastifyBaseLogger, tab: Tab): void {
   void (async () => {
     const machine = await repos.machines.findById(tab.machine_id);
-    if (!machine) return;
-    if (!machine.claude_auto_swap && (await swapPreferences(repos, tab)).autoSwap !== true) return;
+    if (!machine?.claude_auto_swap) return;
     if (scheduled.has(tab.id)) {
       log.info({ tabId: tab.id, machineId: machine.id }, 'account swap: auto skipped (already scheduled)');
       return;

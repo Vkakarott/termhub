@@ -258,7 +258,8 @@ swapped. What changed after that:
   nowhere, and moves an older prefix copy aside (`.termhub-old-<epoch>`) instead of answering
   `conflict`.
 - **TER-589 extension point.** `swapPreferences(repos, tab)` returns
-  `{ priority?, model?, autoSwap? }`. It is empty until TER-589 fills it from the project setup.
+  `{ priority?, model? }`. It is empty until TER-589 fills it from the project setup. Whether the swap
+  happens by itself stays the machine's setting alone.
 
 Impact on other users: machines where the swap applies now swap by themselves, unless the person
 turns it off. That means machines with two Claude accounts, or one registered account plus the
