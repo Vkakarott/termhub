@@ -159,6 +159,8 @@ export async function openTabQuestion(
 export async function noteHookEvent(repos: Repositories, log: Pick<FastifyBaseLogger, 'info' | 'warn'>, tab: Tab, next: Interpreted, waker?: Waker): Promise<void> {
   try {
     if (next.question) {
+      // Codex events carry no agent id, so its choice and permission rows get `agent_id: null`: a card
+      // a Codex subagent opens is closed by the main thread's events too (the behaviour before TER-179).
       const q = await openTabQuestion(repos, tab, next.question, { log, waker, agentId: typeof next.meta.agent_id === 'string' ? next.meta.agent_id : null });
       if (q) log.info({ tabId: tab.id, tabQuestionId: q.id, kind: q.kind, questions: q.kind === 'choice' ? (q.payload as ChoicePayload).questions.length : 1 }, 'tab question opened');
     } else {

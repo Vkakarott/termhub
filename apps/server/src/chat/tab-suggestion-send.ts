@@ -27,6 +27,8 @@ export const suggestionSendBody = z.object({ text: typedText });
  * The live check of a Codex reply card (there is no dimmed suggestion to compare): the tab still waits and
  * the plain screen shows no dialog that would eat the text. No timestamp comparison: any later event
  * (a prompt, a tool, a new Stop) already closes or replaces the card, and the caller has checked it is open and the tab's latest.
+ * Codex's composer is not checked for a draft: text the person already typed there stays, and the reply
+ * is appended to it before the Enter.
  */
 function codexReplyStale(tab: { state: string | null }, screen: string): boolean {
   if (tab.state !== 'waiting_input') return true;
