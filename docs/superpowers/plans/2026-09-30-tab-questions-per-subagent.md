@@ -33,7 +33,7 @@ npm run build -w @termhub/machine-ops        # the server and the agent import t
 npm run prisma:generate -w @termhub/server   # after the schema change
 npm test -w @termhub/server -- <paths>
 npm run typecheck -w @termhub/server
-npm test -w @termhub/agent
+npm test -w @termhub/agent -- version   # never the agent's whole suite on this machine: CI runs it
 ```
 
 - `grep` and `cat` are aliased in the interactive shell; in scripts use `/usr/bin/grep` and `/bin/cat`. The hook script is POSIX sh: its tests run it under `/bin/sh`.
@@ -67,6 +67,7 @@ Read `hook-script.test.ts` first: it runs `HOOK_SCRIPT` under `/bin/sh` with sta
 6. `SubagentStop` with `agent_id` and a `last_assistant_message` posts exactly `{"hook_event_name":"SubagentStop","subagent":true,"agent_id":"ac5724783efd1ee13"}`; the posted body does not contain the message's text.
 7. `SubagentStop` whose id was dropped (case 4's ids), or with none, posts nothing.
 8. The marker: agent A's `PreToolUse Bash`, then agent B's `PreToolUse Bash`, then A's again: three posts. A's twice in a row: one post. The main thread's twice in a row: one post, and its marker file holds the same text as today (`Bash`, or `Bash <verb>`).
+9. A Claude `PermissionRequest` removes the marker: A's `PreToolUse Bash`, A's `PermissionRequest Bash`, A's `PreToolUse Bash` again: three posts. The same for the main thread.
 
 In `hooks.test.ts`: `mergeClaudeSettings('', script)` installs `SubagentStop` with no matcher (the existing key comparison against `CLAUDE_HOOK_EVENTS` covers the presence; add the matcher assertion).
 
@@ -108,6 +109,8 @@ A new branch of the `case "$KIND"`, before the `SessionStart | UserPromptSubmit 
     EVENT=$(printf '{"hook_event_name":"SubagentStop"%s}' "$SUB")
     ;;
 ```
+
+In the `PermissionRequest` branch, Claude's side gains `rm -f "$MARK"` before its reduced body, as Codex's side has, with a comment: the tool call after an answered dialog is what closes its card, and must never be deduped against the call before the dialog.
 
 Rewrite the comment block above `BEFORE_KIND` so it no longer says the server never lets a subagent's event close a card: it now says the reduced bodies carry the flag and, for Claude, the id.
 
@@ -197,7 +200,7 @@ Expected: PASS.
 
 `apps/agent/package.json` and `apps/agent/src/version.ts`: the next patch version (`0.11.0` becomes `0.11.1`; read the current one). If `package-lock.json` records the workspace's version, run `npm install --package-lock-only` at the root and check the diff touches that version only. Search the agent's tests for a pinned list of Claude events or a pinned version and update them.
 
-Run: `npm test -w @termhub/agent` and the agent's typecheck script if it has one
+Run: `npm test -w @termhub/agent -- version`, plus by path the one test file that pins the Claude events if the search found one, and the agent's typecheck script if it has one. Never the agent's whole suite on this machine (it has killed the local agent before); CI runs it.
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
@@ -259,33 +262,33 @@ In `apps/server/src/chat/tab-questions.test.ts`, replace the `closesOpenQuestion
 | `Notification` | `null` |
 | `PermissionRequest`, tool `AskUserQuestion` | `null` |
 | `PreToolUse`, `meta.subagent: true`, no `agent_id` | `null` |
-| `PreToolUse`, `meta.subagent: true`, `agent_id: 'A'` | `{ agent: 'A' }` |
-| `SubagentStop`, `closeOnly`, `agent_id: 'A'` | `{ agent: 'A' }` |
-| `PermissionRequest`, tool `ExitPlanMode`, `agent_id: 'A'`, no question | `{ agent: 'A' }` |
-| `PermissionRequest`, tool `ExitPlanMode`, main thread | `{ agent: null }` |
-| `PreToolUse`, main thread | `{ agent: null }` |
-| `Stop` with `backgroundTasks: 2` | `{ agent: null }` |
-| `StopFailure` | `{ agent: null }` |
+| `PreToolUse`, `meta.subagent: true`, `agent_id: 'A'` | `{ agent: 'A', leavesQueue: false }` |
+| `SubagentStop`, `closeOnly`, `agent_id: 'A'` | `{ agent: 'A', leavesQueue: true }` |
+| `PermissionRequest`, tool `ExitPlanMode`, `agent_id: 'A'`, no question | `{ agent: 'A', leavesQueue: false }` |
+| `PermissionRequest`, tool `ExitPlanMode`, main thread | `{ agent: null, leavesQueue: true }` |
+| `PreToolUse`, main thread | `{ agent: null, leavesQueue: true }` |
+| `Stop` with `backgroundTasks: 2` | `{ agent: null, leavesQueue: true }` |
+| `StopFailure` | `{ agent: null, leavesQueue: true }` |
 | `Stop` with no `backgroundTasks` | `'all'` |
-| `UserPromptSubmit` | `'all'` |
+| `UserPromptSubmit` | `{ agent: null, leavesQueue: true }` |
 | `SessionEnd` | `'all'` |
-| Codex `agent-turn-complete` (no agent) | `{ agent: null }` |
+| Codex `agent-turn-complete` (no agent) | `{ agent: null, leavesQueue: true }` |
 
 Then the measured sequence (spec §3) through `noteHookEvent`, with the file's repository stand-in (it already spies on `closeForTab` and `open`): for each event in order assert the call it makes.
 
 | Event | Call |
 |---|---|
-| main `PreToolUse` Agent | `closeForTab(tab, 'answered_in_tab', { agent: null })` |
-| main `Stop`, 2 background tasks | `closeForTab(…, { agent: null })` |
-| A `PreToolUse` Bash | `closeForTab(…, { agent: 'A' })` |
+| main `PreToolUse` Agent | `closeForTab(tab, 'answered_in_tab', { agent: null, leavesQueue: true })` |
+| main `Stop`, 2 background tasks | `closeForTab(…, { agent: null, leavesQueue: true })` |
+| A `PreToolUse` Bash | `closeForTab(…, { agent: 'A', leavesQueue: false })` |
 | A `PermissionRequest` Bash | `open` with `agent_id: 'A'` |
-| B `PreToolUse` Bash | `closeForTab(…, { agent: 'B' })` |
+| B `PreToolUse` Bash | `closeForTab(…, { agent: 'B', leavesQueue: false })` |
 | B `PermissionRequest` Bash | `open` with `agent_id: 'B'` |
-| helper `SubagentStop`, id `H` | `closeForTab(…, { agent: 'H' })` |
+| helper `SubagentStop`, id `H` | `closeForTab(…, { agent: 'H', leavesQueue: true })` |
 | `Notification` permission_prompt | nothing |
-| A `SubagentStop` | `closeForTab(…, { agent: 'A' })` |
-| main `Stop`, 1 background task | `closeForTab(…, { agent: null })` |
-| B `SubagentStop` | `closeForTab(…, { agent: 'B' })` |
+| A `SubagentStop` | `closeForTab(…, { agent: 'A', leavesQueue: true })` |
+| main `Stop`, 1 background task | `closeForTab(…, { agent: null, leavesQueue: true })` |
+| B `SubagentStop` | `closeForTab(…, { agent: 'B', leavesQueue: true })` |
 | main `Stop`, none | `closeForTab(…, 'all')` |
 
 Two existing assertions in this file call `closeForTab` with exact arguments (search `toHaveBeenCalledWith('t1'`): update them for the third argument.
@@ -298,8 +301,11 @@ Expected: FAIL.
 `apps/server/src/db/repositories/tab-questions.ts` (types only in this step):
 
 ```ts
-/** Which rows a close reaches: one agent's (null is the main thread), or every row of the tab. */
-export type CloseScope = { agent: string | null } | 'all';
+/**
+ * Which rows a close reaches: one agent's (null is the main thread), or every row of the tab.
+ * `leavesQueue`: the agent has no dialog pending any more, so it also leaves the tab's permission queue.
+ */
+export type CloseScope = { agent: string | null; leavesQueue: boolean } | 'all';
 ```
 
 `OpenTabQuestionInput` gains `/** The subagent that asked, or null for the main thread. */ agent_id: string | null;`.
@@ -311,8 +317,9 @@ export type CloseScope = { agent: string | null } | 'all';
  * Which rows a hook event closes, or null when it closes nothing (spec 2026-09-30 tab questions per
  * subagent §5). An event closes its own agent's rows: a subagent's next tool call or its end closes that
  * subagent's card and nobody else's, and the main thread's events leave a running subagent's card alone.
- * Three main-thread events close every row, being moments no dialog can be pending: a session end, a
- * prompt (it cannot be submitted while a dialog is drawn), and a Stop with nothing left in the background.
+ * Two main-thread events close every row, being proof that nothing runs: a session end, and a Stop with
+ * nothing left in the background. A subagent leaves the permission queue only when it ends: a tool call of
+ * its own may be a parallel call's, landing while its dialog is still pending.
  * What never closes: an event that opens a question (it closes the previous one itself, `open`); a
  * `Notification`, which only says the tab is still waiting; AskUserQuestion's own `PermissionRequest`, the
  * question's companion; and a subagent's event from a script that does not name it (spec 2026-09-26 §4.5).
@@ -322,10 +329,12 @@ export function closingScope(next: Interpreted): CloseScope | null {
   const event = next.meta.event;
   if (event === 'Notification') return null;
   if (event === 'PermissionRequest' && next.meta.tool === 'AskUserQuestion') return null;
-  if (next.meta.subagent === true) return typeof next.meta.agent_id === 'string' ? { agent: next.meta.agent_id } : null;
-  if (event === 'SessionEnd' || event === 'UserPromptSubmit') return 'all';
+  if (next.meta.subagent === true) {
+    return typeof next.meta.agent_id === 'string' ? { agent: next.meta.agent_id, leavesQueue: event === 'SubagentStop' } : null;
+  }
+  if (event === 'SessionEnd') return 'all';
   if (event === 'Stop' && !next.backgroundTasks) return 'all';
-  return { agent: null };
+  return { agent: null, leavesQueue: true };
 }
 ```
 
@@ -338,12 +347,15 @@ Expected: PASS. The typecheck passes after Step 5.
 
 In `apps/server/src/db/repositories/tab-questions.db.test.ts`, with the file's own helpers (a tab, a conversation, `open`):
 
-1. **Scoped close.** Open a permission card for agent `A` on tab 1 and a choice card of the main thread on tab 2 of the same project. `closeForTab(tab1, 'answered_in_tab', { agent: null })` closes nothing; `{ agent: 'B' }` closes nothing; `{ agent: 'A' }` closes A's card with status `answered_in_tab`. On tab 2, `{ agent: 'A' }` closes nothing and `{ agent: null }` closes the choice.
-2. **The queue with two agents.** Open A's permission (a card). Open B's permission: no card, A's card is closed, and the marked row's `queue_agents` is `['A', 'B']` (read the row with the test's Prisma client). `closeForTab({ agent: 'A' })`: the mark stays, the list is `['B']`. A's new permission: no card (still queued), the list is `['B', 'A']`. `closeForTab({ agent: null })`: nothing changes. `closeForTab({ agent: 'B' })` then `{ agent: 'A' }`: the mark is cleared and the list empty. A permission now opens a card.
+Below, `tool(X)` is `{ agent: X, leavesQueue: false }` (a subagent's tool call), `ended(X)` is `{ agent: X, leavesQueue: true }` and `main` is `{ agent: null, leavesQueue: true }`.
+
+1. **Scoped close.** Open a permission card for agent `A` on tab 1 and a choice card of the main thread on tab 2 of the same project. On tab 1, `main` closes nothing; `tool('B')` closes nothing; `tool('A')` closes A's card with status `answered_in_tab`. On tab 2, `tool('A')` closes nothing and `main` closes the choice.
+2. **The queue with two agents.** Open A's permission (a card). Open B's permission: no card, A's card is closed, and the marked row's `queue_agents` is `['A', 'B']` (read the row with the test's Prisma client). `tool('A')` and `tool('B')`: the mark and the list stay. `ended('A')`: the mark stays, the list is `['B']`. A permission of a new agent `C`: no card (still queued), the list is `['B', 'C']`. `main`: nothing changes. `ended('B')` then `ended('C')`: the mark is cleared and the list empty. A permission now opens a card.
 3. **`'all'` ends it at once.** Case 2 up to the queue, then `closeForTab(tab, 'answered_in_tab')`: mark cleared, list empty.
-4. **The main thread's own queue.** Two main-thread permissions: the list is `['']`. `{ agent: null }` clears it, as today.
-5. **A mark of the previous release.** Set `error_code = 'QUEUED'` on a closed permission row with an empty list by hand; `closeForTab({ agent: 'A' })` clears the mark.
-6. **`open` stores the agent.** The created row's `agent_id` is `'A'`; a main-thread one's is null.
+4. **The main thread's own queue.** Two main-thread permissions: the list is `['']`. `main` clears it, as today.
+5. **A mark of the previous release.** Set `error_code = 'QUEUED'` on a closed permission row with an empty list by hand; `tool('A')` leaves it, `ended('A')` clears it (so does `main`, in a second copy of the case).
+6. **A choice ends the queue.** Case 2 up to the queue, then a choice opens: the card opens, and no row of the tab keeps the mark or a list.
+7. **`open` stores the agent.** The created row's `agent_id` is `'A'`; a main-thread one's is null.
 
 - [ ] **Step 5: The repository**
 
@@ -352,15 +364,15 @@ const queueKey = (agent: string | null): string => agent ?? '';
 ```
 
 - `closeIn(tx, tabId, status, now, scope: CloseScope = 'all')`: the first `findMany` gains `...(scope === 'all' ? {} : { agentId: scope.agent })`.
-- `open`: the `newest` select gains `agentId` and `queueAgents`. When the newest row is an open permission: `data: { errorCode: PERMISSION_QUEUED, queueAgents: [...new Set([queueKey(newest.agentId), queueKey(input.agent_id)])] }`. When it is already marked: add `queueKey(input.agent_id)` when absent (one `update`, only then). `create` writes `agentId: input.agent_id`. The `closeIn` call in `open` keeps the scope `'all'`. The no-conversation `choice` path clears `queueAgents` with the mark.
-- `closeForTab(tabId, status, scope: CloseScope = 'all', now = new Date())`. Check every caller that passes `now` as the third argument (search `closeForTab(`, tests included). The pre-check outside the transaction keeps its shape, with the agent filter on its first branch when the scope is an agent. Inside the transaction, after `closeIn(tx, tabId, status, now, scope)`:
+- `open`: the `newest` select gains `agentId` and `queueAgents`. When the newest row is an open permission: `data: { errorCode: PERMISSION_QUEUED, queueAgents: [...new Set([queueKey(newest.agentId), queueKey(input.agent_id)])] }`. When it is already marked: add `queueKey(input.agent_id)` when absent (one `update`, only then). `create` writes `agentId: input.agent_id`. The `closeIn` call in `open` keeps the scope `'all'`. A choice clears the mark and `queueAgents` of every row of the tab, in the path with a conversation too (today only the no-conversation path clears the mark): move that `updateMany` above the branch.
+- `closeForTab(tabId, status, scope: CloseScope = 'all', now = new Date())`. Check every caller that passes `now` as the third argument (search `closeForTab(`, tests included). The pre-check outside the transaction keeps its shape, with the agent filter on its first branch when the scope is an agent, and its second branch (a marked row) only when the scope is `'all'` or `leavesQueue`. Inside the transaction, after `closeIn(tx, tabId, status, now, scope)`:
 
 ```ts
       if (scope === 'all') {
         await tx.tabQuestion.updateMany({ where: { tabId, errorCode: PERMISSION_QUEUED }, data: { errorCode: null, queueAgents: [] } });
-      } else {
-        // The queue ends when every agent in it has moved on (spec 2026-09-30 tab questions per subagent
-        // §5): one agent's close must not end a queue another agent's dialog is still in.
+      } else if (scope.leavesQueue) {
+        // The queue ends when every agent in it has left (spec 2026-09-30 tab questions per subagent §5):
+        // one agent's close must not end a queue another agent's dialog is still in.
         const marked = await tx.tabQuestion.findMany({ where: { tabId, errorCode: PERMISSION_QUEUED }, select: { id: true, queueAgents: true } });
         for (const row of marked) {
           const left = row.queueAgents.filter((a) => a !== queueKey(scope.agent));
@@ -401,7 +413,7 @@ Part of TER-179."
 
 In `permission-dialog.test.ts`:
 
-1. `dialogTool`: `screen-permission.txt` → `'Bash'`; `claude-bash-subagent.txt` → `'Bash'`; `claude-edit.txt` → `'Edit'`; `claude-webfetch.txt` → `'WebFetch'`; `claude-skill.txt` → null; a capture with no box rule → null; a rule followed by `Fetching the page…` → null (a title is the whole line, or is followed by a space).
+1. `dialogTool`: `screen-permission.txt` → `'Bash'`; `claude-bash-subagent.txt` → `'Bash'`; `claude-edit.txt` → `'Edit'`; `claude-webfetch.txt` → `'WebFetch'`; `claude-skill.txt` → null; a capture with no box rule → null; a rule followed by `Fetching the page…` → null (a title is the whole line, or is followed by a space); a capture with a rule and ` Edit file` in the transcript above a Skill dialog's own rule → null (only the lowest rule is read).
 2. `promptVisible` for a permission row: a `Bash` card passes on both Bash fixtures and is refused on the Edit and WebFetch ones; an `Edit` card passes on the Edit fixture and is refused on the Bash one; a `Skill` card is refused on the Bash fixture, and on a screen with no known title it answers what today's rule answers; a `Bash` card on a Bash dialog with its box rule cut off the top of the capture passes (as today).
 3. `permissionDialogVisible` answers for every file of `fixtures/permission-dialogs` exactly what it answered before the change: the test file's existing table must pass untouched.
 
@@ -427,17 +439,17 @@ const DIALOG_TITLES: readonly (readonly [title: string, tool: string])[] = [
 ];
 
 /**
- * The tool whose dialog the capture shows, when its title is one the server knows: the line under a box
- * rule, searched from the bottom up. Null for a dialog with another title, and for a capture with no
- * rule. Used to refuse a card whose dialog is not the one on screen; never to accept one.
+ * The tool whose dialog the capture shows, when its title is one the server knows: the line under the
+ * lowest box rule. Null for a dialog with another title, and for a capture with no rule. Only that one
+ * rule is read: above it is the transcript, where a rule and a line that looks like a title may be
+ * anybody's text. Used to refuse a card whose dialog is not the one on screen; never to accept one.
  */
 export function dialogTool(screen: string): string | null {
   const lines = screen.split('\n').filter((l) => l.trim() !== '');
   for (let i = lines.length - 2; i >= 0; i--) {
     if (!RULE.test(lines[i]!)) continue;
     const under = lines[i + 1]!.trim().toLowerCase();
-    const known = DIALOG_TITLES.find(([title]) => under === title || under.startsWith(`${title} `));
-    if (known) return known[1];
+    return DIALOG_TITLES.find(([title]) => under === title || under.startsWith(`${title} `))?.[1] ?? null;
   }
   return null;
 }
