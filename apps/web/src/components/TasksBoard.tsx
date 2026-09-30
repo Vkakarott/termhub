@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import { applyMove, cardPath, cardsIn, dropPosition, epicsOf, FILTER_TYPES, nextColumn, openCount, readBoardFilter, visible, writeBoardFilter, type BoardFilter } from '../lib/board';
 import { useData } from '../lib/data';
+import { useMonitor } from '../lib/monitor';
 import { readLastMachine, writeLastMachine } from '../lib/last-machine';
 import { cardTitle, ticketKey } from '../lib/ticket-link';
 import { COLUMN_CATEGORY_LABEL, PROVIDER_LABEL, TASK_TYPE_LABEL, type ColumnCategory, type Task, type TaskColumn, type TaskPatchInput, type TaskType } from '../lib/types';
@@ -27,6 +28,7 @@ interface DragState {
 /** The project's Board (spec §7): its own columns, a type/epic filter, cards with type, ref and epic. */
 export function TasksBoard({ projectId, openTaskId }: Props) {
   const { projects, machinesOf, setOpenTasks } = useData();
+  const { openTabs } = useMonitor();
   const navigate = useNavigate();
   const location = useLocation();
   const project = projects.find((p) => p.id === projectId);
@@ -64,6 +66,10 @@ export function TasksBoard({ projectId, openTaskId }: Props) {
   }, [tasks, projectId, setOpenTasks]);
 
   const epics = useMemo(() => epicsOf(tasks ?? []), [tasks]);
+  /** The project's open terminal tabs, as the card editor offers them to link (TER-499). */
+  const linkableTabs = openTabs
+    .filter((t) => t.project_id === projectId && t.kind === 'terminal')
+    .map((t) => ({ id: t.id, name: t.name, machine_name: projectMachines.find((m) => m.id === t.machine_id)?.name ?? '—' }));
   const epicTitle = useMemo(() => new Map(epics.map((e) => [e.id, e.title])), [epics]);
   const editing = openTaskId ? ((tasks ?? []).find((t) => t.id === openTaskId) ?? null) : null;
   /** The section a card was opened from; the card URL keeps it in the history state (a pasted link has none). */
@@ -137,6 +143,24 @@ export function TasksBoard({ projectId, openTaskId }: Props) {
       navigate(`/projects/${projectId}?tab=${r.tab.id}`);
     } catch (e) {
       fail(e, 'Erro ao abrir terminal');
+    }
+  };
+
+  /** Links the card to a tab that is already open; the server moves it as `start_agent` would. */
+  const linkTab = async (id: string, tabId: string) => {
+    try {
+      await api.tasks.linkTab(id, tabId);
+      await load(); // the card may have changed column, and the cards of both columns were reindexed
+    } catch (e) {
+      fail(e, 'Erro ao ligar a aba ao card');
+    }
+  };
+
+  const detachTerminal = async (id: string) => {
+    try {
+      replaceTask((await api.tasks.detachTerminal(id)).task);
+    } catch (e) {
+      fail(e, 'Erro ao desligar a aba do card');
     }
   };
 
@@ -281,6 +305,9 @@ export function TasksBoard({ projectId, openTaskId }: Props) {
           columns={columns}
           epics={epics}
           terminalHref={editing.tab_id ? `/projects/${projectId}?tab=${editing.tab_id}` : null}
+          linkableTabs={linkableTabs}
+          onLinkTab={(tabId) => void linkTab(editing.id, tabId)}
+          onDetachTerminal={() => void detachTerminal(editing.id)}
           onClose={closeCard}
           onSave={(patch) => void update(editing.id, patch)}
           onPlace={(target) => void place(editing.id, target)}

@@ -2,14 +2,17 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import { scoped } from '../auth/scope.js';
-import { controlContextForRequest } from '../control/context.js';
+import { linkTabTask } from '../control/agents.js';
+import { ControlError, controlContextForRequest } from '../control/context.js';
 import { importTickets, pushTicketStatus } from '../control/tickets.js';
 import { readTicketLink } from '../integrations/ticket-link.js';
+import { conflict, forbidden } from '../lib/errors.js';
 import { publishTabOpened } from '../monitor/tab-events.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const importBody = z.object({ ticket_ids: z.array(z.string().min(1).max(64)).min(1).max(200) });
 const terminalBody = z.object({ machine_id: z.string().min(1).max(64).optional() }).strict();
+const linkTabBody = z.object({ tab_id: z.string().min(1).max(64) }).strict();
 
 /** Montado em /projects: lista de tickets sincronizados e importação para o backlog. */
 export async function projectTicketRoutes(app: FastifyInstance, repos: Repositories) {
@@ -56,6 +59,23 @@ export async function taskTicketRoutes(app: FastifyInstance, repos: Repositories
     publishTabOpened(tab, machine);
     const updated = await repos.tasks.setTab(id, tab.id);
     return { task: updated, tab, created: true };
+  });
+
+  /**
+   * Links the task to a terminal tab that is already open in its project (TER-499) — an agent someone
+   * started by hand — and starts work on it, as `start_agent` does for the tab it opens.
+   */
+  app.post('/:id/link-tab', { config: { resource: 'tasks', action: 'update' } }, async (request) => {
+    const { id } = idParam.parse(request.params);
+    const { tab_id } = linkTabBody.parse(request.body);
+    try {
+      await linkTabTask(controlContextForRequest(repos, request), { tab_id, task_id: id });
+    } catch (e) {
+      if (e instanceof ControlError) throw e.code === 'FORBIDDEN' ? forbidden(e.message) : conflict(e.message);
+      throw e;
+    }
+    // the board's own shape of the card (the control operation answers the tools' one)
+    return { task: (await scoped(repos, request).task(id)).task };
   });
 
   app.delete('/:id/terminal', { config: { resource: 'tasks', action: 'update' } }, async (request) => {
