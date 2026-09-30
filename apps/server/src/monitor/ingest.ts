@@ -51,8 +51,10 @@ export async function ingestHookEvent(
   // Stop's own message and background count (spec 2026-09-26 TER-203 §4.2).
   if (input.tool === 'claude' && interpreted.meta.event === 'Stop') scheduleTabSuggestion(repos, log, updated.id, { context: interpreted.text, backgroundTasks: interpreted.backgroundTasks ?? 0 });
   // Codex has no suggestion to read: a Stop that ends in a question opens a reply card, after noteHookEvent
-  // (which closed the cards of the turn that just ended).
-  if (input.tool === 'codex' && interpreted.meta.event === 'Stop' && interpreted.meta.subagent !== true) await openCodexReply(repos, log, updated.id, interpreted.text);
+  // (which closed the cards of the turn that just ended). It gets the whole message (`answer`), since the
+  // question is at its end and `text` is capped from the start. Not awaited, like Claude's check: it
+  // never throws, and the hook's answer does not wait for the card.
+  if (input.tool === 'codex' && interpreted.meta.event === 'Stop' && interpreted.meta.subagent !== true) void openCodexReply(repos, log, updated.id, interpreted.answer ?? interpreted.text);
   if (isRateLimit(interpreted)) autoSwapOnLimit(repos, log, updated);
   return { ok: true, tab: updated };
 }

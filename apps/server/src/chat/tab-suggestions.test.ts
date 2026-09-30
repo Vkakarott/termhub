@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { agents } from '../agent/registry.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { TabQuestion } from '../db/repositories/tab-questions.js';
+import { STATE_TEXT_MAX } from '../monitor/state.js';
 import { chatBus, type ChatEvent } from './bus.js';
 
 const captureStyledScreen = vi.fn();
@@ -335,6 +336,43 @@ describe('openCodexReply', () => {
     await openCodexReply(asRepos(r), log(), 't1', ask);
     expect(r.users.chatCodexReplies).toHaveBeenCalledWith('u1');
     expect(r.tabQuestions.open).not.toHaveBeenCalled();
+  });
+
+  describe('a message longer than STATE_TEXT_MAX', () => {
+    const opened = (r: ReturnType<typeof fakeRepos>) => (r.tabQuestions.open.mock.calls[0]![0] as { payload: { context: string } }).payload.context;
+
+    it('opens on the question of its last paragraph and keeps its tail, cut on a paragraph boundary', async () => {
+      const paragraphs = Array.from({ length: 40 }, (_, i) => `Parágrafo ${i}: ${'x'.repeat(80)}`);
+      const message = `${paragraphs.join('\n\n')}\n\nQuer que eu faça o commit?`;
+      expect(message.length).toBeGreaterThan(STATE_TEXT_MAX);
+      const r = fakeRepos({ tab: codexTab });
+      await openCodexReply(asRepos(r), log(), 't1', message);
+      expect(r.tabQuestions.open).toHaveBeenCalledTimes(1);
+      const context = opened(r);
+      expect(context.length).toBeLessThanOrEqual(STATE_TEXT_MAX);
+      expect(context.endsWith('Quer que eu faça o commit?')).toBe(true);
+      expect(context).not.toContain('Parágrafo 0:');
+      // starts on a whole paragraph: the one after the boundary the cut found
+      expect(context).toMatch(/^Parágrafo \d+: x/);
+      expect(message.endsWith(context)).toBe(true);
+    });
+
+    it('cuts inside a paragraph with no boundary without splitting a surrogate pair, marking the cut', async () => {
+      const message = `${'😀'.repeat(STATE_TEXT_MAX)} Posso seguir?`;
+      const r = fakeRepos({ tab: codexTab });
+      await openCodexReply(asRepos(r), log(), 't1', message);
+      const context = opened(r);
+      expect(context.length).toBeLessThanOrEqual(STATE_TEXT_MAX);
+      expect(context.startsWith('…')).toBe(true);
+      expect(context.endsWith('Posso seguir?')).toBe(true);
+      expect(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(context)).toBe(false);
+    });
+
+    it('opens nothing when only its start asks', async () => {
+      const r = fakeRepos({ tab: codexTab });
+      await openCodexReply(asRepos(r), log(), 't1', `Rodo os testes?\n\n${'y'.repeat(STATE_TEXT_MAX * 2)}`);
+      expect(r.tabQuestions.open).not.toHaveBeenCalled();
+    });
   });
 
   it('never throws; logs the code only', async () => {

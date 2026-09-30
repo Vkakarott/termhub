@@ -44,16 +44,42 @@ export function cleanSuggestion(text: string | null): string | null {
  */
 export function cleanContext(text: string | null): string | null {
   if (text === null) return null;
-  const clean = sliceUnits(
-    text
-      .replace(/\r\n?/g, '\n')
-      .replace(/\t/g, ' ')
-      .replace(CONTEXT_DROP, '')
-      .replace(/\n(?:[ ]*\n){3,}/g, '\n\n\n')
-      .trim(),
-    STATE_TEXT_MAX,
-  ).trim();
+  const clean = sliceUnits(cleanMessage(text), STATE_TEXT_MAX).trim();
   return clean === '' || clean === CLAUDE_IDLE_MESSAGE ? null : clean;
+}
+
+/** `cleanContext`'s cleaning, with no cap. */
+function cleanMessage(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .replace(/\t/g, ' ')
+    .replace(CONTEXT_DROP, '')
+    .replace(/\n(?:[ ]*\n){3,}/g, '\n\n\n')
+    .trim();
+}
+
+/**
+ * The last `max` UTF-16 units of `text` (never half a pair). A longer text is cut at the first
+ * paragraph boundary inside that tail, or at a line break when it has none; with neither, the cut
+ * is marked with a leading "…" that fits in `max`.
+ */
+export function tailOf(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const from = (budget: number): string => {
+    let start = text.length - budget;
+    const code = text.charCodeAt(start);
+    if (code >= 0xdc00 && code <= 0xdfff) start += 1; // a low surrogate: its pair stays out
+    return text.slice(start);
+  };
+  const tail = from(max);
+  for (const boundary of [/\n[ ]*\n/, /\n/]) {
+    const match = boundary.exec(tail);
+    if (match) {
+      const rest = tail.slice(match.index + match[0].length).trim();
+      if (rest !== '') return rest;
+    }
+  }
+  return `…${from(max - 1).trimStart()}`;
 }
 
 /** The suggestion on the tab's prompt now, or null — also for a machine that cannot keep attributes. Never logged. */
@@ -112,15 +138,18 @@ const endsWithQuestion = (context: string): boolean => /[?？]$/.test(context.sp
 
 /**
  * A Codex `Stop` whose message ends in a question (Codex has no dimmed suggestion to read): a
- * `suggestion` row with an empty text and the cleaned message as its context opens in the owner's
+ * `suggestion` row with an empty text and the cleaned message's tail as its context opens in the owner's
  * latest active conversation, so the person can answer from the chat. Called after `noteHookEvent`
  * (a Stop closes the open cards); the paired `notify` does not close it. Only for an owner who opted in
  * (`chatCodexReplies`, off by default). Never throws; logs ids and counts only.
  */
 export async function openCodexReply(repos: Repositories, log: Log, tabId: string, message: string | null): Promise<void> {
   try {
-    const context = cleanContext(message);
-    if (context === null || !endsWithQuestion(context)) return;
+    // `message` is the whole final message: the question sits at its end, so a long one is read by its
+    // last paragraph and kept by its tail (at most STATE_TEXT_MAX), never by its start.
+    const clean = message === null ? '' : cleanMessage(message);
+    if (clean === '' || !endsWithQuestion(clean)) return;
+    const context = tailOf(clean, STATE_TEXT_MAX);
     const tab = await repos.tabs.findById(tabId);
     if (!tab || tab.kind !== 'terminal' || !tab.tmux_session || tab.state !== 'waiting_input') return;
     const owner = (await repos.projects.findById(tab.project_id))?.owner_id;

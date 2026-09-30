@@ -259,6 +259,14 @@ describe('ingestHookEvent — a Codex Stop that asks a question', () => {
     expect(schedule).not.toHaveBeenCalled();
   });
 
+  it('hands over the whole message, not the capped state text', async () => {
+    openReply.mockClear();
+    const long = `${'a'.repeat(STATE_TEXT_MAX * 2)}\n\nRodo os testes?`;
+    const { r } = repos(tab({ state: 'working' }));
+    await ingestHookEvent(r, log, stop({ last_assistant_message: long }));
+    expect(openReply).toHaveBeenCalledWith(r, log, 't1', long);
+  });
+
   it('a subagent Stop, a Claude Stop and a Codex notify open no reply card', async () => {
     openReply.mockClear();
     const { r } = repos(tab({ state: 'working' }));
