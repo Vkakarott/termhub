@@ -12,8 +12,9 @@ app/                             expo-router routes — thin, each file renders 
   enrol/waiting.tsx               Aguardando aprovação (verification code, simulated approval in mock mode)
   enrol/create-pin.tsx            Criar PIN
   unlock.tsx                      Desbloquear (PIN / biometrics)
-  (tabs)/_layout.tsx              the three tabs; Notificações carries the unread badge
-  (tabs)/index.tsx                Chats
+  (tabs)/_layout.tsx              the tab bar, Home first; Notificações carries the unread badge
+  (tabs)/index.tsx                Home — the projects pinned in Favoritos (where the app opens)
+  (tabs)/chats.tsx                Chats — every project, each with its pin
   (tabs)/notifications.tsx        Notificações
   (tabs)/settings.tsx             Ajustes
   chat/[id].tsx                   a conversation (deep link target: termhub://chat/<conversation_id>)
@@ -21,6 +22,7 @@ app/                             expo-router routes — thin, each file renders 
 src/features/
   session/    enrolment, PIN and activation, unlock, silent renewal, relock, biometrics, leaving/revocation
   chat/       projects, a conversation, live events, decisions, the account-wide chat's host picker
+  home/       Home: the pinned projects (Favoritos, the web sidebar's group), in their order
   notifications/  the account's notification history and unread count (a live `confirmation` also
                    taps into the chat store's socket — see `viewmodel/createNotificationsStore.ts`)
   settings/   this device (`GET devices/self`), the key diagnostic, and Ajustes' remaining sections

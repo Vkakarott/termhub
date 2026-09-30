@@ -73,6 +73,31 @@ it('lists projects with the fixed pending confirmations on termhub', async () =>
   expect(termhub.busy).toBe(false);
 });
 
+describe('project favorites (TER-541)', () => {
+  const places = async (api: ReturnType<typeof createHttpMobileApi>, auth: { accessToken: string }) =>
+    Object.fromEntries((await api.chatProjects(auth)).projects.map((p) => [p.id, p.favorite_position]));
+
+  it('starts with nothing pinned', async () => {
+    const { api, auth } = await enrol({ value: START });
+    expect(await places(api, auth)).toEqual({ 'p-termhub': null, 'p-opapingou': null, 'p-reactivando': null });
+  });
+
+  it('pins last, ignores a repeat, and closes the gap on unpin', async () => {
+    const { api, auth } = await enrol({ value: START });
+    await api.setProjectFavorite(auth, 'p-reactivando', true);
+    await api.setProjectFavorite(auth, 'p-termhub', true);
+    await api.setProjectFavorite(auth, 'p-termhub', true);
+    expect(await places(api, auth)).toEqual({ 'p-termhub': 1, 'p-opapingou': null, 'p-reactivando': 0 });
+    await api.setProjectFavorite(auth, 'p-reactivando', false);
+    expect(await places(api, auth)).toEqual({ 'p-termhub': 0, 'p-opapingou': null, 'p-reactivando': null });
+  });
+
+  it('answers 404 for an unknown project', async () => {
+    const { api, auth } = await enrol({ value: START });
+    await expect(api.setProjectFavorite(auth, 'p-nope', true)).rejects.toMatchObject({ status: 404 });
+  });
+});
+
 it('GET chat answers the conversation, its two pending actions and a ready host', async () => {
   const clock = { value: START };
   const { api, auth } = await enrol(clock);
