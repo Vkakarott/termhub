@@ -192,7 +192,7 @@ describe('sendTabSuggestion — a Codex reply card', () => {
   beforeEach(() => captureScreen.mockResolvedValue(composer));
 
   it('types the text literally and Enter, without comparing a dimmed suggestion', async () => {
-    const { ctx, tabQuestions } = ctxFor(codexRow(), { tab: { state_at: '2026-09-25T11:59:59.000Z' } });
+    const { ctx, tabQuestions } = ctxFor(codexRow(), {});
     const view = await sendTabSuggestion(ctx, 's1', { text: 'sim, rode' }, { log: log() });
     expect(captureStyledScreen).not.toHaveBeenCalled();
     expect(captureScreen).toHaveBeenCalledWith({ id: 'm1', type: 'agent' }, 'th-t1', 15);
@@ -202,23 +202,10 @@ describe('sendTabSuggestion — a Codex reply card', () => {
   });
 
   it('409 and the card closes when the tab moved on after the card (state changed)', async () => {
-    const { ctx, tabQuestions } = ctxFor(codexRow(), { tab: { state: 'working', state_at: '2026-09-25T12:01:00.000Z' } });
+    const { ctx, tabQuestions } = ctxFor(codexRow(), { tab: { state: 'working' } });
     await rejects(sendTabSuggestion(ctx, 's1', { text: 'sim' }, { log: log() }), 409, 'TAB_PROMPT_CHANGED');
     expect(tabQuestions.closeOne).toHaveBeenCalledWith('s1', 'answered_in_tab');
     expect(tabQuestions.claimSuggestion).not.toHaveBeenCalled();
-    expect(sendInput).not.toHaveBeenCalled();
-  });
-
-  it('still sends when only the Stop\'s paired notify moved state_at a moment after the card', async () => {
-    const { ctx } = ctxFor(codexRow(), { tab: { state_at: '2026-09-25T12:00:01.000Z' } });
-    await sendTabSuggestion(ctx, 's1', { text: 'sim' }, { log: log() });
-    expect(sendInput).toHaveBeenCalledTimes(1);
-  });
-
-  it('409 when the tab waits again but state_at is well after the card', async () => {
-    const { ctx, tabQuestions } = ctxFor(codexRow(), { tab: { state_at: '2026-09-25T12:01:00.000Z' } });
-    await rejects(sendTabSuggestion(ctx, 's1', { text: 'sim' }, { log: log() }), 409, 'TAB_PROMPT_CHANGED');
-    expect(tabQuestions.closeOne).toHaveBeenCalledWith('s1', 'answered_in_tab');
     expect(sendInput).not.toHaveBeenCalled();
   });
 
@@ -227,7 +214,7 @@ describe('sendTabSuggestion — a Codex reply card', () => {
     ['a question dialog', '  Qual cor: azul ou verde?\n› 1. Azul\n  tab to add notes | enter to submit answer | esc to interrupt\n'],
   ])('409 and closes while the screen shows %s', async (_l, screen) => {
     captureScreen.mockResolvedValue(screen);
-    const { ctx, tabQuestions } = ctxFor(codexRow(), { tab: { state_at: '2026-09-25T11:59:59.000Z' } });
+    const { ctx, tabQuestions } = ctxFor(codexRow(), {});
     await rejects(sendTabSuggestion(ctx, 's1', { text: 'sim' }, { log: log() }), 409, 'TAB_PROMPT_CHANGED');
     expect(tabQuestions.closeOne).toHaveBeenCalledWith('s1', 'answered_in_tab');
     expect(sendInput).not.toHaveBeenCalled();

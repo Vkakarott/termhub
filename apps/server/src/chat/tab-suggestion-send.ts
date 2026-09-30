@@ -15,12 +15,6 @@ import { readSuggestion, SUGGESTION_CAPTURE_LINES } from './tab-suggestions.js';
 
 type Log = Pick<FastifyBaseLogger, 'info' | 'warn'>;
 
-/**
- * Codex writes the Stop and its `notify` for one turn a moment apart, the second moving `state_at` after
- * the card opened: only a change later than this counts as the tab having moved on.
- */
-export const CODEX_PAIRED_EVENT_GRACE_MS = 10_000;
-
 export const suggestionChanged = () => new HttpError(409, 'A sugestão mudou na aba', 'TAB_PROMPT_CHANGED');
 
 /**
@@ -30,12 +24,12 @@ export const suggestionChanged = () => new HttpError(409, 'A sugestão mudou na 
 export const suggestionSendBody = z.object({ text: typedText });
 
 /**
- * The live check of a Codex reply card (there is no dimmed suggestion to compare): the tab still waits,
- * nothing happened to it after the card, and the plain screen shows no dialog that would eat the text.
+ * The live check of a Codex reply card (there is no dimmed suggestion to compare): the tab still waits and
+ * the plain screen shows no dialog that would eat the text. No timestamp comparison: any later event
+ * (a prompt, a tool, a new Stop) already closes or replaces the card, and the caller has checked it is open and the tab's latest.
  */
-function codexReplyStale(tab: { state: string | null; state_at: string | null }, row: { created_at: string }, screen: string): boolean {
+function codexReplyStale(tab: { state: string | null }, screen: string): boolean {
   if (tab.state !== 'waiting_input') return true;
-  if (tab.state_at !== null && Date.parse(tab.state_at) > Date.parse(row.created_at) + CODEX_PAIRED_EVENT_GRACE_MS) return true;
   return permissionDialogVisible(screen) || /enter to submit/i.test(lastNonBlankLines(screen, 5));
 }
 
@@ -71,7 +65,7 @@ export async function sendTabSuggestion(ctx: ControlContext, id: string, raw: un
     // an agent moving between instances (a deploy) gets a few seconds to attach before it is called offline
     if (!(await agents.awaitAgent(machine))) throw offline();
     stale = isCodex
-      ? codexReplyStale(tab, row, await captureScreen(machine, tab.tmux_session, SUGGESTION_CAPTURE_LINES))
+      ? codexReplyStale(tab, await captureScreen(machine, tab.tmux_session, SUGGESTION_CAPTURE_LINES))
       : (await readSuggestion(machine, tab.tmux_session)) !== suggested;
   } catch (err) {
     // agentRpc turns a connection that dropped mid-call into a bare 503 (toHttpError)
