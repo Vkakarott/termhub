@@ -48,7 +48,7 @@ npm run typecheck -w @termhub/server
 - Modify: `apps/server/src/control/inventory.ts`
 - Test: `apps/server/src/control/inventory.test.ts`
 - Modify: `apps/server/src/mcp/tools.ts`, `apps/server/src/chat/gate.ts`
-- Test: `apps/server/src/mcp/route.test.ts`, the gate's test file that lists the read tools
+- Test: `apps/server/src/mcp/route.test.ts`, `apps/server/src/chat/gate.test.ts`
 - Modify: `README.md` (the paragraph "Tools available today")
 
 **Interfaces:**
@@ -175,6 +175,7 @@ Expected: FAIL, the module does not exist.
 - [ ] **Step 4: Write `control/groups.ts`**
 
 ```ts
+import type { Project } from '../db/repositories/types.js';
 import type { ControlContext } from './context.js';
 
 export interface GroupProject {
@@ -195,13 +196,17 @@ export interface GroupView {
  * The person's sidebar groups for the concierge (spec 2026-09-30): the custom groups of the context's
  * own user, in sidebar order, each with the projects the scope can see, in the group's order.
  * Favoritos is not a group here: its visible members come apart, as `favorites`. Archived projects are
- * left out unless `archived` is set. A read only: it never creates the Favoritos row.
+ * left out unless `archived` is set. A read only: it never creates the Favoritos row. A caller that
+ * already listed the scope's projects passes them as `projects`, so they are not read twice.
  *
  * Groups are personal and projects belong to an owner, so the two reads take different ids — the same
  * rule as `routes/project-groups.ts`.
  */
-export async function groupsOf(ctx: Pick<ControlContext, 'repos' | 'scope'>, opts: { archived?: boolean } = {}): Promise<{ groups: GroupView[]; favorites: Set<string> }> {
-  const [rows, projects] = await Promise.all([ctx.repos.projectGroups.read(ctx.scope.user.id), ctx.repos.projects.list({ owner: ctx.scope.ownerId })]);
+export async function groupsOf(
+  ctx: Pick<ControlContext, 'repos' | 'scope'>,
+  opts: { archived?: boolean; projects?: readonly Pick<Project, 'id' | 'key' | 'name' | 'status'>[] } = {},
+): Promise<{ groups: GroupView[]; favorites: Set<string> }> {
+  const [rows, projects] = await Promise.all([ctx.repos.projectGroups.read(ctx.scope.user.id), opts.projects ?? ctx.repos.projects.list({ owner: ctx.scope.ownerId })]);
   const visible = new Map(projects.filter((p) => opts.archived || p.status !== 'archived').map((p) => [p.id, p]));
   const members = (ids: string[]): GroupProject[] =>
     ids.flatMap((id) => {
@@ -283,10 +288,23 @@ describe('find and the groups', () => {
   it('needs the grant to read projects', async () => {
     expect((await find(ctx(['machines:read']), { query: 'comunidade' })).matches.filter((m) => m.kind === 'group')).toEqual([]);
   });
+
+  it('still answers the rest when the groups cannot be read', async () => {
+    const c = ctx();
+    (c.repos.projectGroups.read as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('down'));
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { matches } = await find(c, { query: 'macbook' });
+      expect(matches.map((m) => m.kind)).toContain('machine');
+      expect(JSON.stringify(spy.mock.calls)).not.toContain('Comunidade');
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 ```
 
-Existing cases of `listProjects` that compare whole project objects gain `groups` and `favorite` in what they expect.
+No existing case of `listProjects` compares a whole project object; if one does, it gains `groups` and `favorite`.
 
 Run: `npm test -w @termhub/server -- src/control/inventory.test.ts`
 Expected: the new tests FAIL.
@@ -311,12 +329,10 @@ function groupsNamed(groups: GroupView[], wanted: string): GroupView[] {
 
 export async function listProjects(ctx: ControlContext, input: { machine_id?: string; include_archived?: boolean; group?: string }) {
   if (input.machine_id) await ctx.scoped.machine(input.machine_id);
-  const [projects, names, { groups, favorites }] = await Promise.all([
-    ctx.repos.projects.list({ machine_id: input.machine_id, owner: ctx.scope.ownerId }),
-    machineNames(ctx),
-    // Archived members too: `include_archived` decides below, as for every other project.
-    groupsOf(ctx, { archived: true }),
-  ]);
+  const [projects, names] = await Promise.all([ctx.repos.projects.list({ machine_id: input.machine_id, owner: ctx.scope.ownerId }), machineNames(ctx)]);
+  // Over the projects just listed, archived ones too: `include_archived` decides below, as for every
+  // other project, and a member outside this list is not shown anyway.
+  const { groups, favorites } = await groupsOf(ctx, { archived: true, projects });
   const only = input.group === undefined ? null : new Set(groupsNamed(groups, input.group).flatMap((g) => g.projects.map((p) => p.id)));
   const links = await ctx.repos.projectMachines.listByProjects(projects.map((p) => p.id));
   return {
@@ -339,11 +355,21 @@ export async function listProjects(ctx: ControlContext, input: { machine_id?: st
 
 `normalizeName` is declared below `listProjects` in the file as a function declaration: it is hoisted, no move is needed.
 
-In `find`: `FindKind` gains `'group'`; the default kinds become `['machine', 'project', 'ai_account', 'task', 'group']`; after the projects line:
+In `find`: `FindKind` gains `'group'`; the default kinds become `['machine', 'project', 'ai_account', 'task', 'group']`; the projects branch keeps the list it reads in a `const projects`, and right after it:
 
 ```ts
-  if (kinds.has('group') && canProjects) for (const g of (await groupsOf(ctx)).groups) add('group', g.id, g.name, null);
+  // The person's own sidebar groups, by name. A failed read costs the groups, never the lookup: a
+  // machine asked for by name must still resolve. Logged by its label, never by a name.
+  if (kinds.has('group') && canProjects) {
+    try {
+      for (const g of (await groupsOf(ctx, { projects })).groups) add('group', g.id, g.name, null);
+    } catch (err) {
+      console.error('find: the project groups could not be read', { user_id: ctx.scope.user.id, error: failureLabel(err) });
+    }
+  }
 ```
+
+`failureLabel` comes from `'../chat/service.js'`; if importing it there makes a cycle, use `err instanceof Error ? err.name : 'unknown'` inline and say so in the report. The projects branch runs only with `canProjects`, so `projects` is read once, under that same condition (`const projects = kinds.has('project') || kinds.has('group') ? await ctx.repos.projects.list(...) : []`).
 
 Update the comment of `find` ("… and the person's own project groups").
 
@@ -419,16 +445,16 @@ const links = [{ machine: 'jarvis', cwd: '/srv/notify' }];
 describe('the groups line of a project chat', () => {
   it('names the group and its sibling projects, after the machines', () => {
     const text = projectSystemPrompt(p, links, [], [{ name: 'Triunfo', siblings: ['painel-triunfo', 'speedbike-app'] }]);
-    expect(text).toContain('Its machines and directories: jarvis → /srv/notify\nIts groups in the person\'s sidebar: "Triunfo" (with "painel-triunfo", "speedbike-app").');
+    expect(text).toContain('Its machines and directories: jarvis → /srv/notify\nIts sidebar groups, with the related projects in each: "Triunfo" (with "painel-triunfo", "speedbike-app").');
   });
 
   it('lists several groups, and says when a group has no other project', () => {
     const text = projectSystemPrompt(p, links, [], [{ name: 'Triunfo', siblings: ['painel-triunfo'] }, { name: 'Clientes', siblings: [] }]);
-    expect(text).toContain('Its groups in the person\'s sidebar: "Triunfo" (with "painel-triunfo"); "Clientes" (no other project).');
+    expect(text).toContain('Its sidebar groups, with the related projects in each: "Triunfo" (with "painel-triunfo"); "Clientes" (no other project).');
   });
 
   it('says nothing for a project in no group', () => {
-    expect(projectSystemPrompt(p, links, [], [])).not.toContain('Its groups');
+    expect(projectSystemPrompt(p, links, [], [])).not.toContain('Its sidebar groups');
     expect(projectSystemPrompt(p, links)).toBe(projectSystemPrompt(p, links, [], []));
   });
 
@@ -436,16 +462,18 @@ describe('the groups line of a project chat', () => {
     const siblings = Array.from({ length: 200 }, (_, i) => `projeto-com-nome-comprido-${i}`);
     const manyLinks = Array.from({ length: 200 }, (_, i) => ({ machine: `maquina-${i}`, cwd: `/srv/um/caminho/bem/comprido/${i}` }));
     const text = projectSystemPrompt(p, manyLinks, ['board'], [{ name: 'Triunfo', siblings }]);
-    const line = text.split('\n').find((l) => l.startsWith('Its groups'))!;
-    expect(line.length).toBeLessThanOrEqual('Its groups in the person\'s sidebar: '.length + 600 + 1);
-    expect(line).toContain('…');
+    const line = text.split('\n').find((l) => l.startsWith('Its sidebar groups'))!;
+    expect(line.length).toBeLessThanOrEqual('Its sidebar groups, with the related projects in each: '.length + 600 + 1);
+    // Whole names only: the cut never leaves a quote open.
+    expect(line).toMatch(/"projeto-com-nome-comprido-\d+", …\)\.$/);
+    expect(line.match(/"/g)!.length % 2).toBe(0);
     expect(text.length).toBeLessThanOrEqual(4000);
     expect(text).toContain('Keep answers short unless asked for detail.');
   });
 
-  it('a name with a line break stays on its line', () => {
-    const text = projectSystemPrompt(p, links, [], [{ name: 'Tri\nunfo', siblings: ['a\n\nb'] }]);
-    expect(text).toContain('"Tri unfo" (with "a b")');
+  it('a name with a line break stays on its line, and a quote inside a name is escaped', () => {
+    const text = projectSystemPrompt(p, links, [], [{ name: 'Tri\nunfo', siblings: ['a\n\nb', 'diz "oi"'] }]);
+    expect(text).toContain('"Tri unfo" (with "a b", "diz \\"oi\\"")');
   });
 });
 
@@ -494,19 +522,51 @@ export interface PromptGroup {
   siblings: string[];
 }
 
-/** A name as it goes into a prompt: one line, quoted. It is the person's own text. */
-const quoted = (s: string): string => `"${s.replace(/\s+/g, ' ').trim()}"`;
-const cut = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+/** A name as it goes into a prompt: one line, quoted as a JSON string so a quote inside it is escaped.
+ *  It is the person's own text. */
+const quoted = (s: string): string => JSON.stringify(s.replace(/\s+/g, ' ').trim());
 
-/** The line telling the model which sidebar groups the project is in and what else is in them, or ''. */
+/** Joins `items` with `sep` while they fit in `max` characters. The items that do not fit are dropped,
+ *  whole, and "…" takes their place, so a quoted name is never cut open. */
+export const fit = (items: string[], sep: string, max: number): string => {
+  let out = '';
+  for (const [i, item] of items.entries()) {
+    const next = i === 0 ? item : `${out}${sep}${item}`;
+    const more = i < items.length - 1 ? `${sep}…` : '';
+    if (next.length + more.length > max) return out ? `${out}${sep}…` : '…';
+    out = next;
+  }
+  return out;
+};
+
+const GROUPS_PREFIX = "Its sidebar groups, with the related projects in each: ";
+
+/** The line telling the model which sidebar groups the project is in and what else is in them, or ''.
+ *  Whole groups and whole names only: what does not fit in GROUPS_MAX is dropped and "…" says so. */
 const groupsLine = (groups: PromptGroup[]): string => {
   if (!groups.length) return '';
-  const parts = groups.map((g) => `${quoted(g.name)} (${g.siblings.length ? `with ${g.siblings.map(quoted).join(', ')}` : 'no other project'})`);
-  return `\nIts groups in the person's sidebar: ${cut(parts.join('; '), GROUPS_MAX)}.`;
+  const parts: string[] = [];
+  let used = 0;
+  for (const g of groups) {
+    const sep = parts.length ? '; ' : '';
+    const open = `${sep}${quoted(g.name)} (`;
+    const room = GROUPS_MAX - used - open.length - ')'.length;
+    if (room < 'with …'.length) {
+      parts.push('…');
+      break;
+    }
+    const body = g.siblings.length ? `with ${fit(g.siblings.map(quoted), ', ', room - 'with '.length)}` : 'no other project';
+    const part = `${open}${body})`;
+    parts.push(part);
+    used += part.length;
+  }
+  return `\n${GROUPS_PREFIX}${parts.join('')}.`;
 };
 ```
 
-`projectSystemPrompt` gains the fourth parameter `groups: PromptGroup[] = []`; `const groupLine = groupsLine(groups);`; `room` also subtracts `groupLine.length`; the return becomes `` `${head}Its machines and directories: ${list}${groupLine}${standingLine}${tail}` ``. Its comment says the groups line counts against the same budget.
+The "…" that closes a run of groups that do not fit is joined without a separator; keep the line under `GROUPS_PREFIX.length + 600 + 1` in every case (the tests check it), adjusting the arithmetic if a case is off by the length of "; ".
+
+`projectSystemPrompt` gains the fourth parameter `groups: PromptGroup[] = []`; `const groupLine = groupsLine(groups);`; `room` also subtracts `groupLine.length`; the return becomes `` `${head}Its machines and directories: ${list}${groupLine}${standingLine}${tail}` ``. Its comment says the groups line counts against the same budget. Add a small test of `fit` to the file: three items that fit, three where only one fits (`"a, …"`), none fits (`"…"`), an empty list (`""`).
 
 And, at the end of the file:
 
@@ -522,9 +582,12 @@ const INDEX_TAIL = '\nUse list_project_groups for ids and status, and list_proje
 export function accountSystemPrompt(groups: { name: string; projects: string[] }[]): string | null {
   const lines = groups.filter((g) => g.projects.length > 0).map((g) => `- ${quoted(g.name)}: ${g.projects.map(quoted).join(', ')}`);
   if (!lines.length) return null;
-  return `${INDEX_HEAD}${cut(lines.join('\n'), MAX - INDEX_HEAD.length - INDEX_TAIL.length)}${INDEX_TAIL}`;
+  // Whole lines only; a line that is itself too long is dropped like the rest.
+  return `${INDEX_HEAD}${fit(lines, '\n', MAX - INDEX_HEAD.length - INDEX_TAIL.length)}${INDEX_TAIL}`;
 }
 ```
+
+In the 4000-character test of the index, also check that every line between the head and the pointer is either a whole `- "grupo-N": …` line with balanced quotes or the lone `…`.
 
 Run: `npm test -w @termhub/server -- src/chat/project-prompt.test.ts`
 Expected: PASS.
@@ -535,12 +598,14 @@ In `apps/server/src/chat/service.test.ts`. The `repos` of `build` gains `project
 
 Cases, next to the tests that read `append_system_prompt`:
 
-1. `a project chat is told its group and the sibling projects`: groups `[{ id: 'g1', name: 'Triunfo', kind: 'custom', position: 0, project_ids: ['p1', 'p2'] }]`, projects `p1` (`app`) and `p2` (`painel`); a message in project `p1`; the run's `append_system_prompt` contains `Its groups in the person's sidebar: "Triunfo" (with "painel").`.
-2. `moving the project to another group changes the next run`: after the first run, `projectGroups.read` answers the project in `Faculdade`; the second run's prompt names `Faculdade` and not `Triunfo`.
+1. `a project chat is told its group and the sibling projects`: groups `[{ id: 'g1', name: 'Triunfo', kind: 'custom', position: 0, project_ids: ['p1', 'p2'] }]`, projects `p1` (`app`) and `p2` (`painel`); a message in project `p1`; the run's `append_system_prompt` contains `Its sidebar groups, with the related projects in each: "Triunfo" (with "painel").`.
+2. `moving the project to another group changes the next run on a one-shot host`: after the first run, `projectGroups.read` answers the project in `Faculdade`; the second run's prompt names `Faculdade` and not `Triunfo`.
+2b. `on a streamed host a move reaches the next process, and a message that joins the live process keeps its prompt`: `streaming: true`; a run held open; the groups change; a second message injected into the same process starts no new run (one `runner.run` call, with the first prompt); after the process ends, a third message starts a process whose prompt names `Faculdade`.
 3. `the account-wide chat gets the index on a streamed host`: `streaming: true`, a message in the account-wide chat; the prompt starts with the orchestrator's rules and contains `- "Triunfo": "app", "painel"`.
 4. `the account-wide chat gets no prompt on a one-shot host, groups or not`: the same groups, no `streaming`; `append_system_prompt ?? null` is null. The three existing tests that pin this stay as they are.
 5. `a failed read of the groups costs the groups, not the message`: `projectGroups.read.mockRejectedValue(new Error('down'))`; the project chat's run starts, its prompt has no groups line; the account-wide streamed run starts with the orchestrator's rules only. Spy on `console.error` and expect no group or project name in what was logged.
-6. `another user's groups never appear`: `projectGroups.read` answers groups only for another id; the prompts carry none.
+6. `a project of another owner in the person's group is never named`: the user's group `Triunfo` holds `p1`, `p2` and `px`, where `px` belongs to owner `u2` (`projects.list` answers it only for `u2`); the project chat's line names `"painel"` only, and the account-wide index lists `"app", "painel"` only. This test must fail if `groupsOf` stops filtering by the scope's projects: check it by making the test read the group's members from the rows once, and see it fail.
+6b. `another user's groups never appear`: `projectGroups.read` answers groups only for another id; the prompts carry none.
 7. `a queued message and a resumed run carry the index too`: a streamed account-wide run started by `launchQueued` (a message queued behind a run that ended its input), and one started by `resumeSweep`; both prompts contain the index. Use the neighbouring tests of the queue and of the resume as the model.
 
 Run: `npm test -w @termhub/server -- src/chat/service.test.ts`
@@ -576,12 +641,14 @@ In `apps/server/src/chat/service.ts`:
 3. `promptFor`, before its `return`:
 
 ```ts
-    const groups = (await this.groupsFor(user))
+    // The project's own groups, with the siblings that are not archived. Archived members are read so
+    // that an archived project's own chat still finds its groups; they are dropped from the siblings.
+    const groups = (await this.groupsFor(user, { archived: true }))
       .filter((g) => g.projects.some((m) => m.id === project.id))
-      .map((g) => ({ name: g.name, siblings: g.projects.filter((m) => m.id !== project.id).map((m) => m.name) }));
+      .map((g) => ({ name: g.name, siblings: g.projects.filter((m) => m.id !== project.id && m.status !== 'archived').map((m) => m.name) }));
 ```
 
-   and `groups` as the fourth argument of `projectSystemPrompt`.
+   and `groups` as the fourth argument of `projectSystemPrompt`. `groupsFor` takes the same `opts` as `groupsOf` and passes them on; `accountIndexFor` calls it without options. Add a service test: the chat of an archived project is told its group, without its archived siblings.
 
 4. The three places a streamed run starts. In each, right after `const appendSystemPrompt = await this.promptFor(user, conversation);`, add
 
