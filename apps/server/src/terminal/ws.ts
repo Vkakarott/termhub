@@ -1,14 +1,17 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { FastifyBaseLogger } from 'fastify';
 import { z } from 'zod';
+import { SCROLL_MAX_LINES } from '@termhub/machine-ops';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, Project, Tab } from '../db/repositories/types.js';
 import { rejectUpgrade, type createUpgradeRouter } from '../ws/router.js';
 import { Scoped } from '../auth/scope.js';
 import { AgentOfflineError, agents } from '../agent/registry.js';
 import { AgentRpcError } from '../agent/connection.js';
+import { versionAtLeast } from '../agent/errors.js';
 import { RESTART_CLOSE } from '../ws/drain.js';
 import { createPtySession, type PtySession } from './pty-session.js';
+import { TERMINAL_SCROLL_MIN_AGENT_VERSION, scrollSession } from './session-ops.js';
 
 /** What the person sees when the terminal could not start: what to do when we know the cause. */
 function openErrorMessage(err: unknown): string {
@@ -23,7 +26,16 @@ function openErrorMessage(err: unknown): string {
 const controlSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('resize'), cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(200) }),
   z.object({ type: z.literal('ping') }),
+  /** A mouse-wheel scroll (TER-465): < 0 up, > 0 down. */
+  z.object({ type: z.literal('scroll'), lines: z.number().int().min(-SCROLL_MAX_LINES).max(SCROLL_MAX_LINES).refine((n) => n !== 0) }),
 ]);
+
+/** Whether the tab's machine can take a wheel scroll: ssh/local always, an agent from 0.12.0 on. */
+function canScroll(machine: Machine): boolean {
+  if (machine.type !== 'agent') return true;
+  const version = agents.info(machine.id)?.agent_version;
+  return !!version && versionAtLeast(version, TERMINAL_SCROLL_MIN_AGENT_VERSION);
+}
 
 interface Deps {
   repos: Repositories;
@@ -151,11 +163,64 @@ async function handleConnection(
   // Nunca logamos conteúdo do terminal: só metadados.
   log.info({ tabId: ctx.tab.id, machineId: ctx.machine.id, pid: session.pid }, 'terminal conectado');
   void deps.repos.projects.touchTerminal(ctx.project.id).catch(() => {});
-  send({ type: 'ready' });
+  const scroll = canScroll(ctx.machine);
+  send({ type: 'ready', scroll });
+
+  // ── Mouse wheel (TER-465) ──
+  // Every tmux call of this connection runs in order on one chain, so a scroll and the "leave copy-mode"
+  // before a key never cross. While one scroll is on its way, later deltas add up into the next call.
+  // After a scroll the pane may sit in copy-mode, where tmux would eat the keys: the first key typed
+  // afterwards waits for `scrollSession(…, 0)` (leave copy-mode), and every key behind it waits in order.
+  const tmuxSession = ctx.tab.tmux_session as string;
+  let chain: Promise<void> = Promise.resolve();
+  let pendingLines = 0;
+  let flushQueued = false;
+  let scrolled = false;
+  let held: Buffer[] | null = null;
+  const tmuxScroll = async (lines: number) => {
+    try {
+      await scrollSession(ctx.machine, tmuxSession, lines);
+    } catch (err) {
+      // metadata only: never the pane's content
+      log.warn({ tabId: ctx.tab.id, machineId: ctx.machine.id, lines, code: (err as { code?: unknown } | null)?.code }, 'scroll falhou');
+    }
+  };
+  const onScroll = (lines: number) => {
+    pendingLines = Math.max(-SCROLL_MAX_LINES, Math.min(SCROLL_MAX_LINES, pendingLines + lines));
+    scrolled = true;
+    if (flushQueued) return;
+    flushQueued = true;
+    chain = chain.then(async () => {
+      flushQueued = false;
+      const n = pendingLines;
+      pendingLines = 0;
+      if (n !== 0) await tmuxScroll(n);
+    });
+  };
+  const onInput = (data: Buffer) => {
+    if (held) {
+      held.push(data);
+      return;
+    }
+    if (!scrolled) {
+      session.write(data);
+      return;
+    }
+    // typing cancels the scrolls still waiting, and takes the pane back to the bottom first
+    scrolled = false;
+    pendingLines = 0;
+    held = [data];
+    chain = chain.then(async () => {
+      await tmuxScroll(0);
+      const keys = held ?? [];
+      held = null;
+      for (const k of keys) session.write(k);
+    });
+  };
 
   ws.on('message', (raw, isBinary) => {
     if (isBinary) {
-      session.write(raw as Buffer);
+      onInput(raw as Buffer);
       return;
     }
     let parsed: unknown;
@@ -168,6 +233,7 @@ async function handleConnection(
     if (!msg.success) return;
     if (msg.data.type === 'resize') session.resize(msg.data);
     else if (msg.data.type === 'ping') send({ type: 'pong' });
+    else if (msg.data.type === 'scroll' && scroll) onScroll(msg.data.lines);
   });
 
   ws.on('close', () => {
