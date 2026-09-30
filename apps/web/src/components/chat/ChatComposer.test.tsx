@@ -220,3 +220,34 @@ describe('ChatComposer', () => {
     expect(box.scrollTop).toBe(120);
   });
 });
+
+describe('answering a message (TER-447)', () => {
+  it('previews the message being answered, focuses the box and sends its id', async () => {
+    installFinePointer();
+    const { box, onSend } = renderComposer({ replyTo: { id: 'm1', role: 'assistant', excerpt: 'Abri a aba build' }, onCancelReply: vi.fn() });
+    expect(screen.getByText('Respondendo a Concierge')).toBeTruthy();
+    expect(screen.getByText('Abri a aba build')).toBeTruthy();
+    expect(document.activeElement).toBe(box);
+    fireEvent.change(box, { target: { value: 'faz de novo' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('faz de novo', [], 'm1'));
+  });
+
+  it('✕ and Esc cancel the reply; the person\'s own message reads "Respondendo a você"', () => {
+    const onCancelReply = vi.fn();
+    const { box } = renderComposer({ replyTo: { id: 'm2', role: 'user', excerpt: 'sobe o deploy' }, onCancelReply });
+    expect(screen.getByText('Respondendo a você')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar resposta' }));
+    fireEvent.keyDown(box, { key: 'Escape' });
+    expect(onCancelReply).toHaveBeenCalledTimes(2);
+  });
+
+  it('no reply, no preview, and nothing extra sent', async () => {
+    installFinePointer();
+    const { box, onSend } = renderComposer();
+    expect(screen.queryByRole('button', { name: 'Cancelar resposta' })).toBeNull();
+    fireEvent.change(box, { target: { value: 'oi' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('oi', []));
+  });
+});
