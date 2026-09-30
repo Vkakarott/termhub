@@ -14,12 +14,22 @@ const FAILURE_TEXT: Record<string, string> = {
  * 2026-09-26 TER-203 §5); once closed it says what the tab had suggested. Keep in step with the app's copy.
  */
 export const suggestionTitle = (s: TabSuggestion): string => {
-  if (s.status === 'open') return s.tab_name ? `«${s.tab_name}» terminou — o Claude Code sugere:` : 'Uma aba terminou — o Claude Code sugere:';
+  if (s.status === 'open') {
+    const who = s.payload.agent === 'codex' ? 'o Codex perguntou:' : 'o Claude Code sugere:';
+    return s.tab_name ? `«${s.tab_name}» terminou — ${who}` : `Uma aba terminou — ${who}`;
+  }
   return s.tab_name ? `«${s.tab_name}» sugere:` : 'Uma aba sugere:';
 };
 
 /** Under an open card's title: a suggestion never needs an answer (spec 2026-09-26 TER-203 §5). */
 export const SUGGESTION_HINT = 'Não precisa responder.';
+
+/** A Codex reply card (`payload.agent === 'codex'`) is a question ending the Codex's turn: the person answers. */
+export const CODEX_REPLY_HINT = 'Responda aqui ou na aba.';
+/** The empty input of a Codex reply card, and its accessible name. */
+export const CODEX_REPLY_PLACEHOLDER = 'Sua resposta';
+
+export const suggestionHint = (s: TabSuggestion): string => (s.payload.agent === 'codex' ? CODEX_REPLY_HINT : SUGGESTION_HINT);
 
 /** How much of the agent's message a collapsed card shows. */
 export const CONTEXT_PREVIEW_MAX = 400;

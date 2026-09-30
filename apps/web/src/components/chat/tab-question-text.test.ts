@@ -1,7 +1,9 @@
-import { expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { TabQuestion } from '../../lib/types';
 import {
   answerSummary,
+  choiceTitle,
+  permissionTitle,
   autoAnswerFailureText,
   autoAnswerSeconds,
   choiceAnswerDescription,
@@ -114,4 +116,14 @@ it('upserts by id, appending a new one', () => {
   const list = [choice()];
   expect(upsertTabQuestion(list, choice({ status: 'answered' }))).toEqual([choice({ status: 'answered' })]);
   expect(upsertTabQuestion(list, permission({ id: 'q2' }))).toHaveLength(2);
+});
+
+describe('Codex titles', () => {
+  const q = (kind: 'choice' | 'permission', agent?: 'codex') => ({ id: 'q', tab_id: 't', tab_name: 'api', kind, status: 'open', answer: null, error_code: null, created_at: '', answered_at: null, closed_at: null, payload: kind === 'choice' ? { questions: [], agent } : { tool_name: 'Bash', agent } }) as TabQuestion;
+  it('names the Codex on a choice and a permission card, and only then', () => {
+    expect(choiceTitle(q('choice', 'codex'))).toBe('A aba «api» perguntou (o Codex)');
+    expect(choiceTitle(q('choice'))).toBe('A aba «api» perguntou');
+    expect(permissionTitle(q('permission', 'codex'))).toBe('O Codex pede permissão');
+    expect(permissionTitle(q('permission'))).toBe('A aba «api» pede permissão para usar «Bash»');
+  });
 });

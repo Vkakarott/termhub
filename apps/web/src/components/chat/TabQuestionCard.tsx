@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { TabQuestion, TabQuestionAnswer, TabQuestionChoice, TabQuestionPermission, TabQuestionSuggestionItem } from '../../lib/types';
-import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerDescription, choiceAnswerLabel, formatCountdown, statusLabel, suggestionLine, suggestionSourceSentence, tabLabel } from './tab-question-text';
+import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerDescription, choiceAnswerLabel, choiceTitle, formatCountdown, permissionTitle, statusLabel, suggestionLine, suggestionSourceSentence, tabLabel } from './tab-question-text';
 
 export interface TabQuestionCardProps {
   question: TabQuestion;
@@ -91,7 +91,7 @@ function ChoiceBody({ question, answering, onAnswer, onForget, onCancelAutoAnswe
     // edits (toggling an option, forgetting a suggestion) must not be overwritten by this effect again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auto?.status]);
-  const title = <p className="font-medium text-fg">{`${tabLabel(question)} perguntou`}</p>;
+  const title = <p className="font-medium text-fg">{choiceTitle(question)}</p>;
   if (question.status !== 'open') {
     // The countdown is over, but a `failed` one is never shown on a closed card (controller ruling): it
     // only ever explains why *this still-open card* has not answered itself; a `sent` one is the
@@ -286,6 +286,7 @@ function ChoiceBody({ question, answering, onAnswer, onForget, onCancelAutoAnswe
 
 function PermissionBody({ question, answering, onAnswer, loadScreen }: TabQuestionCardProps & { question: TabQuestionPermission }) {
   const open = question.status === 'open';
+  const codex = question.payload.agent === 'codex';
   const [screen, setScreen] = useState<string | null>(null);
   const [denying, setDenying] = useState(false);
   const [text, setText] = useState('');
@@ -305,7 +306,13 @@ function PermissionBody({ question, answering, onAnswer, loadScreen }: TabQuesti
   }, [open, question.id, loadScreen]);
   return (
     <>
-      <p className="whitespace-pre-wrap text-fg">{`${tabLabel(question)} pede permissão para usar «${question.payload.tool_name}»`}</p>
+      <p className="whitespace-pre-wrap text-fg">{permissionTitle(question)}</p>
+      {codex && (
+        <>
+          {question.payload.question && <p className="mt-1 whitespace-pre-wrap text-fg">{question.payload.question}</p>}
+          <p className="mt-1 whitespace-pre-wrap text-xs text-fg-dim">{`${tabLabel(question)} · «${question.payload.tool_name}»`}</p>
+        </>
+      )}
       {open && screen !== null && (
         <details className="mt-2" open>
           <summary className="cursor-pointer text-xs text-fg-dim">Tela da aba</summary>

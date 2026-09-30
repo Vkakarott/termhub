@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TabSuggestion } from '../../lib/types';
-import { CONTEXT_PREVIEW_MAX, lastParagraph, suggestionTitle } from './tab-suggestion-text';
+import { CONTEXT_PREVIEW_MAX, lastParagraph, suggestionHint, suggestionTitle } from './tab-suggestion-text';
 
 const s = (over: Partial<TabSuggestion> = {}): TabSuggestion => ({ id: 's1', tab_id: 't1', tab_name: 'api', kind: 'suggestion', payload: { text: 'commit it' }, status: 'open', answer: null, error_code: null, created_at: '', answered_at: null, closed_at: null, ...over });
 
@@ -31,5 +31,18 @@ describe('suggestionTitle', () => {
     expect(suggestionTitle(s({ tab_name: null }))).toBe('Uma aba terminou — o Claude Code sugere:');
     expect(suggestionTitle(s({ status: 'answered' }))).toBe('«api» sugere:');
     expect(suggestionTitle(s({ status: 'dismissed', tab_name: null }))).toBe('Uma aba sugere:');
+  });
+});
+
+describe('a Codex reply card', () => {
+  const codex = (over: Partial<TabSuggestion> = {}) => s({ payload: { text: '', context: 'Quer que eu siga?', agent: 'codex' }, ...over });
+  it('says the Codex asked, open; the closed title is unchanged', () => {
+    expect(suggestionTitle(codex())).toBe('«api» terminou — o Codex perguntou:');
+    expect(suggestionTitle(codex({ tab_name: null }))).toBe('Uma aba terminou — o Codex perguntou:');
+    expect(suggestionTitle(codex({ status: 'answered' }))).toBe('«api» sugere:');
+  });
+  it('asks for an answer instead of saying none is needed', () => {
+    expect(suggestionHint(codex())).toBe('Responda aqui ou na aba.');
+    expect(suggestionHint(s())).toBe('Não precisa responder.');
   });
 });

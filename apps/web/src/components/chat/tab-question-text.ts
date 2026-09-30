@@ -1,4 +1,4 @@
-import type { ChoiceAnswer, TabQuestion, TabQuestionItem, TabQuestionSuggestionItem } from '../../lib/types';
+import type { ChoiceAnswer, TabQuestion, TabQuestionChoice, TabQuestionItem, TabQuestionPermission, TabQuestionSuggestionItem } from '../../lib/types';
 
 /** What `409 TAB_PROMPT_CHANGED` reads as on a card. */
 export const PROMPT_CHANGED_TEXT = 'A pergunta mudou na aba';
@@ -70,6 +70,12 @@ export function autoAnswerFailureText(code?: string | null): string {
 }
 
 export const tabLabel = (q: TabQuestion): string => (q.tab_name ? `A aba «${q.tab_name}»` : 'Uma aba');
+
+/** The title of a choice card: says so when the question came from Codex (`payload.agent`). */
+export const choiceTitle = (q: TabQuestionChoice): string => `${tabLabel(q)} perguntou${q.payload.agent === 'codex' ? ' (o Codex)' : ''}`;
+
+/** The title of a permission card. Codex's approval is asked in its own words (`payload.question`, shown apart). */
+export const permissionTitle = (q: TabQuestionPermission): string => (q.payload.agent === 'codex' ? 'O Codex pede permissão' : `${tabLabel(q)} pede permissão para usar «${q.payload.tool_name}»`);
 
 export function statusLabel(q: TabQuestion): string {
   switch (q.status) {

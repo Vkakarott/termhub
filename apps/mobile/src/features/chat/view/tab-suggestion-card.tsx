@@ -1,7 +1,7 @@
 import { memo, useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { AppText, Button } from '@/ui';
-import { CONTEXT_PREVIEW_MAX, SUGGESTION_HINT, lastParagraph, suggestionStatusLabel, suggestionTitle } from '../model/tab-suggestion-text';
+import { CODEX_REPLY_PLACEHOLDER, CONTEXT_PREVIEW_MAX, lastParagraph, suggestionHint, suggestionStatusLabel, suggestionTitle } from '../model/tab-suggestion-text';
 import type { TabSuggestion } from '../model/types';
 
 type Props = {
@@ -25,16 +25,19 @@ export const TabSuggestionCard = memo(function TabSuggestionCard({ suggestion, b
   const open = suggestion.status === 'open';
   const trimmed = text.trim();
   const context = suggestion.payload.context?.trim() || null;
+  // A Codex reply card holds no suggested text: it asks the person a question, so it takes an answer, not an edit.
+  const codex = suggestion.payload.agent === 'codex';
+  const label = codex ? CODEX_REPLY_PLACEHOLDER : FIELD_LABEL;
   return (
     // The testID tells this card's "Enviar" from the composer's, both on screen at once.
     <View testID={`tab-suggestion-${suggestion.id}`} className="gap-3 rounded-2xl border border-app-border bg-app-surface2 p-4">
       <AppText variant="label">{suggestionTitle(suggestion)}</AppText>
-      {open ? <AppText variant="muted">{SUGGESTION_HINT}</AppText> : null}
+      {open ? <AppText variant="muted">{suggestionHint(suggestion)}</AppText> : null}
       {context ? <SuggestionContext text={context} /> : null}
       {open ? (
         <View className="gap-2">
-          <AppText variant="muted">{FIELD_LABEL}</AppText>
-          <TextInput accessibilityLabel={FIELD_LABEL} value={text} maxLength={2000} editable={!busy} onChangeText={setText} className={INPUT} />
+          {codex ? null : <AppText variant="muted">{FIELD_LABEL}</AppText>}
+          <TextInput accessibilityLabel={label} placeholder={codex ? CODEX_REPLY_PLACEHOLDER : undefined} value={text} maxLength={2000} editable={!busy} onChangeText={setText} className={INPUT} />
           <View className="flex-row gap-2">
             <View className="flex-1">
               <Button label="Enviar" onPress={() => onSend(suggestion.id, trimmed)} disabled={busy || !trimmed} />

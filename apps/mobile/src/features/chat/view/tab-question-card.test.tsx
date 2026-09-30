@@ -293,3 +293,24 @@ describe('automatic answer countdown (concierge memory spec 2026-09-26 §6/§8)'
     expect(screen.getByText(text)).toBeTruthy();
   });
 });
+
+describe('TabQuestionCard: a question that came from Codex', () => {
+  const PERMISSION: TabQuestion = { ...BASE_QUESTION, kind: 'permission', payload: { tool_name: 'Bash', agent: 'codex', question: 'Rodar <b>npm test</b>?' }, answer: null } as TabQuestion;
+  it('a permission card says the Codex asks, shows the question as plain text and keeps the tool as secondary text', async () => {
+    const onAnswer = jest.fn();
+    await render(<TabQuestionCard question={PERMISSION} busy={false} onAnswer={onAnswer} loadScreen={async () => null} />);
+    expect(screen.getByText('O Codex pede permissão')).toBeTruthy();
+    expect(screen.getByText('Rodar <b>npm test</b>?')).toBeTruthy();
+    expect(screen.getByText('A aba «api» · «Bash»')).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Permitir' }));
+    expect(onAnswer).toHaveBeenCalledWith('q1', { allow: true });
+  });
+  it('a choice card names the Codex in its title', async () => {
+    await render(<TabQuestionCard question={{ ...BASE_QUESTION, payload: { ...BASE_QUESTION.payload, agent: 'codex' } } as TabQuestion} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} />);
+    expect(screen.getByText('A aba «api» perguntou (o Codex)')).toBeTruthy();
+  });
+  it('a Claude permission card is unchanged', async () => {
+    await render(<TabQuestionCard question={{ ...BASE_QUESTION, kind: 'permission', payload: { tool_name: 'Bash' } } as TabQuestion} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} />);
+    expect(screen.getByText('A aba «api» pede permissão para usar «Bash»')).toBeTruthy();
+  });
+});
