@@ -18,6 +18,7 @@ import { useChatStream } from '../../lib/chat';
 import { compactDoneText, compactFailedText, isCompactCommand, isCompactShortcut } from '../../lib/chat-context';
 import { useChatLive } from '../../lib/chat-live';
 import { droppedRows, mergeMessage, mergeThread } from '../../lib/chat-merge';
+import { replyTargetOf, type ReplyTarget } from '../../lib/chat-reply';
 import { chatTimeline, groupPendingActions } from '../../lib/chat-timeline';
 import { activeGrantsLabel } from './grant-list-text';
 import { isGrantActive } from './grant-time';
@@ -724,8 +725,31 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
    * another send in flight: several can be (spec 2026-09-26). The POST returns as soon as the message
    * is stored; the answer streams over the socket.
    */
+  /** The message the next send answers (TER-447); dropped with the conversation. */
+  const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
+  /** The row a quote just scrolled to, ringed for a moment. */
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => setReplyTo(null), [projectId, conversationId]);
+  useEffect(() => {
+    if (highlightId === null) return;
+    const timer = window.setTimeout(() => setHighlightId(null), 1500);
+    return () => window.clearTimeout(timer);
+  }, [highlightId]);
+  const startReply = useCallback((m: ChatMessage) => setReplyTo(replyTargetOf(m)), []);
+  const cancelReply = useCallback(() => setReplyTo(null), []);
+  /** A quote's click: the original, if this thread has it, is brought to the middle and ringed. */
+  const openReply = useCallback((id: string): boolean => {
+    const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id.replace(/["\\]/g, '\\$&');
+    const row = rootRef.current?.querySelector<HTMLElement>(`[data-message-id="${escaped}"]`);
+    if (!row) return false;
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setHighlightId(id);
+    return true;
+  }, []);
+
   const send = useCallback(
-    async (value: string, attachmentIds: string[]): Promise<boolean> => {
+    async (value: string, attachmentIds: string[], replyToId?: string): Promise<boolean> => {
       if (!value && attachmentIds.length === 0) return false;
       // `/compact` alone is the command, as in Claude Code: it compacts, and nothing is sent.
       if (attachmentIds.length === 0 && isCompactCommand(value)) {
@@ -733,6 +757,9 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
         return true;
       }
       setCompactNote(null);
+      // The preview goes with the text, at once, and comes back with it if the send fails.
+      const quoted = replyToId ? replyTo : null;
+      if (quoted) setReplyTo(null);
       // Sending is the reader's own way of saying "take me to the bottom" — the answer will stream
       // in below whatever they typed.
       stick.current = true;
@@ -741,7 +768,8 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
       try {
         // No project = the account-wide chat: called with no second argument, for the same reason as
         // `load` above. The three-argument form only when there is something to carry in it.
-        if (attachmentIds.length > 0) await api.sendChatMessage(value, projectId, attachmentIds);
+        if (replyToId) await api.sendChatMessage(value, projectId, attachmentIds, replyToId);
+        else if (attachmentIds.length > 0) await api.sendChatMessage(value, projectId, attachmentIds);
         else if (projectId) await api.sendChatMessage(value, projectId);
         else await api.sendChatMessage(value);
         await load();
@@ -751,6 +779,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
         // 503 CONCIERGE_DISABLED still carries its own pt-BR message, shown as-is, and so does a host
         // problem (offline, no machine); anything else falls back to a generic line.
         setError(e instanceof ApiError ? e.message : 'Não foi possível enviar a mensagem');
+        if (quoted) setReplyTo((current) => current ?? quoted);
         // The server may have dropped the empty assistant row it had already announced (a run that
         // never started at all), so re-read instead of keeping a bubble that will never fill.
         await load().catch(() => undefined);
@@ -759,7 +788,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
         setInFlight((n) => n - 1);
       }
     },
-    [projectId, load],
+    [projectId, load, replyTo],
   );
 
   /** "Propor de novo" on an expired or stale card (TER-477): an ordinary message of this conversation,
@@ -848,7 +877,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
     // spec, `overflow-wrap` never shrinks min-content). So one unbreakable token in an answer — a
     // `waiting_permission` in backticks, a long path — widened this column past the viewport and
     // took the composer's send button off screen with it.
-    <div className="mx-auto flex min-h-0 w-full min-w-0 max-w-3xl flex-1 flex-col px-4" onKeyDown={onPanelKeyDown}>
+    <div ref={rootRef} className="mx-auto flex min-h-0 w-full min-w-0 max-w-3xl flex-1 flex-col px-4" onKeyDown={onPanelKeyDown}>
       {/* "Começar do zero" without losing the transcript: it stays server-side, just off this screen.
        *  Disabled while an answer is being written (the server would 409) or with nothing yet to reset. */}
       {/* The conversation's trusted tabs used to be a strip above the box; now one link, only while any is
@@ -1020,7 +1049,19 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
           // Started rows show "pensando…" wherever they are: with queued or injected turns several
           // answers can be pending at once (spec 2026-09-26 concierge always free).
           const waiting = empty && (row?.started === true || (sending && m.id === lastMessageId));
-          return <ChatTurn key={m.id} message={m} streaming={streaming} tools={row?.tools} waiting={waiting} failed={Boolean(m.error_code) || (empty && !waiting)} />;
+          return (
+            <ChatTurn
+              key={m.id}
+              message={m}
+              streaming={streaming}
+              tools={row?.tools}
+              waiting={waiting}
+              failed={Boolean(m.error_code) || (empty && !waiting)}
+              onOpenReply={openReply}
+              onReply={startReply}
+              highlighted={highlightId === m.id}
+            />
+          );
         })}
       </ChatThread>
       {/* What waits on the person, however far up it sits (TER-477): hidden while nothing does. */}
@@ -1028,7 +1069,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
       {/* A host that cannot run the message is why the box refuses, and the box says so. The send and
        *  decision errors go in its status line too: a line that mounts above the thread shifts it.
        *  `projectId` travels with every upload, so a file lands in this project's conversation. */}
-      <ChatComposer onSend={send} blockedReason={host && host.kind !== 'ready' ? COMPOSER_REASON[host.kind] : null} status={error ?? actionError} notice={compacting ? 'Compactando a conversa…' : compactNote} projectId={projectId} attachmentStatuses={attachmentStatuses} />
+      <ChatComposer onSend={send} replyTo={replyTo} onCancelReply={cancelReply} blockedReason={host && host.kind !== 'ready' ? COMPOSER_REASON[host.kind] : null} status={error ?? actionError} notice={compacting ? 'Compactando a conversa…' : compactNote} projectId={projectId} attachmentStatuses={attachmentStatuses} />
     </div>
   );
 }

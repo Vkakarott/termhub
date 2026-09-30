@@ -4,6 +4,7 @@ import { api, ApiError } from '../../lib/api';
 import { ACCEPT_ATTRIBUTE, MAX_ATTACHMENTS_PER_MESSAGE, attachmentStatusText, checkFile, type AttachmentKind } from '../../lib/attachments';
 import { sendsMessage } from '../../lib/chat-scroll';
 import { downscaleImage } from '../../lib/image-downscale';
+import type { ReplyTarget } from '../../lib/chat-reply';
 import type { ChatAttachment } from '../../lib/types';
 import { useDictation, type Dictation } from '../../lib/use-dictation';
 import { AttachmentChip } from './AttachmentChip';
@@ -16,7 +17,11 @@ export interface ChatComposerProps {
    * resolves `false` (or throws), unless something new was typed meanwhile. Several sends may be in
    * flight at once: an answer being written never locks the box (spec 2026-09-26, concierge always free).
    */
-  onSend: (text: string, attachmentIds: string[]) => Promise<boolean>;
+  onSend: (text: string, attachmentIds: string[], replyToId?: string) => Promise<boolean>;
+  /** The message the next send answers (TER-447): previewed above the text, its id sent with it. */
+  replyTo?: ReplyTarget | null;
+  /** ✕ on the preview, or Esc in the box. */
+  onCancelReply?: () => void;
   /**
    * Why nothing can be sent right now — the chat's host cannot run it (no machine, none chosen, one
    * that is asleep, an agent too old). The button refuses and this is the reason it shows: a box that
@@ -277,7 +282,7 @@ function useAttachmentDrafts(projectId: string | null | undefined, statuses: Rea
  * where Enter is how every other line got started); Shift+Enter is always a newline, on either. Either
  * way it can only send what the button itself would send.
  */
-export function ChatComposer({ onSend, blockedReason, status, notice, projectId, attachmentStatuses }: ChatComposerProps) {
+export function ChatComposer({ onSend, replyTo = null, onCancelReply, blockedReason, status, notice, projectId, attachmentStatuses }: ChatComposerProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [text, setText] = useState('');
@@ -350,7 +355,8 @@ export function ChatComposer({ onSend, blockedReason, status, notice, projectId,
     const taken = attachments.take();
     let ok = false;
     try {
-      ok = await onSend(value, uploadedIds);
+      // The third argument only with a reply, so a plain send calls `onSend` exactly as before.
+      ok = await (replyTo ? onSend(value, uploadedIds, replyTo.id) : onSend(value, uploadedIds));
     } catch {
       ok = false;
     }
@@ -361,7 +367,13 @@ export function ChatComposer({ onSend, blockedReason, status, notice, projectId,
     // Give the text back so nothing is lost — unless something new was typed meanwhile.
     setText((current) => current || value);
     taken.restore();
-  }, [canSend, text, uploadedIds, attachments, onSend]);
+  }, [canSend, text, uploadedIds, attachments, onSend, replyTo]);
+
+  // Answering is about to be typed: the box takes the focus as the preview appears.
+  const replyId = replyTo?.id;
+  useEffect(() => {
+    if (replyId) ref.current?.focus();
+  }, [replyId]);
 
   // One line, fixed height, always mounted: what appears here moves nothing. The host's own reason
   // outranks everything (it is the one that is not going to resolve on its own); a chip still on the
@@ -416,6 +428,17 @@ export function ChatComposer({ onSend, blockedReason, status, notice, projectId,
             e.target.value = '';
           }}
         />
+        {replyTo && (
+          <div className="mb-2 flex items-start gap-2 rounded-lg border-l-2 border-accent bg-bg-3 px-2.5 py-1.5 text-xs">
+            <div className="min-w-0 flex-1">
+              <div className="font-medium text-accent">{replyTo.role === 'assistant' ? 'Respondendo a Concierge' : 'Respondendo a você'}</div>
+              <div className="truncate text-fg-dim">{replyTo.excerpt}</div>
+            </div>
+            <button type="button" aria-label="Cancelar resposta" onClick={onCancelReply} className="rounded px-1 text-fg-dim hover:text-fg">
+              ✕
+            </button>
+          </div>
+        )}
         <ul aria-label="Anexos" className={`flex flex-wrap gap-2 ${attachments.drafts.length > 0 ? 'mb-2' : ''}`}>
           {attachments.drafts.map((d) => (
             <AttachmentChip
@@ -453,6 +476,11 @@ export function ChatComposer({ onSend, blockedReason, status, notice, projectId,
             attachments.add(files);
           }}
           onKeyDown={(e) => {
+            if (e.key === 'Escape' && replyTo) {
+              e.preventDefault();
+              onCancelReply?.();
+              return;
+            }
             // `canSend`, not just the key rule: while the box is recording the button reads "Parar",
             // and an Enter that still sent put a half-typed line in front of an agent that acts on the
             // person's real machines — with the transcription then landing in the box that send had
