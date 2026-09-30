@@ -6,9 +6,11 @@ import { Icon, type IconName } from '@/ui';
 import { CHAT_MSG } from '../model/messages';
 import { useAttachmentDrafts, type PickedFile } from '../viewmodel/attachments';
 import { useVoice } from '../viewmodel/use-voice';
+import type { ReplyRef } from '../model/reply';
 import { AttachmentChip } from './attachment-chip';
 import { AttachmentMenu, type MenuAnchor } from './attachment-menu';
 import { RecordingWave } from './recording-wave';
+import { ReplyPreview } from './reply-preview';
 
 /** The box's line box for 16 px text; its height follows the content between `MIN_ROWS` and
  * `MAX_ROWS` of these (the web composer's names), and past that it scrolls. */
@@ -94,6 +96,10 @@ type Props = {
   deleteAttachment(id: string): Promise<void>;
   /** The store's `attachmentStatuses`: what the socket heard for each upload, so a chip moves on from "processando…". */
   attachmentStatuses?: Readonly<Record<string, TChatAttachment>>;
+  /** The message the next send answers (TER-447), previewed on top of the pill; the screen owns it. */
+  replyTo?: ReplyRef | null;
+  /** ✕ on the preview. */
+  onCancelReply?(): void;
 };
 
 /** A round button of the pill: the symbol on a filled circle (`fill`) or bare. */
@@ -128,10 +134,11 @@ function RoundButton({ label, icon, onPress, disabled = false, fill, tone }: { l
  * be read first (what dictation always did), and ↑ stops and sends the box with the transcription once
  * it arrives — a send the person asked for, like tapping ↑; a clip that fails or hears nothing sends
  * nothing. Nothing leaves while a chip is still uploading, and nothing leaves with a chip the server
- * could not read (it would answer 409): the line says to remove it. The text clears as soon as it is
+ * could not read (it would answer 409): the line says to remove it. A message being answered
+ * (TER-447) is previewed on top of the pill, with ✕; the screen keeps the reference and sends it. The text clears as soon as it is
  * sent and comes back if the send fails; the chips only go once the server accepted.
  */
-export function Composer({ sending, onSend, uploadAttachment, deleteAttachment, attachmentStatuses }: Props) {
+export function Composer({ sending, onSend, uploadAttachment, deleteAttachment, attachmentStatuses, replyTo = null, onCancelReply }: Props) {
   const [text, setText] = useState('');
   const [height, setHeight] = useState(MIN_HEIGHT);
   // Latched: once the text wraps the buttons stay below until the box is emptied. Leaving as soon as
@@ -157,6 +164,11 @@ export function Composer({ sending, onSend, uploadAttachment, deleteAttachment, 
     }
   }, []);
   const voice = useVoice(onDictated);
+  // Answering is about to be typed: the keyboard comes up with the preview, as in WhatsApp.
+  const replyId = replyTo?.id;
+  useEffect(() => {
+    if (replyId) inputRef.current?.focus();
+  }, [replyId]);
   const attachments = useAttachmentDrafts({ upload: uploadAttachment, remove: deleteAttachment, statuses: attachmentStatuses });
 
   const hasText = text.trim().length > 0;
@@ -254,6 +266,7 @@ export function Composer({ sending, onSend, uploadAttachment, deleteAttachment, 
   return (
     <View className="bg-app-bg px-3 pb-2 pt-2">
       <View className="rounded-3xl bg-app-surface2 px-1 py-1.5">
+        {replyTo ? <ReplyPreview reply={replyTo} onCancel={onCancelReply} /> : null}
         {attachments.drafts.length > 0 ? (
           <View className="mb-2 mt-1 gap-2 px-1">
             {attachments.drafts.map((d) => (
