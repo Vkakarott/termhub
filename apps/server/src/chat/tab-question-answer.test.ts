@@ -20,6 +20,7 @@ vi.mock('../control/screen.js', async (orig) => ({ ...(await orig<typeof import(
 const { answerTabQuestion, DIALOG_FOOTER, lastNonBlankLines, permissionDialogVisible, promptVisible, requirePinFor, tabQuestionScreen } = await import('./tab-question-answer.js');
 
 const fx = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures/tab-questions', name), 'utf8');
+const codexFx = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8');
 const screens = { choice: fx('screen-choice.txt'), permission: fx('screen-permission.txt') };
 
 const colors = { question: 'What is your favorite color?', header: 'Color', multi_select: false, options: ['Blue', 'Green', 'Red'].map((label, i) => ({ label, description: '', recommended: i === 0 })) };
@@ -124,6 +125,30 @@ describe('answerTabQuestion', () => {
     readScreen.mockResolvedValue({ tab_id: 't1', lines: 60, text: screens.permission, styled: false });
     await answerTabQuestion(ctx, 'q2', { allow: true }, { log: log(), sleep: noSleep });
     expect(steps()).toEqual(['key:1']);
+  });
+
+  it('a Codex approval: "y" on its own screen; a Claude screen for it is stale', async () => {
+    const codexPerm = permission({ payload: { tool_name: 'Bash', agent: 'codex' } });
+    readScreen.mockResolvedValue({ tab_id: 't1', lines: 60, text: codexFx('permission-dialogs/codex-reason.txt'), styled: false });
+    await answerTabQuestion(ctxFor(codexPerm).ctx, 'q2', { allow: true }, { log: log(), sleep: noSleep });
+    expect(steps()).toEqual(['key:y']);
+    vi.clearAllMocks();
+    readScreen.mockResolvedValue({ tab_id: 't1', lines: 60, text: screens.permission, styled: false });
+    await rejects(answerTabQuestion(ctxFor(codexPerm).ctx, 'q2', { allow: true }, { log: log(), sleep: noSleep }), 409, 'TAB_PROMPT_CHANGED');
+    expect(steps()).toEqual([]);
+  });
+
+  it('a Codex question: option digits, and free text through "None of the above" and the notes', async () => {
+    const opt = (label: string) => ({ label, description: '', recommended: false });
+    const q = { question: 'Qual cor: azul ou verde?', header: 'Cor', multi_select: false, options: [opt('Azul'), opt('Verde')] };
+    const codexAsk = row({ payload: { agent: 'codex', questions: [q] } });
+    readScreen.mockResolvedValue({ tab_id: 't1', lines: 60, text: codexFx('codex-questions/two-questions.txt'), styled: false });
+    await answerTabQuestion(ctxFor(codexAsk).ctx, 'q1', { answers: [{ selected: [1] }] }, { log: log(), sleep: noSleep, ...noEmbed });
+    expect(steps()).toEqual(['key:2']);
+    vi.clearAllMocks();
+    readScreen.mockResolvedValue({ tab_id: 't1', lines: 60, text: codexFx('codex-questions/two-questions.txt'), styled: false });
+    await answerTabQuestion(ctxFor(codexAsk).ctx, 'q1', { answers: [{ selected: [], text: 'Roxo' }] }, { log: log(), sleep: noSleep, ...noEmbed });
+    expect(steps()).toEqual(['key:Down', 'key:Down', 'key:Tab', 'text:Roxo', 'key:Enter']);
   });
 
   it('404: not this user\'s question, or its tab is outside the scope — nothing claimed nor typed', async () => {

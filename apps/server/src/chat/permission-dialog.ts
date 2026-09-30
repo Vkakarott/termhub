@@ -28,6 +28,28 @@ export function lastNonBlankLines(text: string, n = SCREEN_EXCERPT_LINES): strin
     .join('\n');
 }
 
+/** Codex's approval menu ends on this line; its question dialog ends on "… enter to submit answer/all …". */
+const CODEX_APPROVAL_FOOTER = 'press enter to confirm or esc to cancel';
+const CODEX_QUESTION_FOOTER = 'enter to submit';
+
+/**
+ * `promptVisible` for a Codex row (Codex 0.159.2): the same two-part rule with Codex's footers. The last
+ * non-blank line is the menu's own footer (a tab back at its composer never passes), and the block holds
+ * the dialog's marker: "Would you like to" / "Do you want to" for an approval, the first question's text
+ * for a question.
+ */
+function codexPromptVisible(block: string, row: Pick<TabQuestion, 'kind' | 'payload'>): boolean {
+  const last = block.slice(block.lastIndexOf('\n') + 1).toLowerCase();
+  const shown = squashLower(block);
+  if (row.kind === 'choice') {
+    if (!last.includes(CODEX_QUESTION_FOOTER)) return false;
+    const marker = squash((row.payload as ChoicePayload).questions[0]?.question ?? '').slice(0, 80);
+    return marker !== '' && squash(block).includes(marker);
+  }
+  if (!last.includes(CODEX_APPROVAL_FOOTER)) return false;
+  return shown.includes(squashLower('would you like to')) || shown.includes(squashLower('do you want to'));
+}
+
 /**
  * The live check (spec §5.3): the question must be the dialog the tab is showing *now*. Two things,
  * both required. The last non-blank line is a dialog's footer (`DIALOG_FOOTER`), so a tab back at
@@ -39,6 +61,7 @@ export function lastNonBlankLines(text: string, n = SCREEN_EXCERPT_LINES): strin
  */
 export function promptVisible(screen: string, row: Pick<TabQuestion, 'kind' | 'payload'>): boolean {
   const block = lastNonBlankLines(screen, PROMPT_MARKER_LINES);
+  if ((row.payload as { agent?: string }).agent === 'codex') return codexPromptVisible(block, row);
   if (!block.slice(block.lastIndexOf('\n') + 1).includes(DIALOG_FOOTER)) return false;
   const shown = squash(block);
   if (row.kind === 'choice') {
