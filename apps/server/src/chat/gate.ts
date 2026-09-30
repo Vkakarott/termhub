@@ -17,6 +17,7 @@ const selfMediatedTools = new Set(['record_decision', 'answer_tab_question', 're
 const readTools = new Set([
   'list_machines',
   'list_projects',
+  'list_project_groups',
   'list_tabs',
   'list_ai_accounts',
   'find',

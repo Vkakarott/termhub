@@ -4,6 +4,7 @@ import type { Action, Resource } from '../auth/permissions.js';
 import type { ApiTokenScope } from '../auth/api-tokens.js';
 import type { ControlContext } from '../control/context.js';
 import { TAB_TOKEN_TOOLS } from './tab-token.js';
+import { listProjectGroups } from '../control/groups.js';
 import { find, listAiAccounts, listMachines, listProjects, listTabs } from '../control/inventory.js';
 import { readScreen, SCREEN_MAX_LINES, WAIT_MAX_SECONDS, waitForState } from '../control/screen.js';
 import { closeTab, INPUT_MAX_CHARS, openTab, runCommand, RUN_MAX_SECONDS, sendInput, sendKey } from '../control/terminals.js';
@@ -72,10 +73,18 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'list_projects',
-    description: 'List projects: id, key (used in card numbers and URLs), name, status and the machines each one is linked to with the working directory on each. Archived ones are hidden unless include_archived; machine_id keeps only projects linked to that machine.',
+    description:
+      "List projects: id, key (used in card numbers and URLs), name, status, the person's own sidebar groups each one is in (groups: [{ id, name }]; favorite: true when pinned in Favoritos) and the machines each one is linked to with the working directory on each. Archived ones are hidden unless include_archived; machine_id keeps only projects linked to that machine; group (a group's id or name) keeps only the projects of that group.",
     scope: 'read', resource: 'projects', action: 'read',
-    input: { machine_id: id.optional(), include_archived: z.boolean().optional() },
-    run: (ctx, a) => listProjects(ctx, a as { machine_id?: string; include_archived?: boolean }),
+    input: { machine_id: id.optional(), include_archived: z.boolean().optional(), group: z.string().trim().min(1).max(64).optional() },
+    run: (ctx, a) => listProjects(ctx, a as { machine_id?: string; include_archived?: boolean; group?: string }),
+  },
+  {
+    name: 'list_project_groups',
+    description:
+      "List the person's own sidebar groups, in sidebar order, each with its projects (id, key, name, status). A group is how the person thinks of the work: projects of one group are related. Favoritos is not a group (see favorite in list_projects) and projects in no group are not listed here. Archived projects are left out.",
+    scope: 'read', resource: 'projects', action: 'read', input: {},
+    run: (ctx) => listProjectGroups(ctx),
   },
   {
     name: 'list_tabs',
@@ -94,14 +103,14 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'find',
     description:
-      'Resolve names to ids in one call — e.g. "MacBook Pro M4", "Hub Community", "pedrogoiania", "TER-12" — across machines, projects (name or key), AI accounts and cards (exact ref only), and external tickets by exact key or URL (kinds: [\'ticket\']) (case- and accent-insensitive, best matches first). A ticket match also carries its project_id (what import_tickets needs) and card ({ id, ref } once imported — the id is the task_id for start_agent — or null); get_ticket gives its full description.',
+      'Resolve names to ids in one call — e.g. "MacBook Pro M4", "Hub Community", "pedrogoiania", "TER-12" — across machines, projects (name or key), the person\'s project groups, AI accounts and cards (exact ref only), and external tickets by exact key or URL (kinds: [\'ticket\']) (case- and accent-insensitive, best matches first). A ticket match also carries its project_id (what import_tickets needs) and card ({ id, ref } once imported — the id is the task_id for start_agent — or null); get_ticket gives its full description.',
     // find narrows the kinds it searches to what the user can read, so any one of them is enough
     scope: 'read', resource: 'projects', action: 'read',
     allowedIf: async (ctx) =>
       (await Promise.all([ctx.can('machines', 'read'), ctx.can('projects', 'read'), ctx.can('tasks', 'read'), ctx.can('ai_accounts', 'read'), ctx.can('tickets', 'read')])).some(Boolean),
     grantText: 'de leitura de máquinas, projetos, tarefas, tickets ou contas de IA',
-    input: { query: z.string().min(1).max(200), kinds: z.array(z.enum(['machine', 'project', 'ai_account', 'task', 'ticket'])).optional() },
-    run: (ctx, a) => find(ctx, a as { query: string; kinds?: ('machine' | 'project' | 'ai_account' | 'task' | 'ticket')[] }),
+    input: { query: z.string().min(1).max(200), kinds: z.array(z.enum(['machine', 'project', 'ai_account', 'task', 'ticket', 'group'])).optional() },
+    run: (ctx, a) => find(ctx, a as { query: string; kinds?: ('machine' | 'project' | 'ai_account' | 'task' | 'ticket' | 'group')[] }),
   },
   {
     name: 'read_screen',

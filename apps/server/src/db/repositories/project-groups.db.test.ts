@@ -125,6 +125,19 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ProjectGroupsRepository (
     expect([a.id, c.id].every((id) => rest.some((g) => g.id === id))).toBe(true);
   });
 
+  it('read answers the groups in sidebar order and never creates Favoritos', async () => {
+    expect(await repo.read(userId)).toEqual([]);
+    expect(await db.projectGroup.count({ where: { userId } })).toBe(0);
+
+    const a = await repo.create(userId, 'Triunfo'); // `create` makes Favoritos first
+    const b = await repo.create(userId, 'Faculdade');
+    const read = await repo.read(userId);
+    expect(read.map((g) => g.name)).toEqual(['Favoritos', 'Triunfo', 'Faculdade']);
+    expect(read.map((g) => g.kind)).toEqual(['favorites', 'custom', 'custom']);
+    expect(read.map((g) => g.id).slice(1)).toEqual([a.id, b.id]);
+    expect(await repo.list(userId)).toEqual(read);
+  });
+
   it('enforces the group limit', async () => {
     await db.projectGroup.createMany({ data: Array.from({ length: 50 }, (_, i) => ({ id: newId(), userId, name: `g${i}`, position: i + 1 })) });
     await expect(repo.create(userId, 'one more')).rejects.toBeInstanceOf(ProjectGroupRuleError);
