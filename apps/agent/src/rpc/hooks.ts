@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { RpcParams, RpcResult } from '@termhub/agent-protocol';
 import {
   CLAUDE_DEFAULT_DIR,
+  CODEX_HOOKS_REL,
   HOOK_ENV_REL,
   HOOK_MARK,
   HOOK_SCRIPT,
@@ -11,12 +12,15 @@ import {
   claudeConfigDirs,
   expandHome,
   hookEnvFile,
+  isBareCodexHooks,
   isBareCursorHooks,
   mergeClaudeSettings,
   mergeCodexConfig,
+  mergeCodexHooks,
   mergeCursorHooks,
   stripClaudeSettings,
   stripCodexConfig,
+  stripCodexHooks,
   stripCursorHooks,
 } from '@termhub/machine-ops';
 import { discoverClaudeDirs } from '../claude-dirs.js';
@@ -141,6 +145,18 @@ async function mergedCursorHooks(home: string, scriptPath: string): Promise<stri
   }
 }
 
+/** Our entries merged into ~/.codex/hooks.json, or null when Codex is not here. Refuses a file it cannot parse, before anything is written. */
+async function mergedCodexHooks(home: string, scriptPath: string): Promise<string | null> {
+  if (!(await isDir(path.join(home, CODEX_DIR_REL)))) return null;
+  const current = await readNamed(path.join(home, CODEX_HOOKS_REL), `~/${CODEX_HOOKS_REL}`);
+  try {
+    return mergeCodexHooks(current, scriptPath, `~/${CODEX_HOOKS_REL}`);
+  } catch (err) {
+    const message = err instanceof SyntaxError || (err instanceof Error && err.message.includes('não é um objeto JSON')) ? `~/${CODEX_HOOKS_REL} não é JSON válido` : err instanceof Error ? err.message : String(err);
+    throw new RpcFailure('failed', message, CODEX_HOOKS_REL);
+  }
+}
+
 export async function install(params: RpcParams<'hooks.install'>, home = os.homedir()): Promise<RpcResult<'hooks.install'>> {
   const scriptPath = path.join(home, HOOK_SCRIPT_REL);
   const codexFile = path.join(home, CODEX_CONFIG_REL);
@@ -160,6 +176,7 @@ export async function install(params: RpcParams<'hooks.install'>, home = os.home
   }
   const hasCodex = await isDir(path.join(home, CODEX_DIR_REL));
   const mergedCodex = hasCodex ? mergeCodexConfig(await readNamed(codexFile, `~/${CODEX_CONFIG_REL}`), scriptPath) : null;
+  const mergedCodexHooksBody = await mergedCodexHooks(home, scriptPath);
   const mergedCursor = await mergedCursorHooks(home, scriptPath);
 
   let current = `~/${HOOK_SCRIPT_REL}`;
@@ -177,6 +194,10 @@ export async function install(params: RpcParams<'hooks.install'>, home = os.home
     if (mergedCodex !== null) {
       current = `~/${CODEX_CONFIG_REL}`;
       await writeAtomic(codexFile, mergedCodex, 0o644);
+    }
+    if (mergedCodexHooksBody !== null) {
+      current = `~/${CODEX_HOOKS_REL}`;
+      await writeAtomic(path.join(home, CODEX_HOOKS_REL), mergedCodexHooksBody, 0o644);
     }
     if (mergedCursor !== null) {
       current = `~/${CURSOR_HOOKS_REL}`;
@@ -286,23 +307,39 @@ async function healCursor(home: string, scriptPath: string): Promise<string[]> {
 }
 
 /**
- * Our notify in ~/.codex/config.toml only when there is no notify at all: Codex takes a single one,
- * so a notify the person set for something else is theirs to keep — replacing it is the install's
- * call (the machine form), never a silent repair on every agent start.
+ * Codex, two independent repairs (one failing must not block the other): our entries in
+ * ~/.codex/hooks.json when they are missing (the person's own hooks are kept; a file it cannot
+ * parse is left alone), and our notify in ~/.codex/config.toml only when there is no notify at
+ * all: Codex takes a single one, so a notify the person set for something else is theirs to keep,
+ * and replacing it is the install's call (the machine form), never a silent repair on every start.
+ * Answers "~/.codex" once when either was repaired.
  */
 async function healCodex(home: string, scriptPath: string): Promise<string[]> {
   if (!(await isDir(path.join(home, CODEX_DIR_REL)))) return [];
   const shown = `~/${CODEX_DIR_REL}`;
+  let healed = false;
+  const hooksFile = path.join(home, CODEX_HOOKS_REL);
   try {
-    const file = path.join(home, CODEX_CONFIG_REL);
-    const current = await readOrEmpty(file);
-    if (/^\s*notify\s*=/m.test(current)) return [];
-    await writeAtomic(file, mergeCodexConfig(current, scriptPath), 0o644);
-    return [shown];
+    const current = await readOrEmpty(hooksFile);
+    const body = mergeCodexHooks(current, scriptPath, `~/${CODEX_HOOKS_REL}`);
+    if (body !== current) {
+      await writeAtomic(hooksFile, body, 0o644);
+      healed = true;
+    }
   } catch (err) {
-    logHealSkip(shown, err, path.join(home, CODEX_CONFIG_REL));
-    return [];
+    logHealSkip(shown, err, hooksFile);
   }
+  const configFile = path.join(home, CODEX_CONFIG_REL);
+  try {
+    const current = await readOrEmpty(configFile);
+    if (!/^\s*notify\s*=/m.test(current)) {
+      await writeAtomic(configFile, mergeCodexConfig(current, scriptPath), 0o644);
+      healed = true;
+    }
+  } catch (err) {
+    logHealSkip(shown, err, configFile);
+  }
+  return healed ? [shown] : [];
 }
 
 export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.homedir()): Promise<RpcResult<'hooks.uninstall'>> {
@@ -319,6 +356,14 @@ export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.
     }
   }
   const codexConfig = (await isDir(path.join(home, CODEX_DIR_REL))) ? await readNamed(codexFile, `~/${CODEX_CONFIG_REL}`) : '';
+  const codexHooksFile = path.join(home, CODEX_HOOKS_REL);
+  const codexHooks = (await isDir(path.join(home, CODEX_DIR_REL))) ? await readNamed(codexHooksFile, `~/${CODEX_HOOKS_REL}`) : '';
+  let strippedCodexHooks: string | null = null;
+  try {
+    strippedCodexHooks = codexHooks.includes(HOOK_MARK) ? stripCodexHooks(codexHooks) : null;
+  } catch {
+    // unreadable JSON: leave the file alone
+  }
   const cursorFile = path.join(home, CURSOR_HOOKS_REL);
   const cursorHooks = (await isDir(path.join(home, CURSOR_DIR_REL))) ? await readNamed(cursorFile, `~/${CURSOR_HOOKS_REL}`) : '';
   let strippedCursor: string | null = null;
@@ -340,6 +385,12 @@ export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.
     if (codexConfig.includes(HOOK_MARK)) {
       current = `~/${CODEX_CONFIG_REL}`;
       await writeAtomic(codexFile, stripCodexConfig(codexConfig), 0o644);
+    }
+    if (strippedCodexHooks !== null) {
+      current = `~/${CODEX_HOOKS_REL}`;
+      // nothing of the person is left in it: the file only exists because we created it
+      if (isBareCodexHooks(strippedCodexHooks)) await rm(codexHooksFile, { force: true });
+      else await writeAtomic(codexHooksFile, strippedCodexHooks, 0o644);
     }
     if (strippedCursor !== null) {
       current = `~/${CURSOR_HOOKS_REL}`;

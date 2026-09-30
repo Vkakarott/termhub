@@ -1,5 +1,6 @@
 import {
   CLAUDE_DEFAULT_DIR,
+  CODEX_HOOKS_REL,
   claudeDirsFromHome,
   configDirsFromRc,
   HOOK_ENV_REL,
@@ -9,12 +10,15 @@ import {
   claudeConfigDirs,
   expandHome,
   hookEnvFile,
+  isBareCodexHooks,
   isBareCursorHooks,
   mergeClaudeSettings,
   mergeCodexConfig,
+  mergeCodexHooks,
   mergeCursorHooks,
   stripClaudeSettings,
   stripCodexConfig,
+  stripCodexHooks,
   stripCursorHooks,
 } from '@termhub/machine-ops';
 import { agentRpc, requireAgentVersion } from '../agent/errors.js';
@@ -65,6 +69,8 @@ interface MachineConfigs {
   claude: { dir: string; exists: boolean; status: FileStatus; settings: string }[];
   codexConfig: string;
   codexStatus: FileStatus;
+  codexHooks: string;
+  codexHooksStatus: FileStatus;
   hasCodex: boolean;
   cursorHooks: string;
   cursorStatus: FileStatus;
@@ -91,7 +97,7 @@ async function readMachineConfigs(machine: Machine, claudeDirs: string[]): Promi
   for (const d of claudeDirs) {
     parts.push(`printf '${SEP}\\n'; [ -d ${shDir(d)} ] && echo yes || echo no; ${probeFile(`${shDir(d)}/settings.json`)}; printf '\\n'`);
   }
-  parts.push(`printf '${SEP}\\n'; [ -d "$HOME/.codex" ] && echo yes || echo no; ${probeFile('"$HOME/.codex/config.toml"')}`);
+  parts.push(`printf '${SEP}\\n'; [ -d "$HOME/.codex" ] && echo yes || echo no; ${probeFile('"$HOME/.codex/config.toml"')}; ${probeFile(`"$HOME/${CODEX_HOOKS_REL}"`)}`);
   parts.push(`printf '${SEP}\\n'; [ -d "$HOME/.cursor" ] && echo yes || echo no; ${probeFile('"$HOME/.cursor/hooks.json"')}`);
   // a missing file is part of the answer, not a failure: the last `cat` must not set the exit code
   const script = `${parts.join('; ')}; true`;
@@ -114,9 +120,11 @@ async function readMachineConfigs(machine: Machine, claudeDirs: string[]): Promi
     hasCodex: (chunks[base] ?? '').trim() === 'yes',
     codexStatus: fileStatus(chunks[base + 1]),
     codexConfig: chunks[base + 2] ?? '',
-    hasCursor: (chunks[base + 3] ?? '').trim() === 'yes',
-    cursorStatus: fileStatus(chunks[base + 4]),
-    cursorHooks: chunks[base + 5] ?? '',
+    codexHooksStatus: fileStatus(chunks[base + 3]),
+    codexHooks: chunks[base + 4] ?? '',
+    hasCursor: (chunks[base + 5] ?? '').trim() === 'yes',
+    cursorStatus: fileStatus(chunks[base + 6]),
+    cursorHooks: chunks[base + 7] ?? '',
   };
 }
 
@@ -127,6 +135,7 @@ function unreadableTargets(configs: MachineConfigs): string[] {
     if ((c.dir === CLAUDE_DEFAULT_DIR || c.exists) && c.status === 'unreadable') out.push(`${c.dir}/settings.json`);
   }
   if (configs.hasCodex && configs.codexStatus === 'unreadable') out.push('~/.codex/config.toml');
+  if (configs.hasCodex && configs.codexHooksStatus === 'unreadable') out.push('~/.codex/hooks.json');
   if (configs.hasCursor && configs.cursorStatus === 'unreadable') out.push('~/.cursor/hooks.json');
   return out;
 }
@@ -185,6 +194,29 @@ function mergedCursorHooks(configs: MachineConfigs, scriptPath: string): string 
   }
 }
 
+/** Our entries merged into ~/.codex/hooks.json, or null when Codex is not on the machine. Refuses a file it cannot parse. */
+function mergedCodexHooks(configs: MachineConfigs, scriptPath: string): string | null {
+  if (!configs.hasCodex) return null;
+  try {
+    return mergeCodexHooks(configs.codexHooks, scriptPath, '~/.codex/hooks.json');
+  } catch (err) {
+    throw new Error(err instanceof SyntaxError || (err instanceof Error && err.message.includes('não é um objeto JSON')) ? '~/.codex/hooks.json não é JSON válido' : err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** Uninstall steps for ~/.codex/hooks.json: our entries out, the file removed when nothing of the person is left; an unparseable file stays. */
+function codexHooksUninstallSteps(configs: MachineConfigs): string[] {
+  if (!configs.hasCodex || !configs.codexHooks.includes(HOOK_MARK)) return [];
+  let stripped: string;
+  try {
+    stripped = stripCodexHooks(configs.codexHooks);
+  } catch {
+    return []; // unreadable JSON: leave the file alone
+  }
+  const file = `${configs.home}/${CODEX_HOOKS_REL}`;
+  return isBareCodexHooks(stripped) ? [`rm -f ${shellQuote(file)}`] : replaceFile(file, stripped);
+}
+
 /** Our entries taken out of ~/.cursor/hooks.json, or null when there is nothing of ours to take (or the file cannot be parsed). */
 function strippedCursorHooks(configs: MachineConfigs): string | null {
   if (!configs.hasCursor || !configs.cursorHooks.includes(HOOK_MARK)) return null;
@@ -229,6 +261,7 @@ export async function installHooks(machine: Machine, token: string, hooksUrl: st
     }
   });
   const mergedCodex = hasCodex ? mergeCodexConfig(codexConfig, scriptPath) : null;
+  const mergedCodexHooksBody = mergedCodexHooks(configs, scriptPath);
   const mergedCursor = mergedCursorHooks(configs, scriptPath);
 
   const q = shellQuote;
@@ -242,6 +275,7 @@ export async function installHooks(machine: Machine, token: string, hooksUrl: st
     `chmod 755 ${q(scriptPath)}`,
     ...merged.flatMap((m) => replaceFile(m.file, m.body)),
     ...(mergedCodex !== null ? replaceFile(`${home}/.codex/config.toml`, mergedCodex) : []),
+    ...(mergedCodexHooksBody !== null ? replaceFile(`${home}/${CODEX_HOOKS_REL}`, mergedCodexHooksBody) : []),
     ...(mergedCursor !== null ? replaceFile(`${home}/.cursor/hooks.json`, mergedCursor) : []),
     'echo ok',
   ].join('\n');
@@ -282,6 +316,7 @@ export async function uninstallHooks(machine: Machine, accountDirs: string[] = [
     `rm -f ${q(`${home}/${HOOK_SCRIPT_REL}`)} ${q(`${home}/${HOOK_ENV_REL}`)}`,
     ...stripped.flatMap((s) => replaceFile(s.file, s.body)),
     ...(hasCodex && codexConfig.includes(HOOK_MARK) ? replaceFile(`${home}/.codex/config.toml`, stripCodexConfig(codexConfig)) : []),
+    ...codexHooksUninstallSteps(configs),
     ...cursorUninstallSteps(home, strippedCursor),
     'echo ok',
   ].join('\n');
