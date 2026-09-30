@@ -147,7 +147,8 @@ case "$KIND" in
     # tool_name) and NAME does not name the real tool — fall back to the ordinary name-only path below
     # (which, worst case, mislabels that one event; it never forwards the input).
     ASK=false
-    if [ "$KIND" = PreToolUse ] && [ "$NAME" = AskUserQuestion ]; then
+    # Claude only: Codex has no such tool, and a Codex tool of that name is reduced like any other.
+    if [ "$TOOL" = claude ] && [ "$KIND" = PreToolUse ] && [ "$NAME" = AskUserQuestion ]; then
       case "$REST" in
         *'"tool_name"'*) ;;
         *) ASK=true ;;
@@ -166,8 +167,13 @@ case "$KIND" in
       # the match works the same on GNU, BSD and busybox. ASCII only on purpose: a customised verb
       # with accents is dropped rather than half-matched. The case below checks the result again, so
       # the hand-built JSON only ever gets letters.
-      VERB=$(tmux capture-pane -p -t "$TMUX_PANE" 2>/dev/null | LC_ALL=C grep -v '^[[:space:]]*$' 2>/dev/null | tail -n 24 |
-        LC_ALL=C sed -n -E 's/^(·|✢|✳|✶|✻|✽|\\*) ([A-Za-z]{2,24})(…|\\.\\.\\.)( .*)?$/\\2/p' | tail -n 1)
+      # Codex has no such spinner: its tool calls skip the capture (one less tmux call per tool, and no
+      # stray line of its screen that happens to look like one).
+      VERB=
+      if [ "$TOOL" = claude ]; then
+        VERB=$(tmux capture-pane -p -t "$TMUX_PANE" 2>/dev/null | LC_ALL=C grep -v '^[[:space:]]*$' 2>/dev/null | tail -n 24 |
+          LC_ALL=C sed -n -E 's/^(·|✢|✳|✶|✻|✽|\\*) ([A-Za-z]{2,24})(…|\\.\\.\\.)( .*)?$/\\2/p' | tail -n 1)
+      fi
       case "$VERB" in *[!A-Za-z]*) VERB= ;; esac
       [ "\${#VERB}" -le 24 ] || VERB=
       KEY="$NAME\${VERB:+ $VERB}"
@@ -196,6 +202,12 @@ case "$KIND" in
     case "$NAME" in '' | *[!A-Za-z0-9_.-]* | AskUserQuestion) exit 0 ;; esac
     if [ "$TOOL" = codex ]; then
       rm -f "$MARK"
+      # The server rejects a body over 256 KB (HOOK_BODY_LIMIT) and the whole event carries the command
+      # (a big patch or heredoc can pass that): past 200000 characters the reduced body goes instead, so
+      # the approval is still seen — the server then words it from the tool name alone.
+      if [ "\${#EVENT}" -gt 200000 ]; then
+        EVENT=$(printf '{"hook_event_name":"PermissionRequest","tool_name":"%s"%s}' "$NAME" "$SUB")
+      fi
     else
       EVENT=$(printf '{"hook_event_name":"PermissionRequest","tool_name":"%s"%s}' "$NAME" "$SUB")
     fi

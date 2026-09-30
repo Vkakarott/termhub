@@ -32,7 +32,7 @@ function run(event: unknown): void {
 function runAs(tool: string, event: unknown): string {
   const r = spawnSync('sh', [join(bin, 'termhub-hook'), tool], {
     input: JSON.stringify(event),
-    env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TMUX_PANE: '%1', TMPDIR: tmp },
+    env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TMUX_PANE: '%1', TMPDIR: tmp, TH_SEQ: nextSeq() },
     timeout: 5000,
   });
   if (r.error && (r.error as NodeJS.ErrnoException).code !== 'EPIPE') throw r.error;
@@ -44,14 +44,30 @@ function runAs(tool: string, event: unknown): string {
 function runWithStderr(event: unknown, env: Record<string, string>): string {
   const r = spawnSync('sh', [join(bin, 'termhub-hook'), 'claude'], {
     input: JSON.stringify(event),
-    env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TMUX_PANE: '%1', TMPDIR: tmp, ...env },
+    env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TMUX_PANE: '%1', TMPDIR: tmp, TH_SEQ: nextSeq(), ...env },
     timeout: 5000,
   });
   expect(r.status).toBe(0);
   return r.stderr.toString();
 }
 
-const logged = (): string[] => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : []);
+/**
+ * The script posts in the background, so two runs' fake curls race and can append out of order. Each
+ * run is numbered (TH_SEQ, inherited by its background curl), the fake curl writes "<seq>\t<body>",
+ * and `logged` answers the bodies in run order: what is asserted is the order the events were sent
+ * in, not which process won the race to the log.
+ */
+let seq = 0;
+const nextSeq = (): string => String(++seq).padStart(6, '0');
+
+const logged = (): string[] =>
+  existsSync(log)
+    ? readFileSync(log, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .sort()
+        .map((line) => line.slice(line.indexOf('\t') + 1))
+    : [];
 
 /** The script posts in the background: waits for the fake curl to have logged `n` bodies. */
 async function bodies(n: number): Promise<string[]> {
@@ -83,7 +99,9 @@ async function onlySentinelPosted(): Promise<void> {
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'hook-home-'));
   tmp = mkdtempSync(join(tmpdir(), 'hook-tmp-'));
-  bin = join(home, 'bin');
+  // The script prepends $HOME/.local/bin to PATH ahead of everything: the fakes live there, so a real
+  // /opt/homebrew/bin/tmux (Homebrew on macOS) can never shadow them.
+  bin = join(home, '.local', 'bin');
   log = join(home, 'curl.log');
   pane = join(home, 'pane.txt');
   mkdirSync(join(home, '.termhub'), { recursive: true });
@@ -95,7 +113,7 @@ beforeEach(() => {
   // A synchronous fake: reads the body from stdin (--data-binary @-) and appends it as one line, in a
   // single write. Body and newline used to be two appends: a test saw the body, finished, and the
   // newline's append recreated the log inside the directory afterEach was removing (ENOTEMPTY on CI).
-  writeFileSync(join(bin, 'curl'), `#!/bin/sh\nbody=$(cat); printf '%s\\n' "$body" >> "${log}"\n`);
+  writeFileSync(join(bin, 'curl'), `#!/bin/sh\nbody=$(cat); printf '%s\\t%s\\n' "$TH_SEQ" "$body" >> "${log}"\n`);
   for (const f of ['termhub-hook', 'tmux', 'curl']) chmodSync(join(bin, f), 0o755);
 });
 /**
@@ -497,7 +515,7 @@ describe('hook script — Codex', () => {
   function runNotify(payload: string): string {
     const r = spawnSync('sh', [join(bin, 'termhub-hook'), 'codex', payload], {
       input: '',
-      env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TMUX_PANE: '%1', TMPDIR: tmp },
+      env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TMUX_PANE: '%1', TMPDIR: tmp, TH_SEQ: nextSeq() },
       timeout: 5000,
     });
     expect(r.status).toBe(0);
@@ -553,6 +571,26 @@ describe('hook script — Codex', () => {
       request,
       { hook_event_name: 'PostToolUse', tool_name: 'Bash' },
     ]);
+  });
+
+  it('posts the reduced body when a Codex PermissionRequest is too big for the server (256 KB limit)', async () => {
+    const huge = { ...base, hook_event_name: 'PermissionRequest', tool_name: 'apply_patch', tool_input: { command: 'x'.repeat(210000), description: 'big' } };
+    runAs('codex', huge);
+    const [body] = await bodies(1);
+    expect(JSON.parse(body)).toEqual({ tool: 'codex', session: 'th-abc', event: { hook_event_name: 'PermissionRequest', tool_name: 'apply_patch' } });
+  });
+
+  it('does not read the screen for a Codex tool call (the spinner verb is Claude-only)', async () => {
+    writeFileSync(pane, '✻ Moonwalking… (12s · esc to interrupt)\n');
+    runAs('codex', pre);
+    const [body] = await bodies(1);
+    expect(eventOf(body)).toEqual({ hook_event_name: 'PreToolUse', tool_name: 'Bash' });
+  });
+
+  it('reduces a Codex PreToolUse named AskUserQuestion like any other tool', async () => {
+    runAs('codex', { ...pre, tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'secret?' }] } });
+    const [body] = await bodies(1);
+    expect(eventOf(body)).toEqual({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion' });
   });
 
   it('drops a Codex PermissionRequest whose tool name is odd or missing', async () => {
