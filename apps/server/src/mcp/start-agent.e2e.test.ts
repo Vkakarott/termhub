@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify from 'fastify';
@@ -11,6 +11,7 @@ import { config } from '../config.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { applyErrorHandler } from '../lib/errors.js';
 import { mcpRoutes } from './route.js';
+import { removeTempDir } from '../../test/temp-dir.js';
 
 vi.mock('../auth/permissions.js', async (orig) => ({ ...(await orig<typeof import('../auth/permissions.js')>()), canAccess: vi.fn(async () => true) }));
 
@@ -168,9 +169,7 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
     }
     process.env.PATH = path;
     process.env.HOME = homeEnv;
-    // kill-server returns before the panes' shells are gone, and a shell exiting writes its history
-    // into this $HOME: under a loaded suite that lands mid-removal (ENOTEMPTY), so retry briefly.
-    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    removeTempDir(home);
   });
 
   beforeEach(() => {

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterAll } from 'vitest';
 import { setPublicIdKey } from '../src/public/public-id.js';
 import { changedPaths, snapshotHome, type HomeSnapshot } from './real-home-guard.js';
+import { removeTempDir } from './temp-dir.js';
 
 /**
  * In production the key behind `publicId` is loaded from the database before the server listens
@@ -40,7 +41,7 @@ process.env.HOME = sandboxHome;
 afterAll(() => {
   if (previousHome === undefined) delete process.env.HOME;
   else process.env.HOME = previousHome;
-  fs.rmSync(sandboxHome, { recursive: true, force: true });
+  removeTempDir(sandboxHome);
   const changed = changedPaths(homeBefore, snapshotHome(REAL_HOME));
   if (changed.length > 0) {
     throw new Error(
