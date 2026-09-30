@@ -98,7 +98,11 @@ describe('closingScope', () => {
     ['Stop with zero background tasks', { kind: 'waiting_input', text: null, backgroundTasks: 0, meta: { event: 'Stop' } }, 'all'],
     ['a new prompt', { kind: 'working', text: null, meta: { event: 'UserPromptSubmit' } }, { agent: null, leavesQueue: true }],
     ['session end', { kind: 'idle', text: null, meta: { event: 'SessionEnd' } }, 'all'],
-    ['Codex turn complete', { kind: 'waiting_input', text: null, meta: { event: 'agent-turn-complete' } }, { agent: null, leavesQueue: true }],
+    // Codex's notify only repeats the Stop hook's end of turn; closing on it would close the reply card
+    // that Stop just opened (TER-497), so it closes nothing.
+    ['Codex turn complete', { kind: 'waiting_input', text: null, meta: { event: 'agent-turn-complete' } }, null],
+    ["Codex's PostToolUse", { kind: 'working', text: null, meta: { event: 'PostToolUse', tool: 'request_user_input' } }, { agent: null, leavesQueue: true }],
+    ["Codex's Interrupt", { kind: 'waiting_input', text: null, meta: { event: 'Interrupt' } }, { agent: null, leavesQueue: true }],
   ] as [string, Interpreted, { agent: string | null; leavesQueue: boolean } | 'all' | null][])('%s', (_label, next, scope) => {
     expect(closingScope(next)).toEqual(scope);
   });

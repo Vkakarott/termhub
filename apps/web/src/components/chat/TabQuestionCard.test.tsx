@@ -368,6 +368,29 @@ describe('automatic answer countdown (spec 2026-09-26 concierge memory §6/§8)'
   });
 });
 
+describe('a question that came from Codex', () => {
+  it('a permission card says the Codex asks, shows its question as plain text and keeps the tool as secondary text', () => {
+    const onAnswer = vi.fn();
+    const q = permission({ payload: { tool_name: 'Bash', agent: 'codex', question: 'Rodar <b>npm test</b>?\nem /tmp' } } as Partial<TabQuestion>);
+    const { container } = render(<TabQuestionCard question={q} answering={false} onAnswer={onAnswer} />);
+    expect(screen.getByText('A aba «api» pede permissão (o Codex)')).toBeInTheDocument();
+    expect(screen.getByText(/Rodar <b>npm test<\/b>\?/)).toHaveClass('whitespace-pre-wrap');
+    expect(container.querySelector('b')).toBeNull();
+    expect(screen.getByText(/«Bash»/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Permitir' }));
+    expect(onAnswer).toHaveBeenCalledWith('q2', { allow: true });
+  });
+  it('a Codex permission without a question shows just the title and the tool', () => {
+    render(<TabQuestionCard question={permission({ payload: { tool_name: 'Bash', agent: 'codex' } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    expect(screen.getByText('A aba «api» pede permissão (o Codex)')).toBeInTheDocument();
+    expect(screen.getByText(/«Bash»/)).toBeInTheDocument();
+  });
+  it('a choice card names the Codex in its title', () => {
+    render(<TabQuestionCard question={choice({ payload: { questions: [colors], agent: 'codex' } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    expect(screen.getByText('A aba «api» perguntou (o Codex)')).toBeInTheDocument();
+  });
+});
+
 it('carries its id for the pending bar to find it (TER-477)', () => {
   const { container } = render(<TabQuestionCard question={permission()} answering={false} onAnswer={vi.fn()} />);
   expect(container.querySelector('[data-chat-card="q2"]')).not.toBeNull();

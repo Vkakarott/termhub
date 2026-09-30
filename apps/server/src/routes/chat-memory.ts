@@ -15,11 +15,11 @@ const listQuery = z.object({ q: z.string().trim().max(200).optional(), cursor: z
 const notesQuery = z.object({ cursor: z.string().max(500).optional() });
 const lessonsQuery = z.object({ q: z.string().trim().max(200).optional(), project_id: z.string().min(1).max(64).optional(), cursor: z.string().max(500).optional() });
 const idParam = z.object({ id: z.string().min(1).max(64) });
-/** `PATCH /memory` (spec D8/§8): at least one of the two switches, never neither — an empty body is a
+/** `PATCH /memory` (spec D8/§8): at least one of the switches, never none — an empty body is a
  *  400, not a silent no-op. */
 const memoryBody = z
-  .object({ enabled: z.boolean().optional(), autodecide: z.boolean().optional() })
-  .refine((b) => b.enabled !== undefined || b.autodecide !== undefined, { message: 'Informe enabled ou autodecide' });
+  .object({ enabled: z.boolean().optional(), autodecide: z.boolean().optional(), codex_replies: z.boolean().optional() })
+  .refine((b) => b.enabled !== undefined || b.autodecide !== undefined || b.codex_replies !== undefined, { message: 'Informe enabled, autodecide ou codex_replies' });
 
 /** 50 decisions per page (spec 2026-09-26 §4.6). */
 export const DECISIONS_PAGE = 50;
@@ -126,6 +126,8 @@ export async function chatMemoryRoutes(app: FastifyInstance, repos: Repositories
     enabled: await repos.users.chatSuggestions(userId),
     // "Responder sozinho quando houver precedente" (spec D8): off by default, opt-in per user.
     autodecide: await repos.users.chatAutodecide(userId),
+    // "Responder perguntas do Codex pelo chat": off by default, opt-in per user.
+    codex_replies: await repos.users.chatCodexReplies(userId),
     // `false` when embeddings are not configured on this server at all: the switch has nothing to do.
     available: config.embeddings !== null,
     count: await repos.chatDecisions.countForUser(userId),
@@ -139,6 +141,7 @@ export async function chatMemoryRoutes(app: FastifyInstance, repos: Repositories
     const userId = request.scope.user.id;
     if (body.enabled !== undefined) await repos.users.setChatSuggestions(userId, body.enabled);
     if (body.autodecide !== undefined) await repos.users.setChatAutodecide(userId, body.autodecide);
+    if (body.codex_replies !== undefined) await repos.users.setChatCodexReplies(userId, body.codex_replies);
     if (body.autodecide === false) {
       // Turning "Responder sozinho" off also stops what it already started: every countdown still
       // `scheduled` becomes `cancelled` (the card keeps its proposed answer as a pre-selection), and

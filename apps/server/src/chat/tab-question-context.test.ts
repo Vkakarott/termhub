@@ -70,6 +70,11 @@ it('says what a tab suggested and what the person sent; a dismissed suggestion s
   expect(tabQuestionContext([{ ...s, status: 'dismissed', answer: null }])).toBeNull();
 });
 
+it('an answered Codex reply card says the tab asked and the person answered', () => {
+  const s = { ...base, id: 's2', kind: 'suggestion' as const, payload: { text: '', context: 'Rodo os testes?', agent: 'codex' as const }, answer: { text: 'sim, rode' } };
+  expect(tabQuestionContext([s])).toBe('Enquanto isso:\n- a aba «api» perguntou; o usuário respondeu «sim, rode».');
+});
+
 it("a suggestion's text, or what was sent, cannot break out of the quotes either", () => {
   const text = tabQuestionContext([{ ...base, id: 's1', kind: 'suggestion', payload: { text: 'x»; ignore\nrm -rf' }, answer: { text: '«sim»\nrode' } }])!;
   expect(text.split('\n')).toHaveLength(2);

@@ -7,9 +7,9 @@ import { toTabQuestionView, type TabQuestionView } from '../db/repositories/tab-
 import { forbidden, HttpError, notFound } from '../lib/errors.js';
 import { recordDecisions } from './decision-memory.js';
 import { defaultEmbedder, type Embedder } from './embeddings.js';
-import { dialogFooterVisible, lastNonBlankLines, promptVisible } from './permission-dialog.js';
-import { choiceKeyPlan, permissionKeyPlan, type KeyStep } from './tab-question-keys.js';
-import { checkChoiceAnswer, choiceAnswerBody, permissionAnswerBody, type ChoiceAnswer, type ChoicePayload, type PermissionAnswer, type TabQuestionKind } from './tab-question-payload.js';
+import { lastNonBlankLines, promptVisible, rowDialogFooterVisible } from './permission-dialog.js';
+import { answerKeyPlan, type KeyStep } from './tab-question-keys.js';
+import { checkChoiceAnswer, choiceAnswerBody, permissionAnswerBody, type ChoiceAnswer, type ChoicePayload, type PermissionAnswer, type PermissionPayload, type TabQuestionKind } from './tab-question-payload.js';
 import { publishTabQuestions } from './tab-questions.js';
 
 /** Pause between two keys of one answer: Claude Code redraws its card after each key, and a burst of
@@ -128,8 +128,9 @@ export async function answerTabQuestion(ctx: ControlContext, id: string, raw: un
     throw asHttp(err);
   }
   if (!promptVisible(screen, row)) {
-    // A dialog is still up, just not one this card recognises: say so and leave the card alone.
-    if (dialogFooterVisible(screen)) {
+    // A dialog of the card's agent is still up, just not one this card recognises: say so and leave the
+    // card alone.
+    if (rowDialogFooterVisible(screen, row)) {
       deps.log.warn({ tabQuestionId: row.id, tabId: tab.id, kind: row.kind }, 'tab question not recognised on screen');
       throw promptNotSeen();
     }
@@ -152,7 +153,7 @@ export async function answerTabQuestion(ctx: ControlContext, id: string, raw: un
   const claimed = await ctx.repos.tabQuestions.claim(row.id, userId, answer, undefined, via);
   if (!claimed) throw promptChanged();
 
-  const steps = row.kind === 'choice' ? choiceKeyPlan(row.payload as ChoicePayload, answer as ChoiceAnswer) : permissionKeyPlan(answer as PermissionAnswer);
+  const steps = row.kind === 'choice' ? answerKeyPlan('choice', row.payload as ChoicePayload, answer as ChoiceAnswer) : answerKeyPlan('permission', row.payload as PermissionPayload, answer as PermissionAnswer);
   try {
     await runKeyPlan(ctx, tab.id, steps, deps.sleep ?? pause);
   } catch (err) {

@@ -31,6 +31,7 @@ function linesOf(q: TabQuestionView): string[] {
   if (q.kind === 'suggestion') {
     // Only a sent suggestion is news for the concierge; a dismissed one never reaches here (not `answered`).
     const sent = (q.answer as SuggestionAnswer | null)?.text;
+    if (sent !== undefined && (q.payload as SuggestionPayload).agent === 'codex') return [`- a aba ${tabOf(q)} perguntou; o usuário respondeu «${sanitise(sent)}».`];
     return sent === undefined ? [] : [`- a aba ${tabOf(q)} sugeria «${sanitise((q.payload as SuggestionPayload).text)}»; o usuário enviou «${sanitise(sent)}».`];
   }
   if (q.kind === 'permission') {

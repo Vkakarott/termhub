@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { choiceKeyPlan, permissionKeyPlan } from './tab-question-keys.js';
+import { answerKeyPlan, choiceKeyPlan, codexChoiceKeyPlan, codexPermissionKeyPlan, permissionKeyPlan } from './tab-question-keys.js';
 import { parseAskUserQuestion, type ChoicePayload } from './tab-question-payload.js';
 
 const fixture = (name: string) => JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures/tab-questions', name), 'utf8')) as { tool_input: unknown };
@@ -58,5 +58,44 @@ describe('permissionKeyPlan', () => {
   it('deny is Escape; with text, the text and Enter at the prompt Claude is back at', () => {
     expect(permissionKeyPlan({ allow: false })).toEqual([{ key: 'Escape' }]);
     expect(permissionKeyPlan({ allow: false, text: 'use pnpm' })).toEqual([{ key: 'Escape' }, { text: 'use pnpm' }, { key: 'Enter' }]);
+  });
+});
+
+const codexAsk: ChoicePayload = {
+  agent: 'codex',
+  questions: [
+    { question: 'Qual cor?', header: 'Cor', multi_select: false, options: ['Azul', 'Verde'].map((label) => ({ label, description: '', recommended: false })) },
+    { question: 'Qual tamanho?', header: 'Tam', multi_select: false, options: ['P', 'M', 'G'].map((label) => ({ label, description: '', recommended: false })) },
+  ],
+};
+
+describe('codexChoiceKeyPlan (Codex 0.159.2, verified by hand)', () => {
+  it('an option is its digit, per question, with no final submit key', () => {
+    expect(codexChoiceKeyPlan(codexAsk, { answers: [{ selected: [1] }, { selected: [2] }] })).toEqual([{ key: '2' }, { key: '3' }]);
+  });
+  it('free text: Down past the options to "None of the above", Tab for the notes, the text, Enter', () => {
+    expect(codexChoiceKeyPlan(codexAsk, { answers: [{ selected: [], text: 'Roxo' }, { selected: [0] }] })).toEqual([
+      { key: 'Down' }, { key: 'Down' }, { key: 'Tab' }, { text: 'Roxo' }, { key: 'Enter' }, { key: '1' },
+    ]);
+    expect(codexChoiceKeyPlan(codexAsk, { answers: [{ selected: [0] }, { selected: [], text: 'XG' }] })).toEqual([
+      { key: '1' }, { key: 'Down' }, { key: 'Down' }, { key: 'Down' }, { key: 'Tab' }, { text: 'XG' }, { key: 'Enter' },
+    ]);
+  });
+});
+
+describe('codexPermissionKeyPlan', () => {
+  it('allow is "y"; deny is Escape; deny with text follows with the text and Enter', () => {
+    expect(codexPermissionKeyPlan({ allow: true })).toEqual([{ key: 'y' }]);
+    expect(codexPermissionKeyPlan({ allow: false })).toEqual([{ key: 'Escape' }]);
+    expect(codexPermissionKeyPlan({ allow: false, text: 'use azul.txt' })).toEqual([{ key: 'Escape' }, { text: 'use azul.txt' }, { key: 'Enter' }]);
+  });
+});
+
+describe('answerKeyPlan', () => {
+  it('picks the plan by the row payload agent', () => {
+    expect(answerKeyPlan('choice', one, { answers: [{ selected: [1] }] })).toEqual(choiceKeyPlan(one, { answers: [{ selected: [1] }] }));
+    expect(answerKeyPlan('choice', codexAsk, { answers: [{ selected: [1] }, { selected: [0] }] })).toEqual([{ key: '2' }, { key: '1' }]);
+    expect(answerKeyPlan('permission', { tool_name: 'Bash' }, { allow: true })).toEqual([{ key: '1' }]);
+    expect(answerKeyPlan('permission', { tool_name: 'Bash', agent: 'codex' }, { allow: true })).toEqual([{ key: 'y' }]);
   });
 });

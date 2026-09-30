@@ -28,12 +28,15 @@ export type TabQuestionEventType = 'tab_question' | 'tab_question_answered' | 't
  * its own may be a parallel call's, landing while its dialog is still pending.
  * What never closes: an event that opens a question (it closes the previous one itself, `open`); a
  * `Notification`, which only says the tab is still waiting; AskUserQuestion's own `PermissionRequest`, the
- * question's companion; and a subagent's event from a script that does not name it (spec 2026-09-26 §4.5).
+ * question's companion; a subagent's event from a script that does not name it (spec 2026-09-26 §4.5); and
+ * Codex's `notify` (`agent-turn-complete`), which only repeats the end of the turn its `Stop` hook already
+ * reported, and would close the reply card that `Stop` just opened.
  */
 export function closingScope(next: Interpreted): CloseScope | null {
   if (next.question) return null;
   const event = next.meta.event;
   if (event === 'Notification') return null;
+  if (event === 'agent-turn-complete') return null;
   if (event === 'PermissionRequest' && next.meta.tool === 'AskUserQuestion') return null;
   if (next.meta.subagent === true) {
     return typeof next.meta.agent_id === 'string' ? { agent: next.meta.agent_id, leavesQueue: event === 'SubagentStop' } : null;
@@ -156,6 +159,8 @@ export async function openTabQuestion(
 export async function noteHookEvent(repos: Repositories, log: Pick<FastifyBaseLogger, 'info' | 'warn'>, tab: Tab, next: Interpreted, waker?: Waker): Promise<void> {
   try {
     if (next.question) {
+      // Codex events carry no agent id, so its choice and permission rows get `agent_id: null`: a card
+      // a Codex subagent opens is closed by the main thread's events too (the behaviour before TER-179).
       const q = await openTabQuestion(repos, tab, next.question, { log, waker, agentId: typeof next.meta.agent_id === 'string' ? next.meta.agent_id : null });
       if (q) log.info({ tabId: tab.id, tabQuestionId: q.id, kind: q.kind, questions: q.kind === 'choice' ? (q.payload as ChoicePayload).questions.length : 1 }, 'tab question opened');
     } else {

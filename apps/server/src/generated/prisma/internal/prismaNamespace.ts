@@ -3923,7 +3923,8 @@ export const UserScalarFieldEnum = {
   reviewEnabledUntil: 'reviewEnabledUntil',
   reviewEnabledBy: 'reviewEnabledBy',
   chatSuggestions: 'chatSuggestions',
-  chatAutodecide: 'chatAutodecide'
+  chatAutodecide: 'chatAutodecide',
+  chatCodexReplies: 'chatCodexReplies'
 } as const
 
 export type UserScalarFieldEnum = (typeof UserScalarFieldEnum)[keyof typeof UserScalarFieldEnum]

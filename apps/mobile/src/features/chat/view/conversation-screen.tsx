@@ -3,9 +3,10 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activeGrantsLabel } from '@/features/chat-grants/model/labels';
-import type { TTabQuestionAnswerBody } from '@/services/api/contract';
+import type { TChatAttachment, TTabQuestionAnswerBody } from '@/services/api/contract';
 import { AppText, Banner, Button, EmptyState, MAX_READABLE_WIDTH, readableColumn, Screen, Sheet } from '@/ui';
 import { activeGrantIndex, isGrantActive } from '../model/grant-time';
+import { isReplyable, replyRefOf, type ReplyRef } from '../model/reply';
 import { isActive } from '../model/subagents';
 import { chatTimeline, groupPendingActions, type ChatEntry } from '../model/timeline';
 import type { ChatAction, ChatMessage, ChatStandingGrant } from '../model/types';
@@ -17,6 +18,7 @@ import { Composer } from './composer';
 import { HostLine } from './host-line';
 import { MessageBubble } from './message-bubble';
 import { PendingBar } from './pending-bar';
+import { SwipeToReply } from './swipe-to-reply';
 import { SubagentsSheet } from './subagents-sheet';
 import { TabQuestionCard } from './tab-question-card';
 import { TabSuggestionCard } from './tab-suggestion-card';
@@ -55,12 +57,25 @@ const READABLE_COLUMN = readableColumn(MAX_READABLE_WIDTH);
  * Every started row waits, not only the newest: with queued or injected turns several answers can be
  * pending at once (spec 2026-09-26 concierge always free), and a process that dies closes its open
  * turns with a reason, so a leftover reads as the failure it is. */
-const MessageRow = memo(function MessageRow({ message }: { message: ChatMessage }) {
+const MessageRow = memo(function MessageRow({
+  message,
+  onReply,
+  onOpenReply,
+  highlighted,
+}: {
+  message: ChatMessage;
+  onReply(message: ChatMessage): void;
+  onOpenReply(id: string): boolean;
+  highlighted: boolean;
+}) {
   const streamed = useChatStore((s) => s.live.deltas.get(message.id));
   const started = useChatStore((s) => s.live.started.has(message.id));
   const retrySend = useChatStore((s) => s.retrySend);
   const onRetry = useCallback((id: string) => void retrySend(id), [retrySend]);
-  return <MessageBubble message={message} streamed={streamed} started={started} onRetry={onRetry} />;
+  const reply = useCallback(() => onReply(message), [onReply, message]);
+  const bubble = <MessageBubble message={message} streamed={streamed} started={started} onRetry={onRetry} onOpenReply={onOpenReply} highlighted={highlighted} />;
+  // Only a row the server has, with something in it, can be answered (TER-447).
+  return isReplyable(message) ? <SwipeToReply onReply={reply}>{bubble}</SwipeToReply> : bubble;
 });
 
 /** The conversation (spec §11.2): thread, action cards, the host line when the host needs attention,
@@ -126,6 +141,30 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
     if (routeId) void openByRoute(routeId);
   }, [routeId, openByRoute]);
 
+  // Answering a message (TER-447): the screen owns the reference, dropped with the conversation.
+  const [replyTo, setReplyTo] = useState<ReplyRef | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const conversationId = slot?.conversation?.id;
+  useEffect(() => setReplyTo(null), [routeId, conversationId]);
+  useEffect(() => {
+    if (highlightId === null) return;
+    const timer = setTimeout(() => setHighlightId(null), 1500);
+    return () => clearTimeout(timer);
+  }, [highlightId]);
+  const onReply = useCallback((message: ChatMessage) => setReplyTo(replyRefOf(message)), []);
+  const cancelReply = useCallback(() => setReplyTo(null), []);
+  // The preview goes with the text, at once, and comes back with it if the send fails.
+  const onSend = useCallback(
+    async (text: string, attachments: TChatAttachment[]) => {
+      const quoted = replyTo;
+      if (quoted) setReplyTo(null);
+      const ok = await (quoted ? send(text, attachments, quoted) : send(text, attachments));
+      if (!ok && quoted) setReplyTo((current) => current ?? quoted);
+      return ok;
+    },
+    [replyTo, send],
+  );
+
   const messages = slot?.messages;
   const actions = slot?.actions;
   const grants = useMemo(() => slot?.grants ?? [], [slot?.grants]);
@@ -177,7 +216,6 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
   useEffect(() => setSeparate(false), [pendingKey]);
   // Newest first, for the inverted list that keeps the thread pinned to its end.
   const entries = useMemo(() => (separate ? timeline : groupPendingActions(timeline)).slice().reverse(), [separate, timeline]);
-
   // The pending bar's jump (TER-477): scrolls the thread to the row that holds the card. A row far
   // up the list may not be measured yet: `onScrollToIndexFailed` scrolls to its estimated offset,
   // which renders it, then tries once more.
@@ -197,6 +235,19 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
     if (retriedJump.current) return;
     retriedJump.current = true;
     setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.5, animated: true }), JUMP_RETRY_MS);
+  }, []);
+
+  // A quote's tap (TER-447): the original, if the thread has it, scrolls to the middle the same way
+  // and is outlined for a moment. Read through a ref so the rows' callback stays stable across deltas.
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
+  const onOpenReply = useCallback((id: string): boolean => {
+    const index = entriesRef.current.findIndex((e) => e.kind === 'message' && e.message.id === id);
+    if (index < 0) return false;
+    retriedJump.current = false;
+    listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+    setHighlightId(id);
+    return true;
   }, []);
 
   // Stable across deltas: a message row reads its own streamed text from the store (`MessageRow`),
@@ -224,7 +275,7 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
           onCancelAutoAnswer={onCancelAutoAnswer}
         />
       ) : item.kind === 'message' ? (
-        <MessageRow message={item.message} />
+        <MessageRow message={item.message} onReply={onReply} onOpenReply={onOpenReply} highlighted={highlightId === item.message.id} />
       ) : item.kind === 'action_group' ? (
         <ActionGroupCard actions={item.actions} busy={decidingId !== null} onDecide={onDecideMany} onShowSeparately={onShowSeparately} />
       ) : (
@@ -249,7 +300,10 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
       grantIndex,
       projectGrantIndex,
       standingGrantIndex,
+      highlightId,
       loadTabQuestionScreen,
+      onOpenReply,
+      onReply,
       onAnswer,
       onCancelAutoAnswer,
       onDecide,
@@ -264,8 +318,8 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
     ],
   );
   const extra = useMemo(
-    () => ({ decidingId, grantIndex, projectGrantIndex, standingGrantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors }),
-    [decidingId, grantIndex, projectGrantIndex, standingGrantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors],
+    () => ({ decidingId, grantIndex, projectGrantIndex, standingGrantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors, highlightId }),
+    [decidingId, grantIndex, projectGrantIndex, standingGrantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors, highlightId],
   );
 
   const title = activeProject ? (projects.find((p) => p.id === activeProject)?.name ?? 'Conversa') : 'Chat geral';
@@ -344,7 +398,7 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
         <View testID="conversation-composer-column" style={READABLE_COLUMN}>
           {/* What waits on the person, however far up the thread (TER-477); hidden while nothing does. */}
           <PendingBar entries={timeline} deciding={decidingId !== null} onJump={onJump} onApprove={onApproveWrites} />
-          <Composer sending={sending} onSend={send} uploadAttachment={uploadAttachment} deleteAttachment={deleteAttachment} attachmentStatuses={attachmentStatuses} />
+          <Composer sending={sending} onSend={onSend} replyTo={replyTo} onCancelReply={cancelReply} uploadAttachment={uploadAttachment} deleteAttachment={deleteAttachment} attachmentStatuses={attachmentStatuses} />
         </View>
       </KeyboardAvoidingView>
       </View>

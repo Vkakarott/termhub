@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Tab } from '../db/repositories/types.js';
 import { STATE_TEXT_MAX } from './state.js';
+import { decideWait, type HistoryRow } from './wait-decision.js';
 
 const publish = vi.fn();
 vi.mock('./bus.js', () => ({ monitorBus: { publish: (...a: unknown[]) => publish(...a) } }));
@@ -9,7 +10,8 @@ const note = vi.fn(async (..._args: unknown[]) => undefined);
 vi.mock('../chat/tab-questions.js', () => ({ noteHookEvent: (...a: unknown[]) => note(...a) }));
 const schedule = vi.fn();
 const cancel = vi.fn();
-vi.mock('../chat/tab-suggestions.js', () => ({ scheduleTabSuggestion: (...a: unknown[]) => schedule(...a), cancelTabSuggestion: (...a: unknown[]) => cancel(...a) }));
+const openReply = vi.fn(async (..._args: unknown[]) => undefined);
+vi.mock('../chat/tab-suggestions.js', () => ({ scheduleTabSuggestion: (...a: unknown[]) => schedule(...a), cancelTabSuggestion: (...a: unknown[]) => cancel(...a), openCodexReply: (...a: unknown[]) => openReply(...a) }));
 const autoSwapOnLimit = vi.fn();
 vi.mock('../control/account-swap.js', () => ({ autoSwapOnLimit: (...a: unknown[]) => autoSwapOnLimit(...a) }));
 
@@ -243,6 +245,38 @@ describe('ingestHookEvent — suggestions', () => {
   });
 });
 
+describe('ingestHookEvent — a Codex Stop that asks a question', () => {
+  const stop = (extra: object = {}, tool: 'codex' | 'claude' = 'codex') => ({ machineId: 'm1', tool, session: 'th-t1', event: { hook_event_name: 'Stop', last_assistant_message: 'Rodo os testes?', ...extra } });
+
+  it('opens the reply card after noteHookEvent, with the tab and the message', async () => {
+    openReply.mockClear();
+    note.mockClear();
+    const { r } = repos(tab({ state: 'working' }));
+    await ingestHookEvent(r, log, stop());
+    expect(openReply).toHaveBeenCalledTimes(1);
+    expect(openReply).toHaveBeenCalledWith(r, log, 't1', 'Rodo os testes?');
+    expect(note.mock.invocationCallOrder[0]!).toBeLessThan(openReply.mock.invocationCallOrder[0]!);
+    expect(schedule).not.toHaveBeenCalled();
+  });
+
+  it('hands over the whole message, not the capped state text', async () => {
+    openReply.mockClear();
+    const long = `${'a'.repeat(STATE_TEXT_MAX * 2)}\n\nRodo os testes?`;
+    const { r } = repos(tab({ state: 'working' }));
+    await ingestHookEvent(r, log, stop({ last_assistant_message: long }));
+    expect(openReply).toHaveBeenCalledWith(r, log, 't1', long);
+  });
+
+  it('a subagent Stop, a Claude Stop and a Codex notify open no reply card', async () => {
+    openReply.mockClear();
+    const { r } = repos(tab({ state: 'working' }));
+    await ingestHookEvent(r, log, stop({ subagent: true }));
+    await ingestHookEvent(r, log, stop({}, 'claude'));
+    await ingestHookEvent(r, log, { machineId: 'm1', tool: 'codex', session: 'th-t1', event: { type: 'agent-turn-complete', 'last-assistant-message': 'Rodo os testes?' } });
+    expect(openReply).not.toHaveBeenCalled();
+  });
+});
+
 describe('ingestHookEvent — claude session and rate limit (spec 2026-09-26 account swap)', () => {
   const SID = '6d127d73-4bd0-42d6-b4a6-d96899507e62';
   const TRANSCRIPT = `/h/.claude/projects/-p/${SID}.jsonl`;
@@ -338,6 +372,56 @@ describe('ingestHookEvent — claude session and rate limit (spec 2026-09-26 acc
     await ingestHookEvent(r, log, { machineId: 'm1', tool: 'claude', session: 'th-t1', event: { hook_event_name: 'StopFailure', error: 'authentication_failed' } });
     expect(setAgentFields).not.toHaveBeenCalled();
     expect(autoSwapOnLimit).not.toHaveBeenCalled();
+  });
+});
+
+describe('ingestHookEvent — a Codex request_user_input answered, through the real wait rule', () => {
+  /** A repository whose recordEvent keeps its own rows and asks decideWait, as TabsRepository does. */
+  function waitRuleRepos() {
+    let current = tab({ state: 'working', state_tool: 'codex' });
+    const rows: HistoryRow[] = [];
+    const recordEvent = vi.fn(async (_id: string, ev: { kind: Tab['state']; meta?: Record<string, unknown>; continuesWait?: boolean; keepsWaitText?: boolean }) => {
+      const name = typeof ev.meta?.event === 'string' ? ev.meta.event : null;
+      const outcome = decideWait({ state: current.state, seen: false, hasActivity: false, seenAgeMs: null }, rows, { kind: ev.kind!, name, continuesWait: !!ev.continuesWait, keepsWaitText: !!ev.keepsWaitText });
+      if (outcome.action === 'drop') return { tab: current, event: null, rearm: null };
+      rows.unshift({ kind: ev.kind!, event: name, ageMs: 0, backgroundTasks: false });
+      current = tab({ ...current, state: ev.kind });
+      return { tab: current, event: {}, rearm: null };
+    });
+    const r = {
+      tabs: { findByTmuxSession: vi.fn(async () => current), recordEvent, setActivity: vi.fn(async () => undefined), setAgentFields: vi.fn() },
+      machines: { findById: vi.fn(async () => ({ id: 'm1', owner_id: 'u1' })) },
+    } as unknown as Repositories;
+    return { r, state: () => current.state };
+  }
+  const codex = (event: object) => ({ machineId: 'm1', tool: 'codex' as const, session: 'th-t1', event: { session_id: 's', turn_id: 'u', cwd: '/w', ...event } });
+  const question = codex({ hook_event_name: 'PreToolUse', tool_name: 'request_user_input', tool_use_id: 'call_1', tool_input: { questions: [{ id: 'cor', header: 'Cor', question: 'Qual cor?', options: [{ label: 'Azul', description: 'Calma' }, { label: 'Verde', description: 'Fresca' }] }] } });
+  const answered = codex({ hook_event_name: 'PostToolUse', tool_name: 'request_user_input', tool_use_id: 'call_1' });
+
+  it('the PostToolUse after the answer puts the tab back to working and reaches the card service', async () => {
+    note.mockClear();
+    const { r, state } = waitRuleRepos();
+    await ingestHookEvent(r, log, question);
+    expect(state()).toBe('waiting_input');
+    expect(note.mock.calls[0]![3]).toMatchObject({ question: { kind: 'choice' } });
+
+    const res = await ingestHookEvent(r, log, answered);
+    expect(res).toMatchObject({ ok: true, tab: { state: 'working' } });
+    expect(state()).toBe('working');
+    // noteHookEvent closes the question card on this PostToolUse (closingScope, chat/tab-questions.ts)
+    expect(note).toHaveBeenCalledTimes(2);
+    expect(note.mock.calls[1]![3]).toMatchObject({ kind: 'working', meta: { event: 'PostToolUse', tool: 'request_user_input' } });
+  });
+
+  it('a question dismissed with an Esc still drops the trailing PostToolUse', async () => {
+    note.mockClear();
+    const { r, state } = waitRuleRepos();
+    await ingestHookEvent(r, log, question);
+    await ingestHookEvent(r, log, codex({ hook_event_name: 'Interrupt' }));
+    const res = await ingestHookEvent(r, log, answered);
+    expect(res).toEqual({ ok: false, reason: 'ignored' });
+    expect(state()).toBe('waiting_input');
+    expect(note).toHaveBeenCalledTimes(2);
   });
 });
 

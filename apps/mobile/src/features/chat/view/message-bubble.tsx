@@ -9,6 +9,7 @@ import { splitSettled } from '../model/markdown-split';
 import type { ChatMessage } from '../model/types';
 import { markdownStyle } from './markdown-style';
 import { MessageAttachments } from './message-attachments';
+import { ReplyQuote } from './reply-quote';
 
 type Props = {
   message: ChatMessage;
@@ -18,6 +19,10 @@ type Props = {
   started: boolean;
   /** "Tentar de novo" on a row whose send failed (`local: 'failed'`). */
   onRetry?(id: string): void;
+  /** A quote's tap (TER-447): shows the original if the screen has it, and says whether it did. */
+  onOpenReply?(id: string): boolean;
+  /** The row a quote just scrolled to: outlined for a moment. */
+  highlighted?: boolean;
 };
 
 /** The part of a streaming answer that no later delta can change: parsed once per distinct text. */
@@ -31,7 +36,7 @@ const SettledMarkdown = memo(function SettledMarkdown({ text, scheme }: { text: 
  * row's props: a delta re-renders only the bubble it streams into, and inside it only the tail after
  * the last blank line is re-parsed (`splitSettled`); the settled prefix keeps its parsed tree. When
  * the final text lands the whole body renders once — the same markdown, so nothing reflows. */
-export const MessageBubble = memo(function MessageBubble({ message, streamed, started, onRetry }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, streamed, started, onRetry, onOpenReply, highlighted = false }: Props) {
   const scheme = useSchemeName();
 
   if (message.role === 'user') {
@@ -40,7 +45,9 @@ export const MessageBubble = memo(function MessageBubble({ message, streamed, st
     const attachments = message.attachments ?? [];
     return (
       <View className="max-w-[85%] items-end gap-1 self-end">
-        <View className={`rounded-2xl bg-app-accent px-4 py-2.5 ${message.local === 'sending' ? 'opacity-60' : ''}`}>
+        {/* The border is always there, transparent until a quote scrolls here: the row never changes size. */}
+        <View className={`rounded-2xl border-2 bg-app-accent px-4 py-2.5 ${highlighted ? 'border-white/70' : 'border-transparent'} ${message.local === 'sending' ? 'opacity-60' : ''}`}>
+          {message.reply_to ? <ReplyQuote reply={message.reply_to} onOpen={onOpenReply} /> : null}
           {message.text ? <Text className="text-base text-white">{message.text}</Text> : null}
           {attachments.length > 0 ? <MessageAttachments attachments={attachments} /> : null}
         </View>
@@ -58,7 +65,7 @@ export const MessageBubble = memo(function MessageBubble({ message, streamed, st
   const body = message.text || streamed || '';
   const { settled, tail } = streaming ? splitSettled(body) : { settled: '', tail: body };
   return (
-    <View className="max-w-[92%] gap-1 self-start rounded-2xl bg-app-surface px-4 py-2.5">
+    <View className={`max-w-[92%] gap-1 self-start rounded-2xl border-2 bg-app-surface px-4 py-2.5 ${highlighted ? 'border-app-accent' : 'border-transparent'}`}>
       {message.notice?.kind === 'account_swap' ? <AppText variant="muted">{swapSentence(message.notice)}</AppText> : null}
       {settled ? <SettledMarkdown text={settled} scheme={scheme} /> : null}
       {tail ? <Markdown style={markdownStyle(scheme)}>{tail}</Markdown> : null}

@@ -112,6 +112,11 @@ function noTurnSinceLastWait(history: HistoryRow[]): boolean {
   return history.length < HISTORY_ROWS;
 }
 
+/** The newest `waiting_input` row of the history, if the kept rows reach one. */
+function lastWaitInputRow(history: HistoryRow[]): HistoryRow | undefined {
+  return history.find((row) => row.kind === 'waiting_input');
+}
+
 export function decideWait(current: WaitCurrent, history: HistoryRow[], event: WaitEvent): WaitOutcome {
   const last = history[0] ?? null;
 
@@ -124,7 +129,10 @@ export function decideWait(current: WaitCurrent, history: HistoryRow[], event: W
   // Codex: an Esc denied an approval, and the tool's PostToolUse arrives after the Interrupt that
   // already ended the turn. It is that turn's tail, not a new one (a new turn starts with a prompt or
   // a PreToolUse). After an approval the tab is waiting_permission, and the PostToolUse is recorded.
-  if (event.kind === 'working' && event.name === 'PostToolUse' && current.state === 'waiting_input') {
+  // A wait opened by a PreToolUse is a `request_user_input` question: its PostToolUse says the person
+  // answered and Codex works again, so it is recorded (and closes the question card). An Esc on that
+  // question writes an Interrupt row first, which makes it the latest wait again and drops the tail.
+  if (event.kind === 'working' && event.name === 'PostToolUse' && current.state === 'waiting_input' && lastWaitInputRow(history)?.event !== 'PreToolUse') {
     return { action: 'drop', reason: 'post_tool_after_interrupt' };
   }
 

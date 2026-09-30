@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { isClaudeSessionId, isClaudeTranscriptPath } from '@termhub/machine-ops';
-import { parseAskUserQuestion, parsePermissionTool, toolUseIdOf, type TabQuestionInput } from '../chat/tab-question-payload.js';
+import { QUESTION_MAX, parseAskUserQuestion, parseCodexUserInput, parsePermissionTool, sliceUnits, toolUseIdOf, type TabQuestionInput } from '../chat/tab-question-payload.js';
 import type { Tab, TabActivity, TabState } from '../db/repositories/types.js';
 import { activityOf } from './activity.js';
 
@@ -264,20 +264,37 @@ function interpretCodexHook(ev: Record<string, unknown>, name: string): Interpre
     case 'PreToolUse':
     case 'PostToolUse': {
       // Reduced to the tool's name on the machine. A PostToolUse says the tab works again after an
-      // approval; one that lands after an Esc is dropped by recordEvent (monitor/wait-decision.ts).
+      // approval or an answered `request_user_input`; one that lands after an Esc is dropped by
+      // recordEvent (monitor/wait-decision.ts).
+      // The exception is the PreToolUse of `request_user_input` (Codex's AskUserQuestion), forwarded
+      // whole: its input is the question and its options, parsed into `question`, never into meta.
       const tool = str(ev.tool_name);
+      if (name === 'PreToolUse' && tool === 'request_user_input') {
+        const payload = parseCodexUserInput(ev.tool_input);
+        if (payload) {
+          return {
+            kind: 'waiting_input',
+            text: cap(payload.questions[0]!.question),
+            meta: { event: name, tool },
+            question: { kind: 'choice', payload, tool_use_id: toolUseIdOf(ev.tool_use_id) },
+          };
+        }
+      }
       return { kind: 'working', text: null, activity: activityOf(tool), verb: null, meta: { event: name, tool } };
     }
     case 'PermissionRequest': {
       // Travels whole: `tool_input.description` is the question Codex shows above its approval menu,
       // written for the person, so it is the text. Nothing else of `tool_input` is read — the command
-      // is the person's and never leaves here. No question card: answering one types into Claude's
-      // dialog layout (chat/permission-dialog.ts), which Codex's menu does not share.
+      // is the person's and never leaves here. The card carries the description as `question`;
+      // answering it types into Codex's own menu (agent: 'codex'), not Claude's dialog layout.
       const description = isObj(ev.tool_input) ? str(ev.tool_input.description) : null;
       // The whole payload is untrusted: only the validated name is kept, in the text and in meta.
       const valid = parsePermissionTool(str(ev.tool_name))?.tool_name ?? null;
       const text = cap(description) ?? (valid ? `O Codex precisa da sua permissão para usar ${valid}` : 'O Codex precisa da sua permissão');
-      return { kind: 'waiting_permission', text, meta: { event: name, tool: valid } };
+      const base: Interpreted = { kind: 'waiting_permission', text, meta: { event: name, tool: valid } };
+      if (!valid) return base;
+      const question = description ? sliceUnits(description, QUESTION_MAX) : undefined;
+      return { ...base, question: { kind: 'permission', payload: { tool_name: valid, agent: 'codex', ...(question ? { question } : {}) }, tool_use_id: null } };
     }
     case 'Stop': {
       // The same finished turn the `notify` that follows reports: decideWait pairs the two into one wait.

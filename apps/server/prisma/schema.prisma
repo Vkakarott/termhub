@@ -76,6 +76,8 @@ model User {
   /// "Responder sozinho quando houver precedente" (spec 2026-09-26 concierge memory D8): off, the
   /// concierge can only suggest, never schedule an automatic answer.
   chatAutodecide     Boolean            @default(false) @map("chat_autodecide")
+  /// "Responder perguntas do Codex pelo chat": off by default, the Codex reply card opens only for users who opt in.
+  chatCodexReplies   Boolean            @default(false) @map("chat_codex_replies")
   memoryItems        MemoryItem[]
   verifiedMemoryItems MemoryItem[] @relation("MemoryItemVerifier")
   standingGrants     ChatStandingGrant[]

@@ -242,11 +242,12 @@ describe('interpretHookEvent — codex hooks', () => {
     expect(interpretHookEvent('codex', { hook_event_name: 'PreToolUse', tool_name: 'apply_patch' })?.activity).toBe(activityOf('apply_patch'));
   });
 
-  it('maps PermissionRequest to waiting_permission with the description as text, and no question card', () => {
+  it('maps PermissionRequest to waiting_permission with the description as text', () => {
     expect(interpretHookEvent('codex', permission)).toEqual({
       kind: 'waiting_permission',
       text: 'Allow creating hello.txt in /w? The workspace sandbox is read-only.',
       meta: { event: 'PermissionRequest', tool: 'Bash' },
+      question: { kind: 'permission', payload: { tool_name: 'Bash', agent: 'codex', question: 'Allow creating hello.txt in /w? The workspace sandbox is read-only.' }, tool_use_id: null },
     });
   });
 
@@ -255,8 +256,65 @@ describe('interpretHookEvent — codex hooks', () => {
       const out = interpretHookEvent('codex', ev);
       expect(JSON.stringify(out)).not.toContain('segredo');
       expect(JSON.stringify(out)).not.toContain('hello.txt &&');
-      expect(out).not.toHaveProperty('question');
     }
+  });
+
+  it('opens a permission card with the description as its question, never the command', () => {
+    const out = interpretHookEvent('codex', permission);
+    expect(out?.question).toEqual({
+      kind: 'permission',
+      payload: { tool_name: 'Bash', agent: 'codex', question: 'Allow creating hello.txt in /w? The workspace sandbox is read-only.' },
+      tool_use_id: null,
+    });
+    expect(JSON.stringify(out)).not.toContain('hello.txt &&');
+    expect(JSON.stringify(out)).not.toContain('segredo');
+  });
+
+  it('opens a permission card without a question when there is no description, and none for a bad tool name', () => {
+    for (const tool_input of [{ command: COMMAND }, { command: COMMAND, description: '   ' }, 'nope', undefined]) {
+      expect(interpretHookEvent('codex', { ...permission, tool_input })?.question).toEqual({ kind: 'permission', payload: { tool_name: 'Bash', agent: 'codex' }, tool_use_id: null });
+    }
+    expect(interpretHookEvent('codex', { ...permission, tool_name: 'bad name\n' })).not.toHaveProperty('question');
+    expect(interpretHookEvent('codex', { hook_event_name: 'PermissionRequest' })).not.toHaveProperty('question');
+  });
+
+  it('caps the permission question', () => {
+    const out = interpretHookEvent('codex', { ...permission, tool_input: { description: 'x'.repeat(5000) } });
+    const q = out?.question;
+    expect(q?.kind === 'permission' && q.payload.question?.length).toBe(1000);
+  });
+
+  it('keeps the subagent flag on a permission card event', () => {
+    const out = interpretHookEvent('codex', { ...permission, agent_id: 'sub1', agent_type: 'worker' });
+    expect(out?.meta.subagent).toBe(true);
+  });
+
+  const ask = {
+    hook_event_name: 'PreToolUse',
+    tool_name: 'request_user_input',
+    tool_use_id: 'call_abc',
+    tool_input: {
+      questions: [{ header: 'Nome', id: 'n', question: 'O arquivo deve ser azul.txt ou verde.txt?', options: [{ label: 'azul.txt', description: 'a' }, { label: 'verde.txt', description: 'b' }] }],
+    },
+  };
+
+  it('opens a choice card for request_user_input', () => {
+    const out = interpretHookEvent('codex', ask);
+    expect(out).toMatchObject({ kind: 'waiting_input', text: 'O arquivo deve ser azul.txt ou verde.txt?', meta: { event: 'PreToolUse', tool: 'request_user_input' } });
+    expect(out).not.toHaveProperty('activity');
+    expect(out?.question).toMatchObject({ kind: 'choice', tool_use_id: 'call_abc', payload: { agent: 'codex' } });
+    const q = out?.question;
+    expect(q?.kind === 'choice' && q.payload.questions[0]).toMatchObject({ header: 'Nome', multi_select: false });
+    expect(q?.kind === 'choice' && q.payload.questions[0]!.options).toHaveLength(2);
+  });
+
+  it('keeps today\'s working result for a request_user_input that does not parse', () => {
+    const out = interpretHookEvent('codex', { ...ask, tool_input: { questions: [{ question: 'Q?' }] } });
+    expect(out).toEqual({ kind: 'working', text: null, activity: activityOf('request_user_input'), verb: null, meta: { event: 'PreToolUse', tool: 'request_user_input' } });
+  });
+
+  it('marks a subagent\'s request_user_input as a subagent event', () => {
+    expect(interpretHookEvent('codex', { ...ask, agent_id: 'sub1', agent_type: 'worker' })?.meta.subagent).toBe(true);
   });
 
   it('falls back to a generic pt-BR text when the description is missing or blank', () => {

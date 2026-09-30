@@ -99,7 +99,7 @@ afterEach(() => {
 });
 
 it('loads GET /memory and GET /decisions and lists question, answer, project, date and counts', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [dec({ id: 'd1' })], next_cursor: null });
   render(<ChatMemoryPage />, { wrapper: MemoryRouter });
   expect(await screen.findByText('Usar worktree?')).toBeInTheDocument();
@@ -112,14 +112,14 @@ it('loads GET /memory and GET /decisions and lists question, answer, project, da
 });
 
 it('shows a free-text answer as the text, not the labels', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [dec({ id: 'd1', answer: { labels: [], text: 'Usar branch' } })], next_cursor: null });
   render(<ChatMemoryPage />, { wrapper: MemoryRouter });
   expect(await screen.findByText('→ Usar branch')).toBeInTheDocument();
 });
 
 it('typing in "Buscar" re-queries with q, debounced', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   render(<ChatMemoryPage />, { wrapper: MemoryRouter });
   await screen.findByLabelText('Buscar');
@@ -134,7 +134,7 @@ it('typing in "Buscar" re-queries with q, debounced', async () => {
 });
 
 it('"Esquecer" asks window.confirm and removes the row after the DELETE', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [dec({ id: 'd1' })], next_cursor: null });
   forgetChatDecisionMock.mockResolvedValue(undefined);
   vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -146,7 +146,7 @@ it('"Esquecer" asks window.confirm and removes the row after the DELETE', async 
 });
 
 it('the switch PATCHes { enabled: false }', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   setChatMemoryMock.mockResolvedValue({ enabled: false, available: true, count: 0 });
   render(<ChatMemoryPage />, { wrapper: MemoryRouter });
@@ -155,17 +155,17 @@ it('the switch PATCHes { enabled: false }', async () => {
 });
 
 it('shows the unavailable note and hides the switch when available is false', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: false, available: false, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: false, available: false, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   render(<ChatMemoryPage />, { wrapper: MemoryRouter });
   expect(await screen.findByText('Sugestões indisponíveis neste servidor')).toBeInTheDocument();
-  expect(screen.queryByRole('switch')).toBeNull();
+  expect(screen.queryByRole('switch', { name: 'Sugerir respostas com base nas minhas decisões' })).toBeNull();
 });
 
 it("shows the later search's results even if the earlier one resolves after it", async () => {
   // The debounce only ever cancels the *timer*; once both requests are in flight, only a
   // request-generation check (not the timer) can stop a slow, superseded search from winning.
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   type Page = { decisions: ChatDecision[]; next_cursor: string | null };
   const deferred: Array<(v: Page) => void> = [];
   chatDecisionsMock.mockResolvedValueOnce({ decisions: [], next_cursor: null }); // initial load on mount
@@ -191,7 +191,7 @@ it("shows the later search's results even if the earlier one resolves after it",
 });
 
 it('never updates state after unmounting while a search is still in flight', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   type Page = { decisions: ChatDecision[]; next_cursor: string | null };
   let resolveSearch!: (v: Page) => void;
   chatDecisionsMock.mockResolvedValueOnce({ decisions: [], next_cursor: null }); // initial load on mount
@@ -214,7 +214,7 @@ it('never updates state after unmounting while a search is still in flight', asy
 it("toggling, then a search that completes before the PATCH does, still shows the toggle's own result", async () => {
   // Regression: toggle/forget must not share the search's request-generation guard — a concurrent
   // search finishing first must never make the switch fall back to its pre-toggle value.
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   let resolveToggle!: (v: { enabled: boolean; available: boolean; count: number }) => void;
   setChatMemoryMock.mockImplementationOnce(() => new Promise((resolve) => (resolveToggle = resolve)));
@@ -236,7 +236,7 @@ it("toggling, then a search that completes before the PATCH does, still shows th
 });
 
 it('a search that started before a toggle completed never flips the switch back when it resolves later', async () => {
-  chatMemoryMock.mockResolvedValueOnce({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 }); // initial load
+  chatMemoryMock.mockResolvedValueOnce({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 }); // initial load
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   render(<ChatMemoryPage />, { wrapper: MemoryRouter });
   const sw = await screen.findByRole('switch', { name: 'Sugerir respostas com base nas minhas decisões' });
@@ -261,7 +261,7 @@ it('a search that started before a toggle completed never flips the switch back 
 });
 
 it('forgetting, then a search that completes before the DELETE does, still removes the row', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValueOnce({ decisions: [dec({ id: 'd1' })], next_cursor: null }); // initial load
   let resolveForget!: () => void;
   forgetChatDecisionMock.mockImplementationOnce(() => new Promise<void>((resolve) => (resolveForget = resolve)));
@@ -286,7 +286,7 @@ it('forgetting, then a search that completes before the DELETE does, still remov
 });
 
 it('"Carregar mais" appears with next_cursor and appends the next page', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 2, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 2, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValueOnce({ decisions: [dec({ id: 'd1' })], next_cursor: 'c2' });
   chatDecisionsMock.mockResolvedValueOnce({ decisions: [dec({ id: 'd2', question: 'Outra pergunta?' })], next_cursor: null });
   render(<ChatMemoryPage />, { wrapper: MemoryRouter });
@@ -298,9 +298,9 @@ it('"Carregar mais" appears with next_cursor and appends the next page', async (
 });
 
 it('the "Responder sozinho" switch reflects autodecide and PATCHes it', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
-  setChatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: true, notes: 0 });
+  setChatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: true, codex_replies: false, notes: 0 });
   render(<ChatMemoryPage />, { wrapper: MemoryRouter });
   const sw = await screen.findByRole('switch', { name: 'Responder sozinho quando houver precedente' });
   expect(sw).toHaveAttribute('aria-checked', 'false');
@@ -311,16 +311,31 @@ it('the "Responder sozinho" switch reflects autodecide and PATCHes it', async ()
 });
 
 it('shows the unavailable note and hides both switches when available is false', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: false, available: false, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: false, available: false, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   render(<ChatMemoryPage />, { wrapper: MemoryRouter });
   expect(await screen.findByText('Sugestões indisponíveis neste servidor')).toBeInTheDocument();
-  expect(screen.queryByRole('switch')).toBeNull();
+  expect(screen.queryByRole('switch', { name: 'Sugerir respostas com base nas minhas decisões' })).toBeNull();
   expect(screen.queryByText('Responder sozinho quando houver precedente')).toBeNull();
+  // The Codex reply card needs no embeddings, so its switch stays.
+  expect(screen.getByRole('switch', { name: 'Responder perguntas do Codex pelo chat' })).toBeInTheDocument();
+});
+
+it('the Codex reply switch is off by default, explains itself and PATCHes codex_replies', async () => {
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
+  chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
+  setChatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: true, notes: 0 });
+  render(<ChatMemoryPage />, { wrapper: MemoryRouter });
+  const sw = await screen.findByRole('switch', { name: 'Responder perguntas do Codex pelo chat' });
+  expect(sw).toHaveAttribute('aria-checked', 'false');
+  expect(screen.getByText('Quando o Codex termina o turno com uma pergunta, abre um card no chat para você responder sem ir até a aba.')).toBeInTheDocument();
+  fireEvent.click(sw);
+  expect(setChatMemoryMock).toHaveBeenCalledWith({ codex_replies: true });
+  await waitFor(() => expect(sw).toHaveAttribute('aria-checked', 'true'));
 });
 
 it('"Anotações do concierge" lists question, decision, reason and date, and "Esquecer" removes the row after confirming', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 1 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 1 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   chatNotesMock.mockResolvedValue({ notes: [note({ id: 'n1' })], next_cursor: null });
   forgetChatNoteMock.mockResolvedValue(undefined);
@@ -337,7 +352,7 @@ it('"Anotações do concierge" lists question, decision, reason and date, and "E
 });
 
 it('"Esquecer" on a note asks nothing back when the person declines the confirm', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 1 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 1 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   chatNotesMock.mockResolvedValue({ notes: [note({ id: 'n1' })], next_cursor: null });
   vi.spyOn(window, 'confirm').mockReturnValue(false);
@@ -364,7 +379,7 @@ const lesson = (over: Partial<LessonItem> & { id: string }): LessonItem => ({
 });
 
 it('"Lições" lists symptom, project, origin ("arquivo …"), evidence and no badge when unverified', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   chatLessonsListMock.mockResolvedValue({ lessons: [lesson({ id: 'l1' })], next_cursor: null });
   render(<ChatMemoryPage />, { wrapper: MemoryRouter });
@@ -377,7 +392,7 @@ it('"Lições" lists symptom, project, origin ("arquivo …"), evidence and no b
 });
 
 it('"Lições" shows "anotação do projeto" as the origin of a note-origin lesson', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   chatLessonsListMock.mockResolvedValue({ lessons: [lesson({ id: 'l1', origin: 'note', path: null })], next_cursor: null });
   render(<ChatMemoryPage />, { wrapper: MemoryRouter });
@@ -385,7 +400,7 @@ it('"Lições" shows "anotação do projeto" as the origin of a note-origin less
 });
 
 it('"Lições" shows the "verificada" badge and "Desfazer verificação" for an already-verified lesson', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   chatLessonsListMock.mockResolvedValue({ lessons: [lesson({ id: 'l1', verified: true, verified_at: '2026-09-23T10:00:00.000Z' })], next_cursor: null });
   render(<ChatMemoryPage />, { wrapper: MemoryRouter });
@@ -395,7 +410,7 @@ it('"Lições" shows the "verificada" badge and "Desfazer verificação" for an 
 });
 
 it('"Verificar" calls api.chat.lessons.verify(id) and flips the badge on', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   const l = lesson({ id: 'l1' });
   chatLessonsListMock.mockResolvedValue({ lessons: [l], next_cursor: null });
@@ -408,7 +423,7 @@ it('"Verificar" calls api.chat.lessons.verify(id) and flips the badge on', async
 });
 
 it('"Desfazer verificação" calls api.chat.lessons.unverify(id) and flips the badge off', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   const l = lesson({ id: 'l1', verified: true, verified_at: '2026-09-23T10:00:00.000Z' });
   chatLessonsListMock.mockResolvedValue({ lessons: [l], next_cursor: null });
@@ -421,7 +436,7 @@ it('"Desfazer verificação" calls api.chat.lessons.unverify(id) and flips the b
 });
 
 it('"Esquecer" on a lesson asks "Esquecer esta lição?" and removes the row, showing the server\'s note', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   chatLessonsListMock.mockResolvedValue({ lessons: [lesson({ id: 'l1' })], next_cursor: null });
   chatLessonsForgetMock.mockResolvedValue({ ok: true, note: 'O arquivo continua no repositório; apague-o por um PR para sumir de vez' });
@@ -435,7 +450,7 @@ it('"Esquecer" on a lesson asks "Esquecer esta lição?" and removes the row, sh
 });
 
 it('"Esquecer" on a lesson asks nothing back when the person declines the confirm', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   chatLessonsListMock.mockResolvedValue({ lessons: [lesson({ id: 'l1' })], next_cursor: null });
   vi.spyOn(window, 'confirm').mockReturnValue(false);
@@ -446,7 +461,7 @@ it('"Esquecer" on a lesson asks nothing back when the person declines the confir
 });
 
 it('the lessons search box filters, debounced', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   chatLessonsListMock.mockResolvedValue({ lessons: [], next_cursor: null });
   render(<ChatMemoryPage />, { wrapper: MemoryRouter });
@@ -463,7 +478,7 @@ it('the lessons search box filters, debounced', async () => {
 });
 
 it('"Abrir origem" links to the PR when present, else the card, else the project notes', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, codex_replies: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   chatLessonsListMock.mockResolvedValue({
     lessons: [
