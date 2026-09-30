@@ -3,7 +3,7 @@ symptom: "\"Nova conversa\" answers 409 CHAT_BUSY (\"O concierge ainda está res
 tags: [chat, live-run, subagents, claude-cli, stream-json]
 evidence: fixed
 card: TER-498
-pr: PR_URL
+pr: https://github.com/engenhariainversa/termhub/pull/246
 agent: claude
 date: 2026-09-30
 ---
