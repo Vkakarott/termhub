@@ -1,6 +1,7 @@
 import { mcpConfig } from '@termhub/claude-cli';
 import { isClaudeSessionId, shellQuote, TAB_ID_RE, TAB_MCP_DIR_REL } from '@termhub/machine-ops';
 import { config } from '../config.js';
+import { MODEL_RE } from '../setup/schema.js';
 import type { AiAccount, AiProvider, Machine, Task } from '../db/repositories/types.js';
 import { mintTabToken, TAB_TOKEN_TOOLS } from '../mcp/tab-token.js';
 import { sendTextToSession } from '../terminal/session-ops.js';
@@ -110,13 +111,24 @@ const MCP_URL_RE = /^https?:\/\/[^\s'"\\\x00-\x1f\x7f]+$/;
 export const CODEX_TAB_MCP_ENABLED = true;
 
 /**
+ * The CLI's model option (TER-589), or nothing: `--model` for Claude, `-m` for Codex, the value quoted.
+ * The format is checked here too: the setup validates what it saves, but a model also comes from the
+ * `start_agent` argument, and a leading `-` would be read by the CLI as another option.
+ */
+function modelFlag(provider: AiProvider, model: string | null | undefined): string {
+  if (model === null || model === undefined) return '';
+  if (!MODEL_RE.test(model)) throw new ControlError('INVALID_MODEL', 'Modelo inválido: use um apelido (opus, sonnet, haiku) ou o id do modelo');
+  return ` ${provider === 'chatgpt' ? '-m' : '--model'} ${shellQuote(model)}`;
+}
+
+/**
  * The exact line typed into the tab; every value goes through `shellQuote`, so nothing in it is interpreted.
  * With `mcp`, the CLI also gets the tab's memory MCP (D8 Claude, D9 Codex): the line names only the file on
  * the machine that holds the token, never the token itself.
  */
-export function launchLine(provider: AiProvider, configDir: string | null, prompt: string, mcp?: { tabId: string; url: string } | null): string {
+export function launchLine(provider: AiProvider, configDir: string | null, prompt: string, mcp?: { tabId: string; url: string } | null, model?: string | null): string {
   const { binary: bin, configEnv, flags } = launcher(provider);
-  const binary = `${bin}${flags}`;
+  const binary = `${bin}${flags}${modelFlag(provider, model)}`;
   const { clear, prefix } = accountEnv(configEnv, configDir);
   if (!mcp) return `${clear}${prefix}${binary} ${shellQuote(prompt)}`;
   if (!MCP_URL_RE.test(mcp.url)) throw new ControlError('INVALID_MCP_URL', 'MCP_URL inválido');
@@ -145,14 +157,15 @@ export const RESUME_PROMPT = 'A conta anterior atingiu o limite de uso. Continue
  * The line that resumes a Claude session under another account (spec 2026-09-26 account swap §4.4).
  * The id is a uuid, checked here too: it is the one value of the line that is not quoted. `mcpTabId` is
  * set when the tab still has a live tab token: its config file is still on the machine, so the resumed
- * session keeps the memory MCP (spec 2026-09-27 agent tab MCP D11).
+ * session keeps the memory MCP (spec 2026-09-27 agent tab MCP D11). `model`: the project's default (TER-589).
  */
-export function resumeLine(configDir: string | null, sessionId: string, prompt: string, mcpTabId?: string | null): string {
+export function resumeLine(configDir: string | null, sessionId: string, prompt: string, mcpTabId?: string | null, model?: string | null): string {
   if (!isClaudeSessionId(sessionId)) throw new ControlError('NO_SESSION', 'A sessão do Claude desta aba não é válida');
   const { clear, prefix } = accountEnv('CLAUDE_CONFIG_DIR', configDir);
   const quoted = shellQuote(checkPrompt(prompt));
-  if (!mcpTabId) return `${clear}${prefix}claude --resume ${sessionId} ${quoted}`;
-  return `${clear}${prefix}claude ${claudeMcpFlags(mcpTabId)} --resume ${sessionId} -- ${quoted}`;
+  const claude = `claude${modelFlag('claude', model)}`;
+  if (!mcpTabId) return `${clear}${prefix}${claude} --resume ${sessionId} ${quoted}`;
+  return `${clear}${prefix}${claude} ${claudeMcpFlags(mcpTabId)} --resume ${sessionId} -- ${quoted}`;
 }
 
 async function accountOnMachine(ctx: ControlContext, accountId: string, machine: Machine): Promise<AiAccount> {

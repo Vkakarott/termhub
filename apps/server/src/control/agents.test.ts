@@ -198,6 +198,22 @@ describe('launchLine', () => {
   });
 });
 
+describe('launchLine with a model (TER-589)', () => {
+  it('puts the quoted model right after the binary (after --no-alt-screen for codex)', () => {
+    expect(launchLine('claude', null, 'x', null, 'opus')).toBe(`${CLEAR_CLAUDE}claude --model 'opus' 'x'`);
+    expect(launchLine('claude', '/c', 'x', { tabId: 'abc', url: MCP_URL }, 'sonnet[1m]')).toBe(`CLAUDE_CONFIG_DIR='/c' claude --model 'sonnet[1m]' ${MCP_FLAGS} -- 'x'`);
+    expect(launchLine('chatgpt', '/c', 'x', null, 'gpt-5-codex')).toBe("CODEX_HOME='/c' codex --no-alt-screen -m 'gpt-5-codex' 'x'");
+    expect(launchLine('chatgpt', null, 'x', { tabId: 'abc', url: MCP_URL }, 'gpt-5')).toContain(" codex --no-alt-screen -m 'gpt-5' -c ");
+  });
+  it('is exactly the line of today without a model', () => {
+    for (const model of [undefined, null]) expect(launchLine('claude', '/c', 'x', null, model)).toBe("CLAUDE_CONFIG_DIR='/c' claude 'x'");
+  });
+  it('refuses a model the shell could read, before anything is typed', () => {
+    for (const bad of ['opus; id', '$(id)', "o'pus", '-p', ''])
+      expect(() => launchLine('claude', null, 'x', null, bad), bad).toThrow(new ControlError('INVALID_MODEL', 'Modelo inválido: use um apelido (opus, sonnet, haiku) ou o id do modelo'));
+  });
+});
+
 describe('resumeLine', () => {
   const SID = '6d127d73-4bd0-42d6-b4a6-d96899507e62';
   it('resumes the session under the account, prompt quoted', () => {
@@ -214,6 +230,13 @@ describe('resumeLine', () => {
 
   it('does not add the lessons reminder: a resumed session already had it', () => {
     expect(resumeLine(null, SID, RESUME_PROMPT)).not.toContain(LESSONS_REMINDER);
+  });
+
+  it('passes the model before --resume, and nothing without one (TER-589)', () => {
+    expect(resumeLine('/c', SID, 'x', null, 'opus')).toBe(`CLAUDE_CONFIG_DIR='/c' claude --model 'opus' --resume ${SID} 'x'`);
+    expect(resumeLine(null, SID, 'x', 'abc', 'opus')).toBe(`${CLEAR_CLAUDE}claude --model 'opus' ${MCP_FLAGS} --resume ${SID} -- 'x'`);
+    expect(resumeLine('/c', SID, 'x', null, null)).toBe(`CLAUDE_CONFIG_DIR='/c' claude --resume ${SID} 'x'`);
+    expect(() => resumeLine('/c', SID, 'x', null, 'a b')).toThrow(ControlError);
   });
 
   it('keeps the tab config when the tab has a live tab token, `--` before the prompt', () => {

@@ -64,7 +64,7 @@ describe('setup ai block (TER-589)', () => {
   });
 
   it('refuses a model with anything the shell could read', () => {
-    for (const bad of ['opus; rm -rf ~', 'opus $(id)', "o'pus", 'a b', '']) {
+    for (const bad of ['opus; rm -rf ~', 'opus $(id)', "o'pus", 'a b', '', '-p']) {
       expect(setupInputSchema.safeParse({ ai: { models: { claude: bad } } }).success, bad).toBe(false);
     }
   });

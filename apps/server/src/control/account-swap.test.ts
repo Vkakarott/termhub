@@ -126,6 +126,14 @@ describe('rankCandidates', () => {
     expect(rankCandidates(accs, map, { explicit: true }).map((a) => a.id)).toEqual(['a3', 'a2', 'a4', 'a5']);
   });
 
+  it('with a project priority, keeps that order over usage and drops the accounts it does not list (TER-589)', () => {
+    const map = new Map([['a1', usage('a1', [50])], ['a2', usage('a2', [5])], ['a3', usage('a3', [95])], ['a4', usage('a4', null)], ['a5', usage('a5', [1])]]);
+    const accs = ['a1', 'a2', 'a3', 'a4', 'a5'].map((id) => account({ id, machine_id: 'm1' }));
+    expect(rankCandidates(accs, map, { explicit: false, priority: ['a3', 'a4', 'a1', 'a2'] }).map((a) => a.id)).toEqual(['a4', 'a1', 'a2']);
+    expect(rankCandidates(accs, map, { explicit: true, priority: ['a3', 'a1'] }).map((a) => a.id)).toEqual(['a3', 'a1']);
+    expect(rankCandidates(accs, map, { explicit: false, priority: ['gone', 'a2'] }).map((a) => a.id)).toEqual(['a2']);
+  });
+
   it('keeps list order on ties and drops exactly 90', () => {
     const map = new Map([['b', usage('b', [30])], ['a', usage('a', [30])], ['c', usage('c', [90])]]);
     const accs = ['b', 'a', 'c'].map((id) => account({ id, machine_id: 'm1' }));

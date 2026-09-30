@@ -41,11 +41,23 @@ export function peakUtilization(u: AiAccountUsage | undefined): number | null {
 /**
  * Most room first (lowest peak); accounts at SWAP_MAX_UTILIZATION or more are dropped unless the person
  * picked one; unknown usage goes last. Stable: ties keep the list order.
+ *
+ * With `priority` (the project's accounts, TER-589) the order is the project's, not the usage: only the
+ * accounts it lists, in its order, the full ones still dropped and unknown usage kept in place — the owner
+ * chose "the next one in the order", not "the emptiest".
  */
-export function rankCandidates(accounts: AiAccount[], usage: Map<string, AiAccountUsage>, opts: { explicit: boolean }): AiAccount[] {
+export function rankCandidates(accounts: AiAccount[], usage: Map<string, AiAccountUsage>, opts: { explicit: boolean; priority?: string[] }): AiAccount[] {
+  const room = (a: AiAccount) => {
+    const peak = peakUtilization(usage.get(a.id));
+    return opts.explicit || peak === null || peak < SWAP_MAX_UTILIZATION;
+  };
+  if (opts.priority) {
+    const byId = new Map(accounts.map((a) => [a.id, a]));
+    return opts.priority.map((id) => byId.get(id)).filter((a): a is AiAccount => !!a && room(a));
+  }
   const scored = accounts.map((a, i) => ({ a, i, peak: peakUtilization(usage.get(a.id)) }));
   return scored
-    .filter((s) => opts.explicit || s.peak === null || s.peak < SWAP_MAX_UTILIZATION)
+    .filter((s) => room(s.a))
     .sort((x, y) => (x.peak === null ? 1 : 0) - (y.peak === null ? 1 : 0) || (x.peak ?? 0) - (y.peak ?? 0) || x.i - y.i)
     .map((s) => s.a);
 }
