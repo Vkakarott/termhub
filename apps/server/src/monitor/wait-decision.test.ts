@@ -253,6 +253,17 @@ describe('decideWait — Codex: one finished turn, one alert (spec 2026-09-29 co
     expect(decideWait(current({ state: 'waiting_input' }), [row('waiting_input', 'Stop', 200)], post)).toEqual({ action: 'drop', reason: 'post_tool_after_interrupt' });
   });
 
+  it('records the PostToolUse of an answered Codex question: the question was the wait, not an Esc', () => {
+    const post = event({ kind: 'working', name: 'PostToolUse' });
+    expect(decideWait(current({ state: 'waiting_input' }), [row('waiting_input', 'PreToolUse', 5_000)], post)).toEqual(NEW);
+    expect(decideWait(current({ state: 'waiting_input', seen: true }), [row('waiting_input', 'PreToolUse', 5_000)], post)).toEqual(NEW);
+  });
+
+  it('still drops the PostToolUse when the question was dismissed with an Esc', () => {
+    const post = event({ kind: 'working', name: 'PostToolUse' });
+    expect(decideWait(current({ state: 'waiting_input' }), [row('waiting_input', 'Interrupt', 200), row('waiting_input', 'PreToolUse', 5_000)], post)).toEqual({ action: 'drop', reason: 'post_tool_after_interrupt' });
+  });
+
   it('records a PostToolUse after an approval: the tab is working again', () => {
     const post = event({ kind: 'working', name: 'PostToolUse' });
     expect(decideWait(current({ state: 'waiting_permission', seen: true }), [row('waiting_permission', 'PermissionRequest', 2_000)], post)).toEqual(NEW);

@@ -264,7 +264,8 @@ function interpretCodexHook(ev: Record<string, unknown>, name: string): Interpre
     case 'PreToolUse':
     case 'PostToolUse': {
       // Reduced to the tool's name on the machine. A PostToolUse says the tab works again after an
-      // approval; one that lands after an Esc is dropped by recordEvent (monitor/wait-decision.ts).
+      // approval or an answered `request_user_input`; one that lands after an Esc is dropped by
+      // recordEvent (monitor/wait-decision.ts).
       // The exception is the PreToolUse of `request_user_input` (Codex's AskUserQuestion), forwarded
       // whole: its input is the question and its options, parsed into `question`, never into meta.
       const tool = str(ev.tool_name);
