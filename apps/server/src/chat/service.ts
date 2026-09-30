@@ -11,7 +11,7 @@ import { describeActions } from '../db/repositories/chat-actions-view.js';
 import { describeTabQuestions } from '../db/repositories/tab-questions-view.js';
 import type { Machine, User } from '../db/repositories/types.js';
 import { HttpError, notFound } from '../lib/errors.js';
-import { fallbackShortfall, pickFallback, rememberSessionDir, type FallbackPick } from './account-fallback.js';
+import { fallbackShortfall, pickFallback, type FallbackPick } from './account-fallback.js';
 import { attachmentContext } from './attachments/context.js';
 import { chatBus } from './bus.js';
 import { saveContext } from './context.js';
@@ -76,7 +76,7 @@ class LimitFallback {
     // someone else's quota only when its owner asked for that.
     if (!this.machine.claude_auto_swap) {
       const fallback = (await fallbackShortfall(this.repos, this.machine, this.account.id).catch(() => 'none_free' as const)) === 'no_other_account' ? 'no_other_account' : 'auto_swap_off';
-      return { pick: null, notice: { kind: 'usage_limit', account: this.account.label, resets_at: limit.resets_at, fallback } };
+      return { pick: null, notice: { kind: 'usage_limit', account: this.first.label, resets_at: this.first.resets_at, fallback } };
     }
     let pick: FallbackPick | null = null;
     try {
@@ -92,7 +92,7 @@ class LimitFallback {
     }
     const fallback = await fallbackShortfall(this.repos, this.machine, this.account.id).catch(() => 'none_free' as const);
     console.info('chat: usage limit, no account to fall back to', { conversation_id: this.conversationId, machine_id: this.machine.id, account: this.account.id, fallback });
-    return { pick: null, notice: { kind: 'usage_limit', account: this.account.label, resets_at: limit.resets_at, fallback } };
+    return { pick: null, notice: { kind: 'usage_limit', account: this.first.label, resets_at: this.first.resets_at, fallback } };
   }
 }
 
@@ -1206,6 +1206,8 @@ export class ChatService {
       let turnReason: ChatFailureReason | null = null;
       /** Set when the run hit the account's usage limit, with when it resets. */
       let limit: { resets_at: string | null } | null = null;
+      /** Whether the answer called a tool: then it is never re-run elsewhere. */
+      let acted = false;
       let sessionDir: string | null = null;
       let notice: ChatNotice | undefined;
 
@@ -1217,6 +1219,7 @@ export class ChatService {
             collected += frame.delta;
             chatBus.publish({ type: 'delta', user_id: user.id, conversation_id: conversation.id, message_id: answer.id, delta: frame.delta });
           } else if (frame.type === 'action') {
+            acted = true;
             chatBus.publish({ type: 'action', user_id: user.id, conversation_id: conversation.id, message_id: answer.id, tool: frame.tool, tool_use_id: frame.tool_use_id, args: frame.args });
           } else if (frame.type === 'action_result') {
             chatBus.publish({ type: 'action_result', user_id: user.id, conversation_id: conversation.id, message_id: answer.id, tool_use_id: frame.tool_use_id, ok: frame.ok });
@@ -1231,14 +1234,17 @@ export class ChatService {
             limit = { resets_at: frame.resets_at };
           } else if (frame.type === 'session_dir') {
             sessionDir = frame.dir;
-            rememberSessionDir(conversation.id, frame.dir);
           } else if (frame.type === 'error') {
             // The reason is the container's closed-set classification, so a failure is diagnosable
             // from the stored row alone: CLI_REJECTED means our own flags were refused, which no
             // amount of retrying fixes. Without this, every failure looked the same and finding the
             // cause meant probing the container by hand. A turn's own failure (the CLI's `result`,
             // named by its assistant message) is kept over the process's exit that follows it.
-            if (frame.turn_ended) errorCode = codeForReason(turnReason ?? frame.reason);
+            if (frame.turn_ended) {
+              // A 429 with no rejected `rate_limit_event` is a transient rate limit, not the usage limit.
+              const reason = turnReason ?? frame.reason;
+              errorCode = codeForReason(reason === 'usage_limit' && !limit ? 'run_failed' : reason);
+            }
             else if (errorCode === null) errorCode = codeForReason(frame.reason);
             if (frame.reason === 'missing_session') missingSession = true;
             // A failed run still leaves its session, and the whole transcript, on disk: this server
@@ -1286,6 +1292,7 @@ export class ChatService {
           errorCode = null;
           turnReason = null;
           limit = null;
+          acted = false;
           chatBus.publish({ type: 'reset', user_id: user.id, conversation_id: conversation.id, message_id: answer.id });
         };
 
@@ -1317,7 +1324,7 @@ export class ChatService {
           // again on another account of the machine, its session moved there when it can be.
           // (Read through a widened copy: `consume` assigns it, which the compiler cannot see here.)
           const failed = errorCode as ChatErrorCode;
-          if (failed === 'USAGE_LIMIT' && collected === '') {
+          if (failed === 'USAGE_LIMIT' && collected === '' && !acted) {
             const next = await fallback.next(limit ?? { resets_at: null }, { dir: sessionDir, id: input.session_id });
             notice = next.notice;
             if (!next.pick) break;
@@ -1458,7 +1465,6 @@ export class ChatService {
           }
           outcome = { code: 'RUNNER_FAILED', missingSession: false, limit: null };
         }
-        if (live.sessionDir) rememberSessionDir(conversation.id, live.sessionDir);
         // A graceful shutdown killed the process: its turns stay open, for the instance that resumes
         // them, and whoever waits on one is answered now instead of never.
         if (this.suspending) {

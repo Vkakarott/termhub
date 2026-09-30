@@ -40,8 +40,10 @@ an absolute path: the session's transcript is `<that dir>/../<session id>.jsonl`
    tried at most once per run; with none left the turn is stored as `USAGE_LIMIT`.
    The swap is **not** written to the conversation: the next run starts on the configured account
    again, so project chats keep their sessions and the chat goes back to the chosen account by
-   itself after the reset. A turn that already streamed text is not re-run (its partial answer is
-   kept, with `USAGE_LIMIT`).
+   itself after the reset. A turn that already streamed text or called a tool is not re-run (what it
+   said is kept, and an action is never taken twice), and is stored as `USAGE_LIMIT`. Turns the
+   limited process had already read stay queued in their order for the next account. A 429 without a
+   rejected `rate_limit_event` is a transient rate limit, not the usage limit: it stays `RUN_FAILED`.
 4. **Copy, web and app.** One sentence per new code; the reset time in the viewer's clock
    ("volta às 03:20", "volta em 01/10 às 03:20"); the swap notice above the answer. An older app
    shows its generic line for the new codes and ignores `notice` (zod strips it).

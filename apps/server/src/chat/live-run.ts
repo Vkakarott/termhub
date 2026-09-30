@@ -38,6 +38,8 @@ interface Answering {
   /** Turns of the person's the CLI folded into this one before it said anything (see `turn_started`
    *  in `consume`): their own answers were deleted, and they settle with this turn's final message. */
   merged: LiveTurn[];
+  /** Whether it called a tool: then it did something, and is never re-run elsewhere (TER-588). */
+  acted?: boolean;
 }
 
 export interface LiveRunDeps {
@@ -85,8 +87,9 @@ export class LiveRun {
   /** Why the current turn failed, as the CLI's synthetic assistant message said (TER-588): the `result`
    *  that ends the turn only says `is_error`. */
   private turnReason: ChatFailureReason | null = null;
-  /** When the usage limit this process hit resets (`rate_limit_event`), as the CLI said. */
-  private limitResetsAt: string | null = null;
+  /** The usage limit this process hit (`rate_limit_event` rejected), with when it resets. A 429 without
+   *  it is a transient rate limit, not the account's usage limit. */
+  private limitHit: { resets_at: string | null } | null = null;
   /** Whether this process put a turn back because of the usage limit (see `consume`). */
   private limited = false;
   private dir: string | null = null;
@@ -198,7 +201,7 @@ export class LiveRun {
     this.stream = stream;
     this.replayed = false;
     this.turnReason = null;
-    this.limitResetsAt = null;
+    this.limitHit = null;
     this.limited = false;
     let code: ChatErrorCode = null;
     let missingSession = false;
@@ -207,6 +210,9 @@ export class LiveRun {
         const frame = parseFrame(line);
         if (!frame) continue;
         if (frame.type === 'turn_started') {
+          // Past the usage limit this process only fails: a line it had already read (written before the
+          // input ended) stays where it is, in order, for the next process.
+          if (this.limited) continue;
           if (this.notes.delete(frame.uuid)) {
             // A note: a turn that already said something (or one the CLI started on its own) ends
             // here, and what the CLI says next goes to a message of its own (`answering`). A person's
@@ -244,6 +250,7 @@ export class LiveRun {
           chatBus.publish({ type: 'delta', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message_id: a.answer.id, delta: frame.delta });
         } else if (frame.type === 'action') {
           const a = await this.answering();
+          a.acted = true;
           chatBus.publish({ type: 'action', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message_id: a.answer.id, tool: frame.tool, tool_use_id: frame.tool_use_id, args: frame.args });
         } else if (frame.type === 'action_result') {
           if (this.current) chatBus.publish({ type: 'action_result', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message_id: this.current.answer.id, tool_use_id: frame.tool_use_id, ok: frame.ok });
@@ -261,19 +268,21 @@ export class LiveRun {
         } else if (frame.type === 'api_error') {
           this.turnReason = frame.reason;
         } else if (frame.type === 'usage_limit') {
-          this.limitResetsAt = frame.resets_at;
+          this.limitHit = { resets_at: frame.resets_at };
         } else if (frame.type === 'session_dir') {
           this.dir = frame.dir;
         } else if (frame.type === 'error') {
           await this.saveSession(frame.session_id);
           if (frame.turn_ended) {
-            const reason = this.turnReason ?? frame.reason ?? 'run_failed';
+            let reason = this.turnReason ?? frame.reason ?? 'run_failed';
+            if (reason === 'usage_limit' && !this.limitHit) reason = 'run_failed';
             this.turnReason = null;
             const cur = this.current;
-            // A person's turn that hit the usage limit before saying anything waits again, and the input
-            // ends: the caller re-runs it on another account (TER-588). One that already said something
-            // keeps its text — re-running it would repeat what the person already read.
-            if (reason === 'usage_limit' && cur?.turn && cur.collected === '') {
+            // A person's turn that hit the usage limit before saying or doing anything waits again, and the
+            // input ends: the caller re-runs it on another account (TER-588). One that already said
+            // something or called a tool keeps what it has — re-running it would repeat what the person
+            // already read, or an action already taken.
+            if (reason === 'usage_limit' && cur?.turn && cur.collected === '' && !cur.acted) {
               this.limited = true;
               await this.requeueCurrent();
               this.endInput();
@@ -327,7 +336,7 @@ export class LiveRun {
       this.stream = null;
       this.inputOpen = false;
     }
-    return { code, missingSession, limit: this.limited ? { resets_at: this.limitResetsAt } : null };
+    return { code, missingSession, limit: this.limited ? { resets_at: this.limitHit?.resets_at ?? null } : null };
   }
 
   /** The turn being answered goes back to the front of the queue, its screen cleared, its session kept. */

@@ -89,17 +89,3 @@ export async function pickFallback(
   }
   return null;
 }
-
-/** The session dir the last run of each conversation reported (in memory: lost on a restart). */
-const sessionDirs = new Map<string, string>();
-const SESSION_DIRS_MAX = 5_000;
-
-export function rememberSessionDir(conversationId: string, dir: string): void {
-  sessionDirs.delete(conversationId);
-  sessionDirs.set(conversationId, dir);
-  if (sessionDirs.size > SESSION_DIRS_MAX) sessionDirs.delete(sessionDirs.keys().next().value as string);
-}
-
-export function lastSessionDir(conversationId: string): string | null {
-  return sessionDirs.get(conversationId) ?? null;
-}

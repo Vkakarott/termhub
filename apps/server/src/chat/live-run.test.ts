@@ -1029,3 +1029,38 @@ it('names a model the CLI does not know instead of the generic failure', async (
   await consumed;
   expect(await a.done).toMatchObject({ error_code: 'MODEL_UNAVAILABLE' });
 });
+
+it('keeps the order of the turns when the limit meets one while the next is already written (review of TER-588)', async () => {
+  const a = await h.turn(U1, 'primeira');
+  const b = await h.turn(U2, 'segunda');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1));
+  await settle();
+  h.live.add(b.t); // written to the process before it met the limit
+  for (const line of usageLimit.slice(0, 4)) s.push(line);
+  await settle();
+  // the process had read the second line already: it replays it, and fails it too
+  s.push(replay(U2));
+  for (const line of usageLimit.slice(1, 4)) s.push(line);
+  await settle();
+  s.end();
+  expect(await consumed).toMatchObject({ limit: { resets_at: expect.any(String) } });
+  expect(h.live.initialText().trim().split('\n').map((l) => JSON.parse(l).uuid)).toEqual([U1, U2]);
+  expect(h.chat.updateMessage).not.toHaveBeenCalled();
+});
+
+it('does not re-run a turn that already called a tool when the limit comes', async () => {
+  const a = await h.turn(U1, 'faz');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1));
+  s.push(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tu1', name: 'mcp__termhub__send_input', input: {} }] } }));
+  for (const line of usageLimit) s.push(line);
+  await settle();
+  s.end();
+  expect(await consumed).toMatchObject({ limit: null });
+  expect(await a.done).toMatchObject({ error_code: 'USAGE_LIMIT' });
+});

@@ -3586,6 +3586,21 @@ describe('usage limit (TER-588)', () => {
     expect(chat.updateMessage).toHaveBeenLastCalledWith(final.id, expect.objectContaining({ error_code: 'USAGE_LIMIT', notice: expect.objectContaining({ fallback: 'no_other_account' }) }));
   });
 
+  it('one-shot: an answer that already called a tool is not re-run elsewhere', async () => {
+    const { service, runner } = build([], { host: { machines: [jarvis()] }, accounts: [work] });
+    const tool = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tu1', name: 'mcp__termhub__send_input', input: { tab_id: 't1', text: 'x' } }] } });
+    vi.mocked(runner.run).mockImplementation(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield limitFrames[0]; yield tool; yield* limitFrames.slice(1); } }));
+    expect(await service.send(user, 'oi')).toMatchObject({ error_code: 'USAGE_LIMIT' });
+    expect(runner.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('one-shot: a 429 without the rejected limit event is a transient failure, not the usage limit', async () => {
+    const { service, runner } = build([], { host: { machines: [jarvis()] }, accounts: [work] });
+    vi.mocked(runner.run).mockImplementation(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield* limitFrames.filter((l) => !l.includes('rate_limit_event')); } }));
+    expect(await service.send(user, 'oi')).toMatchObject({ error_code: 'RUN_FAILED' });
+    expect(runner.run).toHaveBeenCalledTimes(1);
+  });
+
   it('one-shot: names a model the CLI does not know', async () => {
     const { service } = build([JSON.stringify({ type: 'assistant', error: 'model_not_found', is_api_error_message: true, message: { content: [] } }), JSON.stringify({ type: 'result', is_error: true, api_error_status: 404, session_id: SID }), errorFrame('run_failed')]);
     expect(await service.send(user, 'oi')).toMatchObject({ error_code: 'MODEL_UNAVAILABLE' });
@@ -3630,7 +3645,7 @@ describe('usage limit (TER-588)', () => {
     const final = await started.done;
     expect(lr.runs.map((r) => r.input.config_dir)).toEqual([null, '~/.claude-work', '~/.claude-other']);
     expect(final).toMatchObject({ error_code: 'USAGE_LIMIT' });
-    expect(chat.updateMessage).toHaveBeenLastCalledWith(final.id, expect.objectContaining({ notice: expect.objectContaining({ kind: 'usage_limit', account: 'Outra', fallback: 'none_free' }) }));
+    expect(chat.updateMessage).toHaveBeenLastCalledWith(final.id, expect.objectContaining({ notice: { kind: 'usage_limit', account: null, resets_at: RESETS, fallback: 'none_free' } }));
     await settled();
     expect(lr.runs).toHaveLength(3);
   });

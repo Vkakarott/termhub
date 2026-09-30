@@ -7,7 +7,7 @@ vi.mock('../ai/claude-session.js', () => ({ linkClaudeSession }));
 import type { AiAccountUsage } from '../ai/index.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { AiAccount, Machine } from '../db/repositories/types.js';
-import { fallbackCandidates, lastSessionDir, linkChatSession, pickFallback, rememberSessionDir } from './account-fallback.js';
+import { fallbackCandidates, linkChatSession, pickFallback } from './account-fallback.js';
 
 const SID = '6d127d73-4bd0-42d6-b4a6-d96899507e62';
 const DIR = '/home/u/.claude/projects/-srv';
@@ -85,10 +85,4 @@ describe('pickFallback', () => {
     peaks = { a: 100, b: 99, c: 99 };
     expect(await pickFallback(repos, { machine, currentAccountId: 'a', tried: new Set(), projectId: null, sessionDir: DIR, sessionId: SID })).toBeNull();
   });
-});
-
-it('remembers the last session dir of a conversation', () => {
-  expect(lastSessionDir('c1')).toBeNull();
-  rememberSessionDir('c1', DIR);
-  expect(lastSessionDir('c1')).toBe(DIR);
 });
