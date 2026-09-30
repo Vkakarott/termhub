@@ -51,3 +51,9 @@ it('no origin line without a subagent', () => {
   render(<ChatActionGroup actions={[action('a1')]} deciding={false} onDecide={vi.fn()} onShowSeparately={vi.fn()} />);
   expect(screen.queryByText(/Pedido pelo subagente/)).toBeNull();
 });
+
+it('carries every action id, space-separated, for the pending bar to find any of them', () => {
+  const { container } = render(<ChatActionGroup actions={[action('a1'), action('a2')]} deciding={false} onDecide={vi.fn()} onShowSeparately={vi.fn()} />);
+  expect(container.querySelector('[data-chat-card~="a2"]')).not.toBeNull();
+  expect(container.querySelector('[data-chat-card~="a1"]')).toBe(container.querySelector('[data-chat-card~="a2"]'));
+});

@@ -367,3 +367,8 @@ describe('automatic answer countdown (spec 2026-09-26 concierge memory §6/§8)'
     expect(screen.getByText(text)).toBeInTheDocument();
   });
 });
+
+it('carries its id for the pending bar to find it (TER-477)', () => {
+  const { container } = render(<TabQuestionCard question={permission()} answering={false} onAnswer={vi.fn()} />);
+  expect(container.querySelector('[data-chat-card="q2"]')).not.toBeNull();
+});

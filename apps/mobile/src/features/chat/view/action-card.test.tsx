@@ -146,3 +146,35 @@ describe('ActionCard: "Liberar sem prazo" (standing grant, TER-386)', () => {
     expect(screen.getByText('executada · aba confiada')).toBeTruthy();
   });
 });
+
+// A confirmation that went stale or expired (spec 2026-09-30 §2.3): it says so, and offers to ask the
+// concierge for a fresh card.
+describe('ActionCard: expired or stale (TER-477)', () => {
+  const renderCard = (patch: Partial<ChatAction>, onRepropose = jest.fn()) =>
+    render(<ActionCard action={{ ...BASE_ACTION, ...patch }} busy={false} onDecide={jest.fn()} revoking={false} onRevoke={jest.fn()} onRepropose={onRepropose} />);
+
+  it.each([
+    [{ status: 'expired' as const }, 'expirou sem resposta'],
+    [{ status: 'expired' as const, error_code: null }, 'expirou sem resposta'],
+    [{ status: 'failed' as const, error_code: 'TAB_GONE' }, 'expirou: a aba foi fechada'],
+    [{ status: 'failed' as const, error_code: 'WAITING_PERMISSION' }, 'expirou: a aba passou a pedir uma permissão'],
+    [{ status: 'failed' as const, error_code: 'PROMPT_CHANGED' }, 'expirou: a aba está pedindo outra permissão'],
+  ])('%o reads "%s" with a muted border and "Propor de novo"', async (patch, label) => {
+    const onRepropose = jest.fn();
+    await renderCard(patch, onRepropose);
+    expect(screen.getByText(label)).toBeTruthy();
+    expect(screen.getByTestId('action-card-a1').props.className).toContain('border-app-border');
+    await fireEvent.press(screen.getByRole('button', { name: 'Propor de novo' }));
+    expect(onRepropose).toHaveBeenCalledWith(expect.objectContaining({ id: 'a1', summary: BASE_ACTION.summary }));
+  });
+
+  it.each([
+    [{ status: 'failed' as const, error_code: 'MACHINE_OFFLINE' }],
+    [{ status: 'failed' as const }],
+  ])('any other failure keeps "falhou", the accent border and no "Propor de novo" (%o)', async (patch) => {
+    await renderCard(patch);
+    expect(screen.getByText('falhou')).toBeTruthy();
+    expect(screen.getByTestId('action-card-a1').props.className).toContain('border-app-accent');
+    expect(screen.queryByRole('button', { name: 'Propor de novo' })).toBeNull();
+  });
+});

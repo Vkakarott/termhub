@@ -14,7 +14,8 @@ export function ChatActionGroup({ actions, deciding, onDecide, onShowSeparately 
   const isChecked = (a: ChatAction) => checked[a.id] ?? a.class !== 'irreversible';
   const count = actions.filter(isChecked).length;
   return (
-    <li className="rounded-xl border border-attention/40 bg-bg-2 px-4 py-3 text-sm">
+    // Every id, space-separated: the pending bar finds any one of them with `[data-chat-card~="<id>"]` (TER-477).
+    <li data-chat-card={actions.map((a) => a.id).join(' ')} className="rounded-xl border border-attention/40 bg-bg-2 px-4 py-3 text-sm">
       <p className="font-medium text-fg">{`${actions.length} ações aguardando sua confirmação`}</p>
       <ul className="mt-2 space-y-1">
         {actions.map((a) => (

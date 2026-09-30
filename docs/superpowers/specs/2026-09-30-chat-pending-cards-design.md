@@ -19,7 +19,7 @@ as such after a reload, and then as a quiet "Falhou".
   permission prompts. Suggestions are not counted: they never need an answer, and the sidebar dot does not count them either.
 - Collapsed it is one line: "3 pendentes" plus a chevron. Expanded it lists each item in one line: the
   action's summary ("digitar … na aba …"), "A aba «x» pergunta: …", "«x» pede permissão para usar «tool»".
-- Tapping an item scrolls the thread to its card and highlights it for a moment. The card itself stays
+- Tapping an item scrolls the thread to its card (on the web it is also ringed for a moment). The card itself stays
   where it is, so there is one place to answer and nothing to keep in sync.
 - With two or more pending confirmations of class `write`, the bar offers "Aprovar as reversíveis (n)".
   It is the same batch call as the group card (`/actions/decisions`) with only those ids. Irreversible
