@@ -26,5 +26,5 @@ It only writes when the content differs, so nothing failed and it was not visibl
 
 ## How to check
 
-`cd apps/server && npx vitest run` and `stat` the files listed in `real-home-guard.ts` before and
+`cd apps/server && DATABASE_URL=postgresql://x:x@localhost:5432/x npx vitest run` and `stat` the files listed in `real-home-guard.ts` before and
 after: nothing changes. A test that writes to the real home now fails its file.

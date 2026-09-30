@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll } from 'vitest';
+import { afterAll } from 'vitest';
 import { setPublicIdKey } from '../src/public/public-id.js';
 import { changedPaths, snapshotHome, type HomeSnapshot } from './real-home-guard.js';
 
@@ -23,24 +23,24 @@ setPublicIdKey(TEST_PUBLIC_ID_KEY);
  * Two layers, both loaded before every test file:
  *  - `$HOME` points at a fresh temp dir per file (`os.homedir()` and child processes read it), so
  *    code that resolves `~` lands in a sandbox;
- *  - the hook files termhub's installer/heal writes under the REAL home are snapshotted, and a change fails the file: that
- *    catches code that bypasses `$HOME` (hardcoded paths, `os.userInfo()`).
+ *  - the hook files termhub's installer/heal writes under the REAL home are snapshotted, and a
+ *    change fails the file: that catches code that bypasses `$HOME` (hardcoded paths,
+ *    `os.userInfo()`).
+ *
+ * The redirect happens at module level, not in `beforeAll`: test files are imported (and their
+ * `describe` bodies collected) before any hook runs, so an `os.homedir()` evaluated at import time
+ * would still see the real home.
  */
 const REAL_HOME = os.homedir(); // captured once, before HOME is redirected
 const previousHome = process.env.HOME;
-let sandboxHome = '';
-let homeBefore: HomeSnapshot = {};
-
-beforeAll(() => {
-  homeBefore = snapshotHome(REAL_HOME);
-  sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'th-server-test-home-'));
-  process.env.HOME = sandboxHome;
-});
+const homeBefore: HomeSnapshot = snapshotHome(REAL_HOME);
+const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'th-server-test-home-'));
+process.env.HOME = sandboxHome;
 
 afterAll(() => {
   if (previousHome === undefined) delete process.env.HOME;
   else process.env.HOME = previousHome;
-  if (sandboxHome) fs.rmSync(sandboxHome, { recursive: true, force: true });
+  fs.rmSync(sandboxHome, { recursive: true, force: true });
   const changed = changedPaths(homeBefore, snapshotHome(REAL_HOME));
   if (changed.length > 0) {
     throw new Error(
