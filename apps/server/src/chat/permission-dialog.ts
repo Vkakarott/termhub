@@ -28,23 +28,35 @@ export function lastNonBlankLines(text: string, n = SCREEN_EXCERPT_LINES): strin
     .join('\n');
 }
 
+/** Whether the last non-blank line of a capture is a dialog's footer: the tab is showing a dialog now. */
+export function dialogFooterVisible(screen: string): boolean {
+  const block = lastNonBlankLines(screen, 1);
+  return block.includes(DIALOG_FOOTER);
+}
+
 /**
  * The live check (spec §5.3): the question must be the dialog the tab is showing *now*. Two things,
  * both required. The last non-blank line is a dialog's footer (`DIALOG_FOOTER`), so a tab back at
  * its normal prompt never passes, whatever its scrollback says. And the marker sits within the last
- * `PROMPT_MARKER_LINES` non-blank lines, that is inside the dialog block: the first question's text for
- * a choice, "Do you want" for a permission (Claude Code asks "Do you want to proceed?" or "Do you want
- * to make this edit…?"; the tool's name alone is not enough, it stays in the scrollback). Both sides are
- * reduced to letters and digits (`squash`) before comparing.
+ * `PROMPT_MARKER_LINES` non-blank lines, that is inside the dialog block: "Do you want" for a permission
+ * (Claude Code asks "Do you want to proceed?" or "Do you want to make this edit…?"; the tool's name
+ * alone is not enough, it stays in the scrollback). For a choice, the first question's text — or, when
+ * the card is taller than the pane and the question's start is above the top of the screen (TER-542),
+ * every option label of that question, within the whole capture. Both sides are reduced to letters and
+ * digits (`squash`) before comparing.
  */
 export function promptVisible(screen: string, row: Pick<TabQuestion, 'kind' | 'payload'>): boolean {
-  const block = lastNonBlankLines(screen, PROMPT_MARKER_LINES);
-  if (!block.slice(block.lastIndexOf('\n') + 1).includes(DIALOG_FOOTER)) return false;
-  const shown = squash(block);
+  if (!dialogFooterVisible(screen)) return false;
+  const shown = squash(lastNonBlankLines(screen, PROMPT_MARKER_LINES));
   if (row.kind === 'choice') {
-    const marker = squash((row.payload as ChoicePayload).questions[0]?.question ?? '').slice(0, 80);
+    const first = (row.payload as ChoicePayload).questions[0];
+    const marker = squash(first?.question ?? '').slice(0, 80);
     // A question with no letters or digits leaves no marker, and '' is in every screen.
-    return marker !== '' && shown.includes(marker);
+    if (marker !== '' && shown.includes(marker)) return true;
+    const labels = (first?.options ?? []).map((o) => squash(o.label));
+    if (labels.length < 2 || labels.some((l) => l === '')) return false;
+    const whole = squash(screen);
+    return labels.every((l) => whole.includes(l));
   }
   return shown.includes(squash('Do you want'));
 }

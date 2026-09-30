@@ -595,7 +595,7 @@ it('shows a tab question from GET /chat and answers it with one click', async ()
   expect(screenMock).toHaveBeenCalledWith('q1');
 });
 
-it('a stale question reads "A pergunta mudou na aba"', async () => {
+it('a stale question says nothing was sent', async () => {
   const { ApiError } = await import('../../lib/api');
   chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, grants: [], tab_questions: [question({ id: 'q1' })] });
   answerMock.mockRejectedValue(new ApiError(409, 'A pergunta mudou na aba', 'TAB_PROMPT_CHANGED'));
@@ -605,7 +605,7 @@ it('a stale question reads "A pergunta mudou na aba"', async () => {
     </MemoryRouter>,
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Negar' }));
-  expect(await screen.findByText('A pergunta mudou na aba')).toBeInTheDocument();
+  expect(await screen.findByText('A aba já não mostra esta pergunta: nada foi enviado.')).toBeInTheDocument();
 });
 
 it('"Esquecer esta decisão" on a suggested answer calls the forget API', async () => {
