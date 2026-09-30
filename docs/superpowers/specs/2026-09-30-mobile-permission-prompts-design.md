@@ -45,71 +45,70 @@ Read from the code at `30cdd6d0`.
 All new code sits in `src/features/permissions/`, following the feature layout (`model/`,
 `viewmodel/`, `view/`).
 
-### 3.1 `createPermissionsStore` (viewmodel, logic project — no React Native import)
+### 3.1 Signals (`src/features/shared/signals.ts`)
 
-Persisted with zustand `persist` + `mmkvStateStorage` (name `permissions`). State:
+Three new payload-free signals, so no feature imports another (the pattern of `sessionEnded`):
+
+- `sessionStarted` — emitted by the session store's `startSession` (activation and unlock).
+- `messageSent` — emitted by the chat store's `send` right before `return true` (covers retry and
+  "Proponha de novo", which go through `send`).
+- `pushGranted` — emitted by the permissions store when the OS grants notifications; the session
+  store subscribes and re-runs `registerPush` with the in-memory token (no-op when locked).
+
+### 3.2 `createPermissionsStore` (viewmodel, logic project — no React Native import)
+
+Persisted with zustand `persist` + `mmkvStateStorage` (name `permissions`), reset on
+`sessionEnded`. State:
 
 ```ts
 type AdConsent = 'unknown' | 'granted' | 'denied';
+type NotificationStatus = 'granted' | 'denied' | 'undetermined';
+type TrackingStatus = 'authorized' | 'denied' | 'restricted' | 'undetermined' | 'unavailable'; // 'unavailable' on Android
 interface PermissionsState {
-  pushPrimerDismissals: number;          // "Agora não" count, 0..2
-  pushPrimerOpen: boolean;               // not persisted
-  adConsent: AdConsent;
-  adCardEligible: boolean;               // set on the first unlocked session after enrolment / update
+  firstMessageSent: boolean;          // persisted
+  pushPrimerDismissals: number;       // persisted, 0..2
+  adConsent: AdConsent;               // persisted
+  pushPrimerOpen: boolean;            // memory
+  notificationStatus: NotificationStatus | null; // memory, last read from the OS
+  trackingStatus: TrackingStatus | null;         // memory, last read from the OS
 }
 ```
 
-Injected dependencies (`PermissionsDeps`):
-
-```ts
-interface PermissionsDeps {
-  notificationStatus(): Promise<'granted' | 'denied' | 'undetermined'>;
-  requestNotifications(): Promise<'granted' | 'denied' | 'undetermined'>;
-  trackingStatus(): Promise<'authorized' | 'denied' | 'restricted' | 'undetermined' | 'unavailable'>; // 'unavailable' on Android
-  requestTracking(): Promise<'authorized' | 'denied' | 'restricted' | 'undetermined' | 'unavailable'>;
-  setAdConsent(granted: boolean): Promise<void>;   // Firebase setConsent
-  openSystemSettings(): Promise<void>;
-  onPushGranted(): void;                             // session store re-runs registerPush
-}
-```
+Injected dependencies (`PermissionsDeps`): `platform: 'ios' | 'android'`, `notificationStatus()`,
+`requestNotifications()`, `trackingStatus()`, `requestTracking()`, `setAdConsent(granted)`,
+`openSystemSettings()`.
 
 Actions:
 
+- `refreshStatuses()` — reads both OS statuses into state (on `sessionStarted` and when Ajustes or
+  Home focus).
 - `maybeOpenPushPrimer()` — opens the primer when the OS status is `undetermined` and dismissals < 2.
-  Called by the chat store after a successful send (first time only, via a persisted
-  `firstMessageSent` flag inside this store) and by the Notificações tab on focus.
-- `acceptPush()` — closes the primer, calls `requestNotifications()`; on `granted` calls
-  `onPushGranted()`.
+  Runs on the first `messageSent` (then `firstMessageSent = true`) and when the Notificações tab
+  gets focus.
+- `acceptPush()` — closes the primer, `requestNotifications()`; on `granted` emits `pushGranted`.
 - `dismissPush()` — closes the primer, increments dismissals.
-- `markAdCardEligible()` — called by the session store when a session starts; sets eligibility.
-- `acceptAds()` — iOS: `requestTracking()`; consent = `authorized`. Android (`unavailable`): granted.
-  Calls `setAdConsent(granted)` and stores the result.
+- `acceptAds()` — iOS: `requestTracking()`, granted only on `authorized`. Android: granted.
+  Calls `setAdConsent(granted)` and stores `granted` / `denied`.
 - `declineAds()` — stores `denied`, `setAdConsent(false)`.
-- `setAdsFromSettings(on)` — off: `declineAds()`. On: Android → grant; iOS → if ATT is
-  `undetermined`, as `acceptAds()`; if `denied`/`restricted`, `openSystemSettings()` and leave
-  consent unchanged.
-- `syncAdConsent()` — at session start, re-applies the stored consent to Firebase and, on iOS,
-  downgrades `granted` to `denied` when ATT is no longer `authorized` (changed in system settings).
+- `setAdsFromSettings(on)` — off: `declineAds()`. On: Android → `acceptAds()`; iOS → ATT
+  `undetermined` → `acceptAds()`; `denied`/`restricted` → `openSystemSettings()`, consent unchanged.
+- `syncAdConsent()` — on `sessionStarted`: on iOS a stored `granted` whose ATT is no longer
+  `authorized` becomes `denied`; then re-applies the stored consent to Firebase (`unknown` = false).
 
-Card visibility (`showAdCard`) is derived: `adCardEligible && adConsent === 'unknown'` and, on iOS,
-ATT `undetermined` or `authorized`.
+Derived: `showAdCard(state)` = `adConsent === 'unknown'` and (Android, or ATT `undetermined` /
+`authorized`). Home is only reachable unlocked, so the card first shows on the first session after
+"Criar PIN", and on the first unlock after the update for an existing install.
 
-### 3.2 Wiring
+### 3.3 Services
 
 - `src/services/push.ts`: `expoPushToken()` no longer requests; new `notificationStatus()` and
   `requestNotifications()` wrap `getPermissionsAsync` / `requestPermissionsAsync` (the Android
   `default` channel is created before requesting, as today).
-- `src/services/tracking.ts` (new): wraps `expo-tracking-transparency`; returns `unavailable` on
-  Android.
+- `src/services/tracking.ts` (new): wraps `expo-tracking-transparency`; `unavailable` on Android.
 - `src/services/analytics.ts`: `setAdConsent(granted)` → `setConsent(getAnalytics(), { adStorage,
   adUserData, adPersonalization: granted, analyticsStorage: true })`; never throws.
-- `createSessionStore`: `startSession` calls `permissions.markAdCardEligible()` and
-  `permissions.syncAdConsent()` through injected callbacks; `onPushGranted` re-runs
-  `registerPush`.
-- `createChatStore.send`: on success calls an injected `onMessageSent()` (the permissions store's
-  first-message hook). Retry and "Proponha de novo" go through `send`, so they are covered.
 
-### 3.3 Views (pt-BR copy)
+### 3.4 Views (pt-BR copy)
 
 - `PushPrimerSheet` — global, mounted in `app/_layout.tsx` next to `PinPromptSheet`, built on
   `@/ui` `Sheet`. Title "Receba avisos das suas conversas"; body: "O termhub avisa quando uma aba
@@ -122,7 +121,7 @@ ATT `undetermined` or `authorized`.
 - Ajustes: section "Notificações" (status text + "Abrir Ajustes do sistema" when denied) and
   section "Privacidade" (switch "Medição de anúncios"), both following the "Biometria" row.
 
-### 3.4 Native configuration
+### 3.5 Native configuration
 
 - `app.json`: `@react-native-firebase/analytics` → `ios.withoutAdIdSupport: false`; add the
   `expo-tracking-transparency` plugin with `userTrackingPermission`: "Usamos o identificador de
@@ -145,11 +144,11 @@ no-op. `Linking.openSettings()` failure is ignored.
 
 - Logic (`createPermissionsStore.test.ts`, fakes for every dep): primer opens after the first send
   only when undetermined; never after two dismissals or once decided; accept grants and calls
-  `onPushGranted`; ad card eligibility and visibility; iOS accept with each ATT answer; Android
+  emits `pushGranted`; `showAdCard` visibility; iOS accept with each ATT answer; Android
   accept; settings toggle on iOS with ATT denied opens settings; `syncAdConsent` downgrade;
   persisted fields survive a rehydrate; wipe clears them.
 - `push.test.ts`: `expoPushToken()` never calls `requestPermissionsAsync`.
-- Session and chat store tests: the injected callbacks fire on session start and successful send
+- Session and chat store tests: `sessionStarted` and `messageSent` fire on session start and successful send
   (not on failure).
 - UI: primer sheet, ad card and the two Ajustes sections render and call the store.
 - Fakes: `test/fakes/expo-tracking-transparency.js`, `test/fakes/react-native-firebase-analytics.js`
