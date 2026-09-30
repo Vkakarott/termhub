@@ -42,10 +42,17 @@ export async function expoPushToken(): Promise<string | null> {
   return (await Notifications.getExpoPushTokenAsync({ projectId })).data;
 }
 
+/** A non-empty string field of a push's `data`, or `null`. */
+function dataString(data: unknown, key: string): string | null {
+  if (!data || typeof data !== 'object') return null;
+  const value = (data as Record<string, unknown>)[key];
+  return typeof value === 'string' && value ? value : null;
+}
+
 /** The conversation a push points at (`data.conversation_id` of `confirmation`, `tab_question` and
  * `reply`), or `null` — a `device_request` names none. */
-export function pushConversationId(data: unknown): string | null {
-  if (!data || typeof data !== 'object') return null;
-  const id = (data as { conversation_id?: unknown }).conversation_id;
-  return typeof id === 'string' && id ? id : null;
-}
+export const pushConversationId = (data: unknown): string | null => dataString(data, 'conversation_id');
+
+/** The history row a push was sent for (`data.notification_id`), or `null` for a push from a server
+ * older than that field. */
+export const pushNotificationId = (data: unknown): string | null => dataString(data, 'notification_id');

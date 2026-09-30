@@ -2,15 +2,16 @@ import '../global.css';
 import { Stack, useRouter, useSegments, type Href } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AppState, Linking } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useNotificationsStore } from '@/features/notifications/viewmodel/useNotificationsStore';
 import { PinPromptSheet } from '@/features/session/view/pin-prompt-sheet';
 import { usePhaseRedirect } from '@/features/session/view/use-phase-redirect';
 import { useSessionStore } from '@/features/session/viewmodel/useSessionStore';
 import { appBackgrounded } from '@/features/shared/signals';
 import { logScreen } from '@/services/analytics';
-import { configurePush, pushConversationId } from '@/services/push';
+import { configurePush, pushConversationId, pushNotificationId } from '@/services/push';
 import { socketWake } from '@/services/api/wake';
 import { ThemeProvider, useSchemeName } from '@/ui/theme-provider';
 
@@ -86,15 +87,26 @@ function Navigator() {
     return () => sub.remove();
   }, [openChat]);
 
-  // A tapped push — on a cold start too — opens its conversation, after the PIN when locked (P§9).
-  // Cleared once followed, so a remount never opens it a second time.
+  // A tapped push — on a cold start too — opens its conversation, after the PIN when locked, and
+  // marks its history row read (P§9). Cleared once followed, so a remount never opens it again.
   const tapped = Notifications.useLastNotificationResponse();
+  const [readOnUnlock, setReadOnUnlock] = useState<string | null>(null);
   useEffect(() => {
     if (!tapped || tapped.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
     Notifications.clearLastNotificationResponse();
-    const id = pushConversationId(tapped.notification.request.content.data);
+    const { data } = tapped.notification.request.content;
+    setReadOnUnlock(pushNotificationId(data));
+    const id = pushConversationId(data);
     if (id) openChat(id);
   }, [tapped, openChat]);
+
+  // Marking read needs a session: a push tapped while locked waits for the PIN.
+  const phase = useSessionStore((s) => s.phase);
+  useEffect(() => {
+    if (!readOnUnlock || phase !== 'unlocked') return;
+    setReadOnUnlock(null);
+    void useNotificationsStore.getState().markPushRead(readOnUnlock);
+  }, [readOnUnlock, phase]);
 
   return (
     <>

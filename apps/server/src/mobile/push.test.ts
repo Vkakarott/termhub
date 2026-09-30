@@ -81,11 +81,12 @@ describe('MobilePushService', () => {
     expect(t.sent).toHaveLength(1);
     const messages = t.sent[0];
     expect(messages).toHaveLength(1);
+    // The push also names its history row, so a tap marks it read; the row itself does not.
     expect(messages[0]).toEqual({
       to: 'ExponentPushToken[a]',
       title: 'termhub precisa de você',
       body: 'O chat do projeto termhub pediu confirmação para agir na aba api (jarvis).',
-      data: { kind: 'confirmation', conversation_id: 'cp', project_id: 'p1', action_id: 'a1' },
+      data: { kind: 'confirmation', conversation_id: 'cp', project_id: 'p1', action_id: 'a1', notification_id: 'n1' },
     });
     for (const m of messages) {
       expect(m.data).not.toHaveProperty('summary');
@@ -108,7 +109,7 @@ describe('MobilePushService', () => {
       to: 'ExponentPushToken[a]',
       title: 'termhub precisa de você',
       body: 'O chat geral pediu confirmação para agir na aba api (jarvis).',
-      data: { kind: 'confirmation', conversation_id: 'c1', project_id: null, action_id: 'a1' },
+      data: { kind: 'confirmation', conversation_id: 'c1', project_id: null, action_id: 'a1', notification_id: 'n1' },
     });
     expect(JSON.stringify(t.repos.userNotifications.create.mock.calls)).not.toContain('p-foreign');
     expect(JSON.stringify(t.sent)).not.toContain('p-foreign');
@@ -173,7 +174,7 @@ describe('MobilePushService', () => {
       to: 'ExponentPushToken[a]',
       title: 'Novo aparelho pede acesso',
       body: 'iPhone 15 (São Paulo) pediu acesso à sua conta. Confira o código e aprove ou recuse na web.',
-      data: { kind: 'device_request' },
+      data: { kind: 'device_request', notification_id: 'n1' },
     });
   });
 

@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
-import { expoPushToken, pushConversationId } from './push';
+import { expoPushToken, pushConversationId, pushNotificationId } from './push';
 
 // A getter, so the switch reaches `push.ts` through Babel's namespace copy of the module.
 jest.mock('expo-device', () => {
@@ -62,4 +62,9 @@ it('pushConversationId reads data.conversation_id, and nothing else', () => {
   expect(pushConversationId({ conversation_id: '' })).toBeNull();
   expect(pushConversationId({ conversation_id: 42 })).toBeNull();
   expect(pushConversationId(null)).toBeNull();
+});
+
+it('pushNotificationId reads data.notification_id, when the server sent one', () => {
+  expect(pushNotificationId({ kind: 'reply', conversation_id: 'c1', notification_id: 'n1' })).toBe('n1');
+  expect(pushNotificationId({ kind: 'reply', conversation_id: 'c1' })).toBeNull();
 });
