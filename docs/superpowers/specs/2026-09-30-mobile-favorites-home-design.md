@@ -35,7 +35,7 @@ whole list to reach the three they work on.
 | Unpinning from Home | Home rows carry the same pin and the same long press. | The row is one component; without it a wrong pin could only be undone from another tab. |
 | Tapping a Home row | Pushes the project's chat (`/chat/<project id>`) on every window size. | It is the route deep links and notifications already use, iPad included. A second split view is not worth its cost for a short list. |
 | Home on a wide window | The readable centred column (`Screen`'s default). | Spec 2026-09-28 iPad §2.4. |
-| Back from a conversation with no history | Goes to Chats (`/(tabs)/chats`), not to the tabs' index. | It is what it does today; the index is now Home. |
+| Back from a conversation with no history | Goes to Chats (`/(tabs)/chats`), not to the tabs' index. | It is what it does today; the index is now Home. "Memória do chat" keeps the index: it is opened from Ajustes. |
 | Live sync | None. Each side sees the other's change when it reloads its list: the phone on tab focus and pull to refresh, the web on page load. | The list is already reloaded on focus. No event exists for groups. |
 | Logs and analytics | Nothing new is logged. The screen names sent to analytics change: `/(tabs)` is now Home and Chats is `/(tabs)/chats`. | Route patterns only, no ids. |
 

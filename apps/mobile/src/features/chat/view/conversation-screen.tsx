@@ -147,7 +147,7 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
   }, [standingGrants]);
 
   // A deep link followed after unlock replaces `/unlock` with this screen: nothing behind it.
-  const goBack = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)'));
+  const goBack = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/chats'));
   const onDecide = useCallback((actionId: string, decision: ChatDecision) => void decide(actionId, decision), [decide]);
   const onDecideMany = useCallback((d: { id: string; decision: 'approve' | 'deny' }[]) => void decideMany(d), [decideMany]);
   const onRevoke = useCallback((grantId: string) => void revokeGrant(grantId), [revokeGrant]);

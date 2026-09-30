@@ -176,7 +176,7 @@ export function FavoriteSheet(props: { project: { id: string; name: string; pinn
 
 ### Task 7: Home tab
 
-**Files:** Create `apps/mobile/src/features/home/view/home-screen.tsx` (+ `.test.tsx`), `apps/mobile/app/(tabs)/chats.tsx`; Modify `apps/mobile/app/(tabs)/index.tsx`, `apps/mobile/app/(tabs)/_layout.tsx`, `apps/mobile/src/ui/empty-state.tsx`, `conversation-screen.tsx` and `chat-memory-screen.tsx` (back fallback → `/(tabs)/chats`) with their tests, `apps/mobile/README.md`.
+**Files:** Create `apps/mobile/src/features/home/view/home-screen.tsx` (+ `.test.tsx`), `apps/mobile/app/(tabs)/chats.tsx`; Modify `apps/mobile/app/(tabs)/index.tsx`, `apps/mobile/app/(tabs)/_layout.tsx`, `apps/mobile/src/ui/empty-state.tsx`, `conversation-screen.tsx` (back fallback → `/(tabs)/chats`) with its test — `chat-memory-screen.tsx` keeps `/(tabs)`: it is opened from Ajustes, not Chats, `apps/mobile/README.md`.
 
 - [ ] Failing tests, Home:
   - no pins → `Nenhum projeto fixado`, the hint of spec §4, and `Ver projetos` navigates to `/(tabs)/chats`.
@@ -185,7 +185,7 @@ export function FavoriteSheet(props: { project: { id: string; name: string; pinn
   - pressing `Tirar termhub de Favoritos` removes the row.
   - a focus reloads the projects (Review Focus 5): unpin through the API directly, fire the focus callback, the row is gone.
   - while the first load runs with nothing persisted, the empty state is not shown.
-- [ ] Failing tests, back fallback: `conversation-screen.test.tsx` and the chat-memory test expect `replace('/(tabs)/chats')`.
+- [ ] Failing test, back fallback: `conversation-screen.test.tsx` expects `replace('/(tabs)/chats')`. Tab order: `src/app-tabs.test.tsx` (outside `app/`, which expo-router reads as routes).
 - [ ] Run `npx jest --selectProjects ui src/features/home src/features/chat/view/conversation-screen src/features/chat/view/chat-memory-screen` — fails.
 - [ ] Implement `HomeScreen` (title `Home`, section `Favoritos`, `FlatList` of `ProjectRow` with `detail = key`, `RefreshControl`, `useFocusEffect(loadProjects)`, `Banner` on `error`, `EmptyState` with an `action`), `EmptyState`'s optional `action?: ReactNode`, the routes and the tab bar (`index` → Home with `house` / `house.fill` / `home`, then `chats`, `notifications`, `progress`, `settings`), the back fallbacks, the README's route list.
 - [ ] Tests pass. Commit `Mobile: Home tab with the pinned projects`.
