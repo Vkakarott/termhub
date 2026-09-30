@@ -13,7 +13,8 @@ const tabIcon =
     <SymbolView name={{ ios: focused ? iosSelected : ios, android }} tintColor={color} size={size} />
   );
 
-/** The four tabs of spec §11.2; Notificações carries the unread count (design spec §7). */
+/** Home (TER-541) first, where the app opens, then the four tabs of spec §11.2; Notificações carries
+ * the unread count (design spec §7). */
 export default function TabsLayout() {
   const unread = useNotificationsStore((s) => s.unread);
   return (
@@ -25,7 +26,8 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: '#9CA3AF',
       }}
     >
-      <Tabs.Screen name="index" options={{ title: 'Chats', tabBarIcon: tabIcon('bubble.left.and.bubble.right', 'bubble.left.and.bubble.right.fill', 'forum') }} />
+      <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: tabIcon('house', 'house.fill', 'home') }} />
+      <Tabs.Screen name="chats" options={{ title: 'Chats', tabBarIcon: tabIcon('bubble.left.and.bubble.right', 'bubble.left.and.bubble.right.fill', 'forum') }} />
       <Tabs.Screen
         name="notifications"
         options={{ title: 'Notificações', tabBarBadge: unread > 0 ? unread : undefined, tabBarIcon: tabIcon('bell', 'bell.fill', 'notifications') }}

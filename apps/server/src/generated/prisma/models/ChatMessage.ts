@@ -31,6 +31,9 @@ export type ChatMessageMinAggregateOutputType = {
   role: string | null
   text: string | null
   errorCode: string | null
+  replyToId: string | null
+  replyToRole: string | null
+  replyToExcerpt: string | null
   createdAt: Date | null
 }
 
@@ -40,6 +43,9 @@ export type ChatMessageMaxAggregateOutputType = {
   role: string | null
   text: string | null
   errorCode: string | null
+  replyToId: string | null
+  replyToRole: string | null
+  replyToExcerpt: string | null
   createdAt: Date | null
 }
 
@@ -51,6 +57,9 @@ export type ChatMessageCountAggregateOutputType = {
   usage: number
   errorCode: number
   notice: number
+  replyToId: number
+  replyToRole: number
+  replyToExcerpt: number
   createdAt: number
   _all: number
 }
@@ -62,6 +71,9 @@ export type ChatMessageMinAggregateInputType = {
   role?: true
   text?: true
   errorCode?: true
+  replyToId?: true
+  replyToRole?: true
+  replyToExcerpt?: true
   createdAt?: true
 }
 
@@ -71,6 +83,9 @@ export type ChatMessageMaxAggregateInputType = {
   role?: true
   text?: true
   errorCode?: true
+  replyToId?: true
+  replyToRole?: true
+  replyToExcerpt?: true
   createdAt?: true
 }
 
@@ -82,6 +97,9 @@ export type ChatMessageCountAggregateInputType = {
   usage?: true
   errorCode?: true
   notice?: true
+  replyToId?: true
+  replyToRole?: true
+  replyToExcerpt?: true
   createdAt?: true
   _all?: true
 }
@@ -166,6 +184,9 @@ export type ChatMessageGroupByOutputType = {
   usage: runtime.JsonValue | null
   errorCode: string | null
   notice: runtime.JsonValue | null
+  replyToId: string | null
+  replyToRole: string | null
+  replyToExcerpt: string | null
   createdAt: Date
   _count: ChatMessageCountAggregateOutputType | null
   _min: ChatMessageMinAggregateOutputType | null
@@ -198,8 +219,13 @@ export type ChatMessageWhereInput = {
   usage?: Prisma.JsonNullableFilter<"ChatMessage">
   errorCode?: Prisma.StringNullableFilter<"ChatMessage"> | string | null
   notice?: Prisma.JsonNullableFilter<"ChatMessage">
+  replyToId?: Prisma.StringNullableFilter<"ChatMessage"> | string | null
+  replyToRole?: Prisma.StringNullableFilter<"ChatMessage"> | string | null
+  replyToExcerpt?: Prisma.StringNullableFilter<"ChatMessage"> | string | null
   createdAt?: Prisma.DateTimeFilter<"ChatMessage"> | Date | string
   conversation?: Prisma.XOR<Prisma.ChatConversationScalarRelationFilter, Prisma.ChatConversationWhereInput>
+  replyTo?: Prisma.XOR<Prisma.ChatMessageNullableScalarRelationFilter, Prisma.ChatMessageWhereInput> | null
+  replies?: Prisma.ChatMessageListRelationFilter
   attachments?: Prisma.ChatAttachmentListRelationFilter
 }
 
@@ -211,8 +237,13 @@ export type ChatMessageOrderByWithRelationInput = {
   usage?: Prisma.SortOrderInput | Prisma.SortOrder
   errorCode?: Prisma.SortOrderInput | Prisma.SortOrder
   notice?: Prisma.SortOrderInput | Prisma.SortOrder
+  replyToId?: Prisma.SortOrderInput | Prisma.SortOrder
+  replyToRole?: Prisma.SortOrderInput | Prisma.SortOrder
+  replyToExcerpt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   conversation?: Prisma.ChatConversationOrderByWithRelationInput
+  replyTo?: Prisma.ChatMessageOrderByWithRelationInput
+  replies?: Prisma.ChatMessageOrderByRelationAggregateInput
   attachments?: Prisma.ChatAttachmentOrderByRelationAggregateInput
 }
 
@@ -227,8 +258,13 @@ export type ChatMessageWhereUniqueInput = Prisma.AtLeast<{
   usage?: Prisma.JsonNullableFilter<"ChatMessage">
   errorCode?: Prisma.StringNullableFilter<"ChatMessage"> | string | null
   notice?: Prisma.JsonNullableFilter<"ChatMessage">
+  replyToId?: Prisma.StringNullableFilter<"ChatMessage"> | string | null
+  replyToRole?: Prisma.StringNullableFilter<"ChatMessage"> | string | null
+  replyToExcerpt?: Prisma.StringNullableFilter<"ChatMessage"> | string | null
   createdAt?: Prisma.DateTimeFilter<"ChatMessage"> | Date | string
   conversation?: Prisma.XOR<Prisma.ChatConversationScalarRelationFilter, Prisma.ChatConversationWhereInput>
+  replyTo?: Prisma.XOR<Prisma.ChatMessageNullableScalarRelationFilter, Prisma.ChatMessageWhereInput> | null
+  replies?: Prisma.ChatMessageListRelationFilter
   attachments?: Prisma.ChatAttachmentListRelationFilter
 }, "id">
 
@@ -240,6 +276,9 @@ export type ChatMessageOrderByWithAggregationInput = {
   usage?: Prisma.SortOrderInput | Prisma.SortOrder
   errorCode?: Prisma.SortOrderInput | Prisma.SortOrder
   notice?: Prisma.SortOrderInput | Prisma.SortOrder
+  replyToId?: Prisma.SortOrderInput | Prisma.SortOrder
+  replyToRole?: Prisma.SortOrderInput | Prisma.SortOrder
+  replyToExcerpt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.ChatMessageCountOrderByAggregateInput
   _max?: Prisma.ChatMessageMaxOrderByAggregateInput
@@ -257,6 +296,9 @@ export type ChatMessageScalarWhereWithAggregatesInput = {
   usage?: Prisma.JsonNullableWithAggregatesFilter<"ChatMessage">
   errorCode?: Prisma.StringNullableWithAggregatesFilter<"ChatMessage"> | string | null
   notice?: Prisma.JsonNullableWithAggregatesFilter<"ChatMessage">
+  replyToId?: Prisma.StringNullableWithAggregatesFilter<"ChatMessage"> | string | null
+  replyToRole?: Prisma.StringNullableWithAggregatesFilter<"ChatMessage"> | string | null
+  replyToExcerpt?: Prisma.StringNullableWithAggregatesFilter<"ChatMessage"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"ChatMessage"> | Date | string
 }
 
@@ -267,8 +309,12 @@ export type ChatMessageCreateInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToRole?: string | null
+  replyToExcerpt?: string | null
   createdAt?: Date | string
   conversation: Prisma.ChatConversationCreateNestedOneWithoutMessagesInput
+  replyTo?: Prisma.ChatMessageCreateNestedOneWithoutRepliesInput
+  replies?: Prisma.ChatMessageCreateNestedManyWithoutReplyToInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutMessageInput
 }
 
@@ -280,7 +326,11 @@ export type ChatMessageUncheckedCreateInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToId?: string | null
+  replyToRole?: string | null
+  replyToExcerpt?: string | null
   createdAt?: Date | string
+  replies?: Prisma.ChatMessageUncheckedCreateNestedManyWithoutReplyToInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutMessageInput
 }
 
@@ -291,8 +341,12 @@ export type ChatMessageUpdateInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToRole?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToExcerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   conversation?: Prisma.ChatConversationUpdateOneRequiredWithoutMessagesNestedInput
+  replyTo?: Prisma.ChatMessageUpdateOneWithoutRepliesNestedInput
+  replies?: Prisma.ChatMessageUpdateManyWithoutReplyToNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutMessageNestedInput
 }
 
@@ -304,7 +358,11 @@ export type ChatMessageUncheckedUpdateInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToRole?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToExcerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  replies?: Prisma.ChatMessageUncheckedUpdateManyWithoutReplyToNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutMessageNestedInput
 }
 
@@ -316,6 +374,9 @@ export type ChatMessageCreateManyInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToId?: string | null
+  replyToRole?: string | null
+  replyToExcerpt?: string | null
   createdAt?: Date | string
 }
 
@@ -326,6 +387,8 @@ export type ChatMessageUpdateManyMutationInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToRole?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToExcerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -337,6 +400,9 @@ export type ChatMessageUncheckedUpdateManyInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToRole?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToExcerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -350,6 +416,11 @@ export type ChatMessageOrderByRelationAggregateInput = {
   _count?: Prisma.SortOrder
 }
 
+export type ChatMessageNullableScalarRelationFilter = {
+  is?: Prisma.ChatMessageWhereInput | null
+  isNot?: Prisma.ChatMessageWhereInput | null
+}
+
 export type ChatMessageCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   conversationId?: Prisma.SortOrder
@@ -358,6 +429,9 @@ export type ChatMessageCountOrderByAggregateInput = {
   usage?: Prisma.SortOrder
   errorCode?: Prisma.SortOrder
   notice?: Prisma.SortOrder
+  replyToId?: Prisma.SortOrder
+  replyToRole?: Prisma.SortOrder
+  replyToExcerpt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -367,6 +441,9 @@ export type ChatMessageMaxOrderByAggregateInput = {
   role?: Prisma.SortOrder
   text?: Prisma.SortOrder
   errorCode?: Prisma.SortOrder
+  replyToId?: Prisma.SortOrder
+  replyToRole?: Prisma.SortOrder
+  replyToExcerpt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -376,12 +453,10 @@ export type ChatMessageMinOrderByAggregateInput = {
   role?: Prisma.SortOrder
   text?: Prisma.SortOrder
   errorCode?: Prisma.SortOrder
+  replyToId?: Prisma.SortOrder
+  replyToRole?: Prisma.SortOrder
+  replyToExcerpt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
-}
-
-export type ChatMessageNullableScalarRelationFilter = {
-  is?: Prisma.ChatMessageWhereInput | null
-  isNot?: Prisma.ChatMessageWhereInput | null
 }
 
 export type ChatMessageCreateNestedManyWithoutConversationInput = {
@@ -426,6 +501,64 @@ export type ChatMessageUncheckedUpdateManyWithoutConversationNestedInput = {
   deleteMany?: Prisma.ChatMessageScalarWhereInput | Prisma.ChatMessageScalarWhereInput[]
 }
 
+export type ChatMessageCreateNestedOneWithoutRepliesInput = {
+  create?: Prisma.XOR<Prisma.ChatMessageCreateWithoutRepliesInput, Prisma.ChatMessageUncheckedCreateWithoutRepliesInput>
+  connectOrCreate?: Prisma.ChatMessageCreateOrConnectWithoutRepliesInput
+  connect?: Prisma.ChatMessageWhereUniqueInput
+}
+
+export type ChatMessageCreateNestedManyWithoutReplyToInput = {
+  create?: Prisma.XOR<Prisma.ChatMessageCreateWithoutReplyToInput, Prisma.ChatMessageUncheckedCreateWithoutReplyToInput> | Prisma.ChatMessageCreateWithoutReplyToInput[] | Prisma.ChatMessageUncheckedCreateWithoutReplyToInput[]
+  connectOrCreate?: Prisma.ChatMessageCreateOrConnectWithoutReplyToInput | Prisma.ChatMessageCreateOrConnectWithoutReplyToInput[]
+  createMany?: Prisma.ChatMessageCreateManyReplyToInputEnvelope
+  connect?: Prisma.ChatMessageWhereUniqueInput | Prisma.ChatMessageWhereUniqueInput[]
+}
+
+export type ChatMessageUncheckedCreateNestedManyWithoutReplyToInput = {
+  create?: Prisma.XOR<Prisma.ChatMessageCreateWithoutReplyToInput, Prisma.ChatMessageUncheckedCreateWithoutReplyToInput> | Prisma.ChatMessageCreateWithoutReplyToInput[] | Prisma.ChatMessageUncheckedCreateWithoutReplyToInput[]
+  connectOrCreate?: Prisma.ChatMessageCreateOrConnectWithoutReplyToInput | Prisma.ChatMessageCreateOrConnectWithoutReplyToInput[]
+  createMany?: Prisma.ChatMessageCreateManyReplyToInputEnvelope
+  connect?: Prisma.ChatMessageWhereUniqueInput | Prisma.ChatMessageWhereUniqueInput[]
+}
+
+export type ChatMessageUpdateOneWithoutRepliesNestedInput = {
+  create?: Prisma.XOR<Prisma.ChatMessageCreateWithoutRepliesInput, Prisma.ChatMessageUncheckedCreateWithoutRepliesInput>
+  connectOrCreate?: Prisma.ChatMessageCreateOrConnectWithoutRepliesInput
+  upsert?: Prisma.ChatMessageUpsertWithoutRepliesInput
+  disconnect?: Prisma.ChatMessageWhereInput | boolean
+  delete?: Prisma.ChatMessageWhereInput | boolean
+  connect?: Prisma.ChatMessageWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ChatMessageUpdateToOneWithWhereWithoutRepliesInput, Prisma.ChatMessageUpdateWithoutRepliesInput>, Prisma.ChatMessageUncheckedUpdateWithoutRepliesInput>
+}
+
+export type ChatMessageUpdateManyWithoutReplyToNestedInput = {
+  create?: Prisma.XOR<Prisma.ChatMessageCreateWithoutReplyToInput, Prisma.ChatMessageUncheckedCreateWithoutReplyToInput> | Prisma.ChatMessageCreateWithoutReplyToInput[] | Prisma.ChatMessageUncheckedCreateWithoutReplyToInput[]
+  connectOrCreate?: Prisma.ChatMessageCreateOrConnectWithoutReplyToInput | Prisma.ChatMessageCreateOrConnectWithoutReplyToInput[]
+  upsert?: Prisma.ChatMessageUpsertWithWhereUniqueWithoutReplyToInput | Prisma.ChatMessageUpsertWithWhereUniqueWithoutReplyToInput[]
+  createMany?: Prisma.ChatMessageCreateManyReplyToInputEnvelope
+  set?: Prisma.ChatMessageWhereUniqueInput | Prisma.ChatMessageWhereUniqueInput[]
+  disconnect?: Prisma.ChatMessageWhereUniqueInput | Prisma.ChatMessageWhereUniqueInput[]
+  delete?: Prisma.ChatMessageWhereUniqueInput | Prisma.ChatMessageWhereUniqueInput[]
+  connect?: Prisma.ChatMessageWhereUniqueInput | Prisma.ChatMessageWhereUniqueInput[]
+  update?: Prisma.ChatMessageUpdateWithWhereUniqueWithoutReplyToInput | Prisma.ChatMessageUpdateWithWhereUniqueWithoutReplyToInput[]
+  updateMany?: Prisma.ChatMessageUpdateManyWithWhereWithoutReplyToInput | Prisma.ChatMessageUpdateManyWithWhereWithoutReplyToInput[]
+  deleteMany?: Prisma.ChatMessageScalarWhereInput | Prisma.ChatMessageScalarWhereInput[]
+}
+
+export type ChatMessageUncheckedUpdateManyWithoutReplyToNestedInput = {
+  create?: Prisma.XOR<Prisma.ChatMessageCreateWithoutReplyToInput, Prisma.ChatMessageUncheckedCreateWithoutReplyToInput> | Prisma.ChatMessageCreateWithoutReplyToInput[] | Prisma.ChatMessageUncheckedCreateWithoutReplyToInput[]
+  connectOrCreate?: Prisma.ChatMessageCreateOrConnectWithoutReplyToInput | Prisma.ChatMessageCreateOrConnectWithoutReplyToInput[]
+  upsert?: Prisma.ChatMessageUpsertWithWhereUniqueWithoutReplyToInput | Prisma.ChatMessageUpsertWithWhereUniqueWithoutReplyToInput[]
+  createMany?: Prisma.ChatMessageCreateManyReplyToInputEnvelope
+  set?: Prisma.ChatMessageWhereUniqueInput | Prisma.ChatMessageWhereUniqueInput[]
+  disconnect?: Prisma.ChatMessageWhereUniqueInput | Prisma.ChatMessageWhereUniqueInput[]
+  delete?: Prisma.ChatMessageWhereUniqueInput | Prisma.ChatMessageWhereUniqueInput[]
+  connect?: Prisma.ChatMessageWhereUniqueInput | Prisma.ChatMessageWhereUniqueInput[]
+  update?: Prisma.ChatMessageUpdateWithWhereUniqueWithoutReplyToInput | Prisma.ChatMessageUpdateWithWhereUniqueWithoutReplyToInput[]
+  updateMany?: Prisma.ChatMessageUpdateManyWithWhereWithoutReplyToInput | Prisma.ChatMessageUpdateManyWithWhereWithoutReplyToInput[]
+  deleteMany?: Prisma.ChatMessageScalarWhereInput | Prisma.ChatMessageScalarWhereInput[]
+}
+
 export type ChatMessageCreateNestedOneWithoutAttachmentsInput = {
   create?: Prisma.XOR<Prisma.ChatMessageCreateWithoutAttachmentsInput, Prisma.ChatMessageUncheckedCreateWithoutAttachmentsInput>
   connectOrCreate?: Prisma.ChatMessageCreateOrConnectWithoutAttachmentsInput
@@ -449,7 +582,11 @@ export type ChatMessageCreateWithoutConversationInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToRole?: string | null
+  replyToExcerpt?: string | null
   createdAt?: Date | string
+  replyTo?: Prisma.ChatMessageCreateNestedOneWithoutRepliesInput
+  replies?: Prisma.ChatMessageCreateNestedManyWithoutReplyToInput
   attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutMessageInput
 }
 
@@ -460,7 +597,11 @@ export type ChatMessageUncheckedCreateWithoutConversationInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToId?: string | null
+  replyToRole?: string | null
+  replyToExcerpt?: string | null
   createdAt?: Date | string
+  replies?: Prisma.ChatMessageUncheckedCreateNestedManyWithoutReplyToInput
   attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutMessageInput
 }
 
@@ -501,7 +642,142 @@ export type ChatMessageScalarWhereInput = {
   usage?: Prisma.JsonNullableFilter<"ChatMessage">
   errorCode?: Prisma.StringNullableFilter<"ChatMessage"> | string | null
   notice?: Prisma.JsonNullableFilter<"ChatMessage">
+  replyToId?: Prisma.StringNullableFilter<"ChatMessage"> | string | null
+  replyToRole?: Prisma.StringNullableFilter<"ChatMessage"> | string | null
+  replyToExcerpt?: Prisma.StringNullableFilter<"ChatMessage"> | string | null
   createdAt?: Prisma.DateTimeFilter<"ChatMessage"> | Date | string
+}
+
+export type ChatMessageCreateWithoutRepliesInput = {
+  id: string
+  role: string
+  text: string
+  usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  errorCode?: string | null
+  notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToRole?: string | null
+  replyToExcerpt?: string | null
+  createdAt?: Date | string
+  conversation: Prisma.ChatConversationCreateNestedOneWithoutMessagesInput
+  replyTo?: Prisma.ChatMessageCreateNestedOneWithoutRepliesInput
+  attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutMessageInput
+}
+
+export type ChatMessageUncheckedCreateWithoutRepliesInput = {
+  id: string
+  conversationId: string
+  role: string
+  text: string
+  usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  errorCode?: string | null
+  notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToId?: string | null
+  replyToRole?: string | null
+  replyToExcerpt?: string | null
+  createdAt?: Date | string
+  attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutMessageInput
+}
+
+export type ChatMessageCreateOrConnectWithoutRepliesInput = {
+  where: Prisma.ChatMessageWhereUniqueInput
+  create: Prisma.XOR<Prisma.ChatMessageCreateWithoutRepliesInput, Prisma.ChatMessageUncheckedCreateWithoutRepliesInput>
+}
+
+export type ChatMessageCreateWithoutReplyToInput = {
+  id: string
+  role: string
+  text: string
+  usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  errorCode?: string | null
+  notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToRole?: string | null
+  replyToExcerpt?: string | null
+  createdAt?: Date | string
+  conversation: Prisma.ChatConversationCreateNestedOneWithoutMessagesInput
+  replies?: Prisma.ChatMessageCreateNestedManyWithoutReplyToInput
+  attachments?: Prisma.ChatAttachmentCreateNestedManyWithoutMessageInput
+}
+
+export type ChatMessageUncheckedCreateWithoutReplyToInput = {
+  id: string
+  conversationId: string
+  role: string
+  text: string
+  usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  errorCode?: string | null
+  notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToRole?: string | null
+  replyToExcerpt?: string | null
+  createdAt?: Date | string
+  replies?: Prisma.ChatMessageUncheckedCreateNestedManyWithoutReplyToInput
+  attachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutMessageInput
+}
+
+export type ChatMessageCreateOrConnectWithoutReplyToInput = {
+  where: Prisma.ChatMessageWhereUniqueInput
+  create: Prisma.XOR<Prisma.ChatMessageCreateWithoutReplyToInput, Prisma.ChatMessageUncheckedCreateWithoutReplyToInput>
+}
+
+export type ChatMessageCreateManyReplyToInputEnvelope = {
+  data: Prisma.ChatMessageCreateManyReplyToInput | Prisma.ChatMessageCreateManyReplyToInput[]
+  skipDuplicates?: boolean
+}
+
+export type ChatMessageUpsertWithoutRepliesInput = {
+  update: Prisma.XOR<Prisma.ChatMessageUpdateWithoutRepliesInput, Prisma.ChatMessageUncheckedUpdateWithoutRepliesInput>
+  create: Prisma.XOR<Prisma.ChatMessageCreateWithoutRepliesInput, Prisma.ChatMessageUncheckedCreateWithoutRepliesInput>
+  where?: Prisma.ChatMessageWhereInput
+}
+
+export type ChatMessageUpdateToOneWithWhereWithoutRepliesInput = {
+  where?: Prisma.ChatMessageWhereInput
+  data: Prisma.XOR<Prisma.ChatMessageUpdateWithoutRepliesInput, Prisma.ChatMessageUncheckedUpdateWithoutRepliesInput>
+}
+
+export type ChatMessageUpdateWithoutRepliesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  role?: Prisma.StringFieldUpdateOperationsInput | string
+  text?: Prisma.StringFieldUpdateOperationsInput | string
+  usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToRole?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToExcerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  conversation?: Prisma.ChatConversationUpdateOneRequiredWithoutMessagesNestedInput
+  replyTo?: Prisma.ChatMessageUpdateOneWithoutRepliesNestedInput
+  attachments?: Prisma.ChatAttachmentUpdateManyWithoutMessageNestedInput
+}
+
+export type ChatMessageUncheckedUpdateWithoutRepliesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  conversationId?: Prisma.StringFieldUpdateOperationsInput | string
+  role?: Prisma.StringFieldUpdateOperationsInput | string
+  text?: Prisma.StringFieldUpdateOperationsInput | string
+  usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToRole?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToExcerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutMessageNestedInput
+}
+
+export type ChatMessageUpsertWithWhereUniqueWithoutReplyToInput = {
+  where: Prisma.ChatMessageWhereUniqueInput
+  update: Prisma.XOR<Prisma.ChatMessageUpdateWithoutReplyToInput, Prisma.ChatMessageUncheckedUpdateWithoutReplyToInput>
+  create: Prisma.XOR<Prisma.ChatMessageCreateWithoutReplyToInput, Prisma.ChatMessageUncheckedCreateWithoutReplyToInput>
+}
+
+export type ChatMessageUpdateWithWhereUniqueWithoutReplyToInput = {
+  where: Prisma.ChatMessageWhereUniqueInput
+  data: Prisma.XOR<Prisma.ChatMessageUpdateWithoutReplyToInput, Prisma.ChatMessageUncheckedUpdateWithoutReplyToInput>
+}
+
+export type ChatMessageUpdateManyWithWhereWithoutReplyToInput = {
+  where: Prisma.ChatMessageScalarWhereInput
+  data: Prisma.XOR<Prisma.ChatMessageUpdateManyMutationInput, Prisma.ChatMessageUncheckedUpdateManyWithoutReplyToInput>
 }
 
 export type ChatMessageCreateWithoutAttachmentsInput = {
@@ -511,8 +787,12 @@ export type ChatMessageCreateWithoutAttachmentsInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToRole?: string | null
+  replyToExcerpt?: string | null
   createdAt?: Date | string
   conversation: Prisma.ChatConversationCreateNestedOneWithoutMessagesInput
+  replyTo?: Prisma.ChatMessageCreateNestedOneWithoutRepliesInput
+  replies?: Prisma.ChatMessageCreateNestedManyWithoutReplyToInput
 }
 
 export type ChatMessageUncheckedCreateWithoutAttachmentsInput = {
@@ -523,7 +803,11 @@ export type ChatMessageUncheckedCreateWithoutAttachmentsInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToId?: string | null
+  replyToRole?: string | null
+  replyToExcerpt?: string | null
   createdAt?: Date | string
+  replies?: Prisma.ChatMessageUncheckedCreateNestedManyWithoutReplyToInput
 }
 
 export type ChatMessageCreateOrConnectWithoutAttachmentsInput = {
@@ -549,8 +833,12 @@ export type ChatMessageUpdateWithoutAttachmentsInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToRole?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToExcerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   conversation?: Prisma.ChatConversationUpdateOneRequiredWithoutMessagesNestedInput
+  replyTo?: Prisma.ChatMessageUpdateOneWithoutRepliesNestedInput
+  replies?: Prisma.ChatMessageUpdateManyWithoutReplyToNestedInput
 }
 
 export type ChatMessageUncheckedUpdateWithoutAttachmentsInput = {
@@ -561,7 +849,11 @@ export type ChatMessageUncheckedUpdateWithoutAttachmentsInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToRole?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToExcerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  replies?: Prisma.ChatMessageUncheckedUpdateManyWithoutReplyToNestedInput
 }
 
 export type ChatMessageCreateManyConversationInput = {
@@ -571,6 +863,9 @@ export type ChatMessageCreateManyConversationInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToId?: string | null
+  replyToRole?: string | null
+  replyToExcerpt?: string | null
   createdAt?: Date | string
 }
 
@@ -581,7 +876,11 @@ export type ChatMessageUpdateWithoutConversationInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToRole?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToExcerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  replyTo?: Prisma.ChatMessageUpdateOneWithoutRepliesNestedInput
+  replies?: Prisma.ChatMessageUpdateManyWithoutReplyToNestedInput
   attachments?: Prisma.ChatAttachmentUpdateManyWithoutMessageNestedInput
 }
 
@@ -592,7 +891,11 @@ export type ChatMessageUncheckedUpdateWithoutConversationInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToRole?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToExcerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  replies?: Prisma.ChatMessageUncheckedUpdateManyWithoutReplyToNestedInput
   attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutMessageNestedInput
 }
 
@@ -603,6 +906,65 @@ export type ChatMessageUncheckedUpdateManyWithoutConversationInput = {
   usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToRole?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToExcerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type ChatMessageCreateManyReplyToInput = {
+  id: string
+  conversationId: string
+  role: string
+  text: string
+  usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  errorCode?: string | null
+  notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToRole?: string | null
+  replyToExcerpt?: string | null
+  createdAt?: Date | string
+}
+
+export type ChatMessageUpdateWithoutReplyToInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  role?: Prisma.StringFieldUpdateOperationsInput | string
+  text?: Prisma.StringFieldUpdateOperationsInput | string
+  usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToRole?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToExcerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  conversation?: Prisma.ChatConversationUpdateOneRequiredWithoutMessagesNestedInput
+  replies?: Prisma.ChatMessageUpdateManyWithoutReplyToNestedInput
+  attachments?: Prisma.ChatAttachmentUpdateManyWithoutMessageNestedInput
+}
+
+export type ChatMessageUncheckedUpdateWithoutReplyToInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  conversationId?: Prisma.StringFieldUpdateOperationsInput | string
+  role?: Prisma.StringFieldUpdateOperationsInput | string
+  text?: Prisma.StringFieldUpdateOperationsInput | string
+  usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToRole?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToExcerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  replies?: Prisma.ChatMessageUncheckedUpdateManyWithoutReplyToNestedInput
+  attachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutMessageNestedInput
+}
+
+export type ChatMessageUncheckedUpdateManyWithoutReplyToInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  conversationId?: Prisma.StringFieldUpdateOperationsInput | string
+  role?: Prisma.StringFieldUpdateOperationsInput | string
+  text?: Prisma.StringFieldUpdateOperationsInput | string
+  usage?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  notice?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  replyToRole?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  replyToExcerpt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -612,10 +974,12 @@ export type ChatMessageUncheckedUpdateManyWithoutConversationInput = {
  */
 
 export type ChatMessageCountOutputType = {
+  replies: number
   attachments: number
 }
 
 export type ChatMessageCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  replies?: boolean | ChatMessageCountOutputTypeCountRepliesArgs
   attachments?: boolean | ChatMessageCountOutputTypeCountAttachmentsArgs
 }
 
@@ -627,6 +991,13 @@ export type ChatMessageCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.
    * Select specific fields to fetch from the ChatMessageCountOutputType
    */
   select?: Prisma.ChatMessageCountOutputTypeSelect<ExtArgs> | null
+}
+
+/**
+ * ChatMessageCountOutputType without action
+ */
+export type ChatMessageCountOutputTypeCountRepliesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ChatMessageWhereInput
 }
 
 /**
@@ -645,8 +1016,13 @@ export type ChatMessageSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   usage?: boolean
   errorCode?: boolean
   notice?: boolean
+  replyToId?: boolean
+  replyToRole?: boolean
+  replyToExcerpt?: boolean
   createdAt?: boolean
   conversation?: boolean | Prisma.ChatConversationDefaultArgs<ExtArgs>
+  replyTo?: boolean | Prisma.ChatMessage$replyToArgs<ExtArgs>
+  replies?: boolean | Prisma.ChatMessage$repliesArgs<ExtArgs>
   attachments?: boolean | Prisma.ChatMessage$attachmentsArgs<ExtArgs>
   _count?: boolean | Prisma.ChatMessageCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["chatMessage"]>
@@ -659,8 +1035,12 @@ export type ChatMessageSelectCreateManyAndReturn<ExtArgs extends runtime.Types.E
   usage?: boolean
   errorCode?: boolean
   notice?: boolean
+  replyToId?: boolean
+  replyToRole?: boolean
+  replyToExcerpt?: boolean
   createdAt?: boolean
   conversation?: boolean | Prisma.ChatConversationDefaultArgs<ExtArgs>
+  replyTo?: boolean | Prisma.ChatMessage$replyToArgs<ExtArgs>
 }, ExtArgs["result"]["chatMessage"]>
 
 export type ChatMessageSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -671,8 +1051,12 @@ export type ChatMessageSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.E
   usage?: boolean
   errorCode?: boolean
   notice?: boolean
+  replyToId?: boolean
+  replyToRole?: boolean
+  replyToExcerpt?: boolean
   createdAt?: boolean
   conversation?: boolean | Prisma.ChatConversationDefaultArgs<ExtArgs>
+  replyTo?: boolean | Prisma.ChatMessage$replyToArgs<ExtArgs>
 }, ExtArgs["result"]["chatMessage"]>
 
 export type ChatMessageSelectScalar = {
@@ -683,26 +1067,35 @@ export type ChatMessageSelectScalar = {
   usage?: boolean
   errorCode?: boolean
   notice?: boolean
+  replyToId?: boolean
+  replyToRole?: boolean
+  replyToExcerpt?: boolean
   createdAt?: boolean
 }
 
-export type ChatMessageOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "conversationId" | "role" | "text" | "usage" | "errorCode" | "notice" | "createdAt", ExtArgs["result"]["chatMessage"]>
+export type ChatMessageOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "conversationId" | "role" | "text" | "usage" | "errorCode" | "notice" | "replyToId" | "replyToRole" | "replyToExcerpt" | "createdAt", ExtArgs["result"]["chatMessage"]>
 export type ChatMessageInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   conversation?: boolean | Prisma.ChatConversationDefaultArgs<ExtArgs>
+  replyTo?: boolean | Prisma.ChatMessage$replyToArgs<ExtArgs>
+  replies?: boolean | Prisma.ChatMessage$repliesArgs<ExtArgs>
   attachments?: boolean | Prisma.ChatMessage$attachmentsArgs<ExtArgs>
   _count?: boolean | Prisma.ChatMessageCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type ChatMessageIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   conversation?: boolean | Prisma.ChatConversationDefaultArgs<ExtArgs>
+  replyTo?: boolean | Prisma.ChatMessage$replyToArgs<ExtArgs>
 }
 export type ChatMessageIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   conversation?: boolean | Prisma.ChatConversationDefaultArgs<ExtArgs>
+  replyTo?: boolean | Prisma.ChatMessage$replyToArgs<ExtArgs>
 }
 
 export type $ChatMessagePayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "ChatMessage"
   objects: {
     conversation: Prisma.$ChatConversationPayload<ExtArgs>
+    replyTo: Prisma.$ChatMessagePayload<ExtArgs> | null
+    replies: Prisma.$ChatMessagePayload<ExtArgs>[]
     attachments: Prisma.$ChatAttachmentPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
@@ -719,6 +1112,16 @@ export type $ChatMessagePayload<ExtArgs extends runtime.Types.Extensions.Interna
      * TER-588: the usage limit the answer hit, or the account that answered instead (ChatNotice).
      */
     notice: runtime.JsonValue | null
+    /**
+     * The message this one answers (TER-447). The database nulls it when that row is deleted; the two
+     * fields below keep what was quoted, and `replyToRole` being set is what says this is a reply.
+     */
+    replyToId: string | null
+    /**
+     * user | assistant
+     */
+    replyToRole: string | null
+    replyToExcerpt: string | null
     createdAt: Date
   }, ExtArgs["result"]["chatMessage"]>
   composites: {}
@@ -1115,6 +1518,8 @@ readonly fields: ChatMessageFieldRefs;
 export interface Prisma__ChatMessageClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   conversation<T extends Prisma.ChatConversationDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatConversationDefaultArgs<ExtArgs>>): Prisma.Prisma__ChatConversationClient<runtime.Types.Result.GetResult<Prisma.$ChatConversationPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+  replyTo<T extends Prisma.ChatMessage$replyToArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatMessage$replyToArgs<ExtArgs>>): Prisma.Prisma__ChatMessageClient<runtime.Types.Result.GetResult<Prisma.$ChatMessagePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  replies<T extends Prisma.ChatMessage$repliesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatMessage$repliesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatMessagePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   attachments<T extends Prisma.ChatMessage$attachmentsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ChatMessage$attachmentsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatAttachmentPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
@@ -1152,6 +1557,9 @@ export interface ChatMessageFieldRefs {
   readonly usage: Prisma.FieldRef<"ChatMessage", 'Json'>
   readonly errorCode: Prisma.FieldRef<"ChatMessage", 'String'>
   readonly notice: Prisma.FieldRef<"ChatMessage", 'Json'>
+  readonly replyToId: Prisma.FieldRef<"ChatMessage", 'String'>
+  readonly replyToRole: Prisma.FieldRef<"ChatMessage", 'String'>
+  readonly replyToExcerpt: Prisma.FieldRef<"ChatMessage", 'String'>
   readonly createdAt: Prisma.FieldRef<"ChatMessage", 'DateTime'>
 }
     
@@ -1551,6 +1959,49 @@ export type ChatMessageDeleteManyArgs<ExtArgs extends runtime.Types.Extensions.I
    * Limit how many ChatMessages to delete.
    */
   limit?: number
+}
+
+/**
+ * ChatMessage.replyTo
+ */
+export type ChatMessage$replyToArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ChatMessage
+   */
+  select?: Prisma.ChatMessageSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ChatMessage
+   */
+  omit?: Prisma.ChatMessageOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ChatMessageInclude<ExtArgs> | null
+  where?: Prisma.ChatMessageWhereInput
+}
+
+/**
+ * ChatMessage.replies
+ */
+export type ChatMessage$repliesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ChatMessage
+   */
+  select?: Prisma.ChatMessageSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ChatMessage
+   */
+  omit?: Prisma.ChatMessageOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ChatMessageInclude<ExtArgs> | null
+  where?: Prisma.ChatMessageWhereInput
+  orderBy?: Prisma.ChatMessageOrderByWithRelationInput | Prisma.ChatMessageOrderByWithRelationInput[]
+  cursor?: Prisma.ChatMessageWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ChatMessageScalarFieldEnum | Prisma.ChatMessageScalarFieldEnum[]
 }
 
 /**

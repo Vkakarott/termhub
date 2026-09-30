@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // Static marketing site served at termhub.dev (see landing/Dockerfile).
-// Multi-page: every adjacent page (/brand/, later terms and privacy) is its own
+// Multi-page: every adjacent page (/brand/, /security/, later terms and privacy) is its own
 // `<dir>/index.html` entry, so nginx serves it as a plain directory index.
 export default defineConfig({
   plugins: [react()],
@@ -13,6 +13,7 @@ export default defineConfig({
       input: {
         main: 'index.html',
         brand: 'brand/index.html',
+        security: 'security/index.html',
       },
     },
   },

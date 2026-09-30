@@ -69,6 +69,84 @@ it('loadProjects fills the three projects', async () => {
   expect(loadingProjects).toBe(false);
 });
 
+describe('setFavorite (TER-541)', () => {
+  const place = (chat: ChatStore, id: string) => chat.getState().projects.find((p) => p.id === id)!.favorite_position;
+
+  it('pins at once, before the server answers, and the server keeps it', async () => {
+    const { chat, api, store } = await setup();
+    await chat.getState().loadProjects();
+    const pending = chat.getState().setFavorite('p-termhub', true);
+    expect(place(chat, 'p-termhub')).toBe(0);
+    await pending;
+    const { projects } = await api.chatProjects(store.getState().auth());
+    expect(projects.find((p) => p.id === 'p-termhub')!.favorite_position).toBe(0);
+  });
+
+  it('puts a second pin after the first, and unpinning clears the place', async () => {
+    const { chat } = await setup();
+    await chat.getState().loadProjects();
+    await chat.getState().setFavorite('p-termhub', true);
+    await chat.getState().setFavorite('p-opapingou', true);
+    expect(place(chat, 'p-opapingou')).toBe(1);
+    await chat.getState().setFavorite('p-termhub', false);
+    expect(place(chat, 'p-termhub')).toBeNull();
+  });
+
+  it('puts the row back and says why when the server refuses', async () => {
+    const { chat, api } = await setup();
+    await chat.getState().loadProjects();
+    jest.spyOn(api, 'setProjectFavorite').mockRejectedValueOnce(new ApiError(404, 'NOT_FOUND', 'Projeto não encontrado'));
+    await chat.getState().setFavorite('p-termhub', true);
+    expect(place(chat, 'p-termhub')).toBeNull();
+    expect(chat.getState().error).toBe('Projeto não encontrado');
+  });
+
+  it('a list read that started before the tap does not undo the pin', async () => {
+    const { chat, api } = await setup();
+    await chat.getState().loadProjects();
+    const before = chat.getState().projects;
+    let answer!: (v: { projects: typeof before }) => void;
+    jest.spyOn(api, 'chatProjects').mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    const load = chat.getState().loadProjects({ quiet: true });
+    await chat.getState().setFavorite('p-termhub', true);
+    answer({ projects: before }); // read before the pin landed
+    await load;
+    expect(place(chat, 'p-termhub')).toBe(0);
+  });
+
+  it('pin, unpin, pin: an early failure does not undo the last tap, and the server ends pinned', async () => {
+    const { chat, api, store } = await setup();
+    await chat.getState().loadProjects();
+    const real = api.setProjectFavorite.bind(api);
+    let first = true;
+    jest.spyOn(api, 'setProjectFavorite').mockImplementation(async (...args) => {
+      if (first) {
+        first = false;
+        throw new ApiError(503, 'UNAVAILABLE', 'Fora do ar');
+      }
+      return real(...args);
+    });
+    await Promise.all([chat.getState().setFavorite('p-termhub', true), chat.getState().setFavorite('p-termhub', false), chat.getState().setFavorite('p-termhub', true)]);
+    expect(place(chat, 'p-termhub')).not.toBeNull();
+    const { projects } = await api.chatProjects(store.getState().auth());
+    expect(projects.find((p) => p.id === 'p-termhub')!.favorite_position).not.toBeNull();
+  });
+
+  it('a pin that fails after a later unpin does not undo the unpin', async () => {
+    const { chat, api } = await setup();
+    await chat.getState().loadProjects();
+    let failPin!: (e: unknown) => void;
+    jest.spyOn(api, 'setProjectFavorite').mockImplementationOnce(() => new Promise<void>((_, reject) => (failPin = reject)));
+    const pin = chat.getState().setFavorite('p-termhub', true);
+    // Writes go one at a time per project: the unpin waits behind the pin that is about to fail.
+    const unpin = chat.getState().setFavorite('p-termhub', false);
+    await Promise.resolve(); // the chained write starts on the next microtask
+    failPin(new ApiError(503, 'UNAVAILABLE', 'Fora do ar'));
+    await Promise.all([pin, unpin]);
+    expect(place(chat, 'p-termhub')).toBeNull();
+  });
+});
+
 it('loadProjects({ quiet }) refreshes the list in the background: no spinner, and the banner is left alone (spec 2026-09-28 iPad §2.3)', async () => {
   const { chat, api } = await setup();
   const spun: boolean[] = [];
@@ -948,7 +1026,7 @@ it('refresh(projectId) re-reads that slot without switching activeProject, touch
   expect(slot(chat, null).host).toMatchObject({ kind: 'ready', machine: { name: 'jarvis' } });
 });
 
-it('answerTabQuestion answers over the mock and the card turns answered; a second answer reads "A pergunta mudou na aba"', async () => {
+it('answerTabQuestion answers over the mock and the card turns answered; a second answer says nothing was sent', async () => {
   const { chat } = await setup();
   await openAndConnect(chat, 'p-termhub');
   await chat.getState().send('tem alguma pergunta?');
@@ -964,7 +1042,7 @@ it('answerTabQuestion answers over the mock and the card turns answered; a secon
 
   await chat.getState().answerTabQuestion(q.id, { answers: [{ selected: [0] }] });
   // A stale card says so in the card, not in the screen's banner (spec 2026-09-26 §4.13).
-  expect(chat.getState().questionErrors[q.id]).toBe('A pergunta mudou na aba');
+  expect(chat.getState().questionErrors[q.id]).toBe('A aba já não mostra esta pergunta: nada foi enviado.');
   expect(chat.getState().error).toBeNull();
 });
 
@@ -1066,7 +1144,7 @@ it('a failed answer is that card\'s error, never the banner; trying again clears
   await chat.getState().answerTabQuestion('q1', { allow: true });
   call.mockRejectedValueOnce(new ApiError(502, 'MACHINE_OFFLINE', 'Não foi possível responder na aba'));
   await chat.getState().answerTabQuestion('q2', { allow: true });
-  expect(chat.getState().questionErrors).toEqual({ q1: 'A pergunta mudou na aba', q2: 'Não foi possível responder na aba' });
+  expect(chat.getState().questionErrors).toEqual({ q1: 'A aba já não mostra esta pergunta: nada foi enviado.', q2: 'Não foi possível responder na aba' });
   expect(chat.getState().error).toBeNull();
   call.mockResolvedValueOnce(undefined);
   await chat.getState().answerTabQuestion('q1', { allow: true });

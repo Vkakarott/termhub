@@ -76,6 +76,9 @@ function build(opts: {
   subagentsFor?: ReturnType<typeof vi.fn>;
   cancelSubagent?: ReturnType<typeof vi.fn>;
   openAnswerIds?: ReturnType<typeof vi.fn>;
+  /** The members of the signed-in user's Favoritos, in order; undefined = no Favoritos row yet. */
+  favorites?: string[];
+  setFavorite?: ReturnType<typeof vi.fn>;
 } = {}) {
   const extraProjects = opts.extraProjects ?? [];
   const decide = opts.decide ?? vi.fn(async (_id: string, _userId: string, status: string) => ({ ...pendingAction, status }));
@@ -186,6 +189,13 @@ function build(opts: {
     },
     tasks: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === 'u1' ? (opts.boardTasks ?? []).filter((t) => ids.includes(t.id)) : [])) },
     userNotifications: { countUnread: vi.fn(async () => 3) },
+    projectGroups: {
+      read: vi.fn(async (userId: string) =>
+        userId === 'u1' && opts.favorites ? [{ id: 'fav', name: 'Favoritos', kind: 'favorites', position: 0, project_ids: opts.favorites }, { id: 'g2', name: 'Outro', kind: 'custom', position: 1, project_ids: ['p2'] }] : []
+      ),
+      list: vi.fn(async () => []),
+      setFavorite: opts.setFavorite ?? vi.fn(async () => undefined),
+    },
     roles: { findById: vi.fn(async () => undefined), permissionsOf: vi.fn(async () => []) },
   };
   const app = Fastify();
@@ -284,8 +294,8 @@ describe('GET /chat/projects', () => {
     expect(repos.projects.list).toHaveBeenCalledWith({ owner: 'u1' });
     expect(res.json()).toEqual({
       projects: [
-        { id: 'p1', name: 'reactivando', key: 'REA', busy: true, pending_confirmations: 2, last_message_at: '2026-09-23T10:00:00.000Z' },
-        { id: 'p2', name: 'termhub', key: 'TH', busy: false, pending_confirmations: 0, last_message_at: null },
+        { id: 'p1', name: 'reactivando', key: 'REA', busy: true, pending_confirmations: 2, last_message_at: '2026-09-23T10:00:00.000Z', favorite_position: null },
+        { id: 'p2', name: 'termhub', key: 'TH', busy: false, pending_confirmations: 0, last_message_at: null, favorite_position: null },
       ],
     });
   });
@@ -312,6 +322,68 @@ describe('GET /chat/projects, archived projects', () => {
     // p2 is paused: paused projects stay listed.
     expect(ids).toEqual(['p1', 'p2', 'p4', 'p5']);
     expect(res.json().projects.find((p: { id: string }) => p.id === 'p4')).toMatchObject({ pending_confirmations: 1, busy: false });
+  });
+});
+
+describe('GET /chat/projects, favorites (TER-541)', () => {
+  it("gives each pinned project its place in the user's Favoritos, dense over the projects listed", async () => {
+    const { app, repos } = build({ favorites: ['p2', 'gone', 'p1'] });
+    const res = await app.inject({ method: 'GET', url: '/chat/projects' });
+    expect(res.statusCode).toBe(200);
+    const place = Object.fromEntries(res.json().projects.map((p: { id: string; favorite_position: number | null }) => [p.id, p.favorite_position]));
+    expect(place).toEqual({ p1: 1, p2: 0 });
+    expect(repos.projectGroups.read).toHaveBeenCalledWith('u1');
+    expect(repos.projectGroups.list).not.toHaveBeenCalled();
+  });
+
+  it('reads the signed-in user groups even when viewing as another owner', async () => {
+    const { app, repos } = build({ viewAsOwner: 'u2', favorites: ['p1'] });
+    await app.inject({ method: 'GET', url: '/chat/projects' });
+    expect(repos.projectGroups.read).toHaveBeenCalledWith('u1');
+  });
+});
+
+describe('PUT /chat/projects/:id/favorite (TER-541)', () => {
+  it('pins and unpins a project of the user, answering 204', async () => {
+    const { app, repos } = build({ namedProjects: [{ id: 'p1', name: 'reactivando' }] });
+    const pin = await app.inject({ method: 'PUT', url: '/chat/projects/p1/favorite', payload: { favorite: true } });
+    expect(pin.statusCode).toBe(204);
+    expect(repos.projectGroups.setFavorite).toHaveBeenLastCalledWith('u1', 'p1', true);
+    const unpin = await app.inject({ method: 'PUT', url: '/chat/projects/p1/favorite', payload: { favorite: false } });
+    expect(unpin.statusCode).toBe(204);
+    expect(repos.projectGroups.setFavorite).toHaveBeenLastCalledWith('u1', 'p1', false);
+  });
+
+  it('answers 404 for a project that is not the user own, and writes nothing', async () => {
+    const { app, repos } = build({ namedProjects: [] });
+    const res = await app.inject({ method: 'PUT', url: '/chat/projects/px/favorite', payload: { favorite: true } });
+    expect(res.statusCode).toBe(404);
+    expect(repos.projectGroups.setFavorite).not.toHaveBeenCalled();
+  });
+
+  it('answers 400 for a body without the end state', async () => {
+    const { app, repos } = build({ namedProjects: [{ id: 'p1', name: 'reactivando' }] });
+    const res = await app.inject({ method: 'PUT', url: '/chat/projects/p1/favorite', payload: {} });
+    expect(res.statusCode).toBe(400);
+    expect(repos.projectGroups.setFavorite).not.toHaveBeenCalled();
+  });
+
+  it('writes to the signed-in user Favoritos when viewing as another owner', async () => {
+    const { app, repos } = build({ viewAsOwner: 'u2', namedProjects: [{ id: 'p1', name: 'reactivando' }] });
+    const res = await app.inject({ method: 'PUT', url: '/chat/projects/p1/favorite', payload: { favorite: true } });
+    expect(res.statusCode).toBe(204);
+    expect(repos.projectGroups.setFavorite).toHaveBeenCalledWith('u1', 'p1', true);
+  });
+
+  it('answers 400 when Favoritos is full', async () => {
+    const { ProjectGroupRuleError } = await import('../db/repositories/project-groups.js');
+    const setFavorite = vi.fn(async () => {
+      throw new ProjectGroupRuleError('LIMIT', 'Limite de 500 projetos por grupo');
+    });
+    const { app } = build({ namedProjects: [{ id: 'p1', name: 'reactivando' }], setFavorite });
+    const res = await app.inject({ method: 'PUT', url: '/chat/projects/p1/favorite', payload: { favorite: true } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe('LIMIT');
   });
 });
 
@@ -431,6 +503,14 @@ describe('POST /chat/messages', () => {
     expect((await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: '', attachment_ids: [] } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'POST', url: '/chat/messages', payload: { attachment_ids: [] } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi', attachment_ids: ['1', '2', '3', '4', '5', '6'] } })).statusCode).toBe(400);
+  });
+
+  it('passes reply_to_id to start (TER-447)', async () => {
+    const { app, start } = build();
+    const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'faz de novo', reply_to_id: 'm7' } });
+    expect(res.statusCode).toBe(202);
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'faz de novo', { projectId: null, replyToId: 'm7' });
+    expect((await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi', reply_to_id: '' } })).statusCode).toBe(400);
   });
 });
 

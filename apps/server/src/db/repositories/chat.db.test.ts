@@ -296,4 +296,17 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatRepository (Postgres)
     await db.project.delete({ where: { id: otherProject } });
     expect(await repo.findByIdForUser(c.id, userId)).toBeUndefined();
   });
+
+  it('a reply keeps what it quoted, and survives the original being deleted (TER-447)', async () => {
+    const c = await repo.getOrCreateForUser(userId);
+    const original = await repo.addMessage({ conversation_id: c.id, role: 'assistant', text: 'Abri a aba build' });
+    expect(original.reply_to).toBeUndefined();
+    const reply = await repo.addMessage({ conversation_id: c.id, role: 'user', text: 'faz de novo', reply_to: { id: original.id, role: 'assistant', excerpt: 'Abri a aba build' } });
+    expect(reply.reply_to).toEqual({ id: original.id, role: 'assistant', excerpt: 'Abri a aba build' });
+    expect((await repo.listMessages(c.id)).find((m) => m.id === reply.id)?.reply_to).toEqual({ id: original.id, role: 'assistant', excerpt: 'Abri a aba build' });
+    expect((await repo.findMessagesByIds(c.id, [reply.id]))[0]?.reply_to?.id).toBe(original.id);
+
+    await repo.deleteMessage(original.id);
+    expect((await repo.listMessages(c.id)).find((m) => m.id === reply.id)?.reply_to).toEqual({ id: null, role: 'assistant', excerpt: 'Abri a aba build' });
+  });
 });

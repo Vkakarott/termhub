@@ -81,14 +81,17 @@ function harness(sessionId: string | null = null) {
   return { live, chat, rows, events, off, turn, subagents, chatActions, describeLate, onTurnsChanged };
 }
 
-/** A hand-driven stream: `push` a CLI line, `end()` the process; `written` is what the driver wrote. */
+/** A hand-driven stream: `push` a CLI line, `end()` the process; `written` is what the driver wrote,
+ *  and `closed()` whether the driver closed it (which ends the process, as closing the channel does). */
 function manualStream() {
   const queue: string[] = [];
   let ended = false;
+  let closed = false;
   let wake: (() => void) | null = null;
   const written: string[] = [];
   const stream: RunStream = {
     write: (line) => (ended ? false : (written.push(line), true)),
+    close: () => ((closed = true), (ended = true), poke()),
     async *[Symbol.asyncIterator]() {
       for (;;) {
         while (queue.length) yield queue.shift()!;
@@ -97,8 +100,8 @@ function manualStream() {
       }
     },
   };
-  const poke = () => { const w = wake; wake = null; w?.(); };
-  return { stream, written, push: (l: string) => (queue.push(l), poke()), end: () => ((ended = true), poke()) };
+  function poke() { const w = wake; wake = null; w?.(); }
+  return { stream, written, closed: () => closed, push: (l: string) => (queue.push(l), poke()), end: () => ((ended = true), poke()) };
 }
 
 const replay = (uuid: string) => JSON.stringify({ type: 'user', isReplay: true, uuid, message: { role: 'user', content: 'x' } });
@@ -164,13 +167,149 @@ it('keeps the input open while a subagent runs and ends it once nothing is left'
   await settle();
   expect(h.live.accepting).toBe(true);
   expect(s.written).toEqual([]);
+  // The subagent ends: the CLI reports it in a turn of its own, and the input ends with that turn.
   s.push(background(0));
+  await settle();
+  expect(h.live.accepting).toBe(true);
+  s.push(delta('terminou')); s.push(result());
   await settle();
   expect(h.live.accepting).toBe(false);
   expect(s.written).toEqual([STREAM_END_INPUT_LINE]);
   expect(h.live.add((await h.turn(U2, 'tarde')).t)).toBe(false);
   s.end();
   await consumed;
+});
+
+it('keeps the input open when the turn that reports the last subagent starts another one (TER-498)', async () => {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1)); s.push(background(1)); s.push(delta('disparei')); s.push(result());
+  await settle();
+  // A monitor ends, and the turn the CLI starts to report it launches the next monitor.
+  s.push(background(0)); s.push(toolCall()); s.push(background(1)); s.push(delta('relancei')); s.push(result());
+  await settle();
+  expect(h.live.accepting).toBe(true);
+  expect(s.written).toEqual([]);
+  // With its input open the CLI ends each turn with a `result`: the text is stored, and nothing is owed.
+  expect(h.live.busy).toBe(false);
+  expect(h.rows.filter((r) => r.role === 'assistant').map((r) => r.text)).toEqual(['disparei', 'relancei']);
+  // A message typed now goes straight in, monitor or not.
+  expect(h.live.add((await h.turn(U2, 'e agora?')).t)).toBe(true);
+  s.end();
+  await consumed;
+});
+
+it('keeps the input open when a subagent ends during a turn: the turn that reports it comes next, and may start another (TER-498)', async () => {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  // The subagent ends while the person's turn is still being answered (Claude Code 2.1.285 then
+  // reports it in a turn of its own, right after this one).
+  s.push(replay(U1)); s.push(background(1)); s.push(delta('disparei'));
+  s.push(background(0)); s.push(taskUpdated('t1', 'completed')); s.push(result());
+  await settle();
+  expect(h.live.accepting).toBe(true);
+  s.push(toolCall()); s.push(background(1)); s.push(delta('relancei')); s.push(result());
+  await settle();
+  expect(h.live.accepting).toBe(true);
+  expect(h.rows.filter((r) => r.role === 'assistant').map((r) => r.text)).toEqual(['disparei', 'relancei']);
+  // That one ends with nothing being answered, and the turn that reports it starts nothing.
+  s.push(background(0)); s.push(taskUpdated('t2', 'completed')); s.push(delta('fim')); s.push(result());
+  await settle();
+  expect(h.live.accepting).toBe(false);
+  expect(s.written).toEqual([STREAM_END_INPUT_LINE]);
+  s.end();
+  await consumed;
+});
+
+/** A process left with its input closed and a subagent in the background: the input ended with a
+ *  turn, and a turn the CLI started afterwards launched a subagent (here the CLI never said that the
+ *  first one had ended). The CLI holds that turn's `result` back until nothing is left running. */
+async function stranded() {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1)); s.push(background(1)); s.push(background(0)); s.push(delta('disparei')); s.push(result());
+  await settle();
+  s.push(toolCall()); s.push(background(1)); s.push(delta('relancei'));
+  await settle();
+  return { s, consumed };
+}
+
+it('stop ends a process that takes no input, and what its own turn had said is stored as a message (TER-498)', async () => {
+  const { s, consumed } = await stranded();
+  expect(h.live.accepting).toBe(false);
+  expect(h.live.busy).toBe(true);
+  h.live.stop();
+  expect(s.closed()).toBe(true);
+  await consumed;
+  // What the service does once the stream is over: a turn cut by a stop is not a failed answer.
+  await h.live.failOpen('RUNNER_FAILED');
+  expect(h.rows.filter((r) => r.role === 'assistant').at(-1)).toMatchObject({ text: 'relancei', error_code: null });
+  expect(h.live.busy).toBe(false);
+});
+
+it('giveWay stops a process that takes no input and has a subagent in the background (TER-498)', async () => {
+  const { s, consumed } = await stranded();
+  h.live.giveWay();
+  expect(s.closed()).toBe(true);
+  await consumed;
+});
+
+it('giveWay leaves a process with nothing in the background to finish, and stops it if a turn on its way starts a subagent', async () => {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1)); s.push(delta('ok')); s.push(result());
+  await settle();
+  expect(h.live.accepting).toBe(false);
+  // Nothing in the background: the process exits on its own once it is done.
+  h.live.giveWay();
+  expect(s.closed()).toBe(false);
+  // A turn that was still on its way starts a subagent: nothing would end this process for a long time.
+  s.push(toolCall()); s.push(background(1));
+  await settle();
+  expect(s.closed()).toBe(true);
+  await consumed;
+});
+
+/** A shutdown in the middle of a turn the CLI started on its own, with a message of the person's
+ *  written and not yet replayed. */
+async function cutByShutdown() {
+  const a = await h.turn(U1, 'a');
+  const b = await h.turn(U2, 'b');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1)); s.push(background(1)); s.push(delta('disparei')); s.push(result());
+  await settle();
+  h.live.add(b.t);
+  s.push(delta('o subagente terminou'));
+  await settle();
+  s.end();
+  await consumed;
+  return { b };
+}
+
+it('rejectOpen (a shutdown) stores what a turn of the CLI\'s own had said, and leaves the person\'s turn open for the resume (TER-498)', async () => {
+  const { b } = await cutByShutdown();
+  await h.live.rejectOpen(new Error('restarting'));
+  await expect(b.done).rejects.toThrow('restarting');
+  expect(h.rows.find((r) => r.id === b.t.answer.id)).toMatchObject({ text: '', error_code: null });
+  // Nobody resumes a turn the CLI started: its row would stay empty for good.
+  expect(h.rows.at(-1)).toMatchObject({ role: 'assistant', text: 'o subagente terminou', error_code: null });
+});
+
+it('rejectOpen never throws: a row that cannot be stored still leaves every turn of the person\'s rejected', async () => {
+  const { b } = await cutByShutdown();
+  h.chat.updateMessage.mockRejectedValueOnce(new Error('db gone'));
+  await expect(h.live.rejectOpen(new Error('restarting'))).resolves.toBeUndefined();
+  await expect(b.done).rejects.toThrow('restarting');
 });
 
 it('a stream that ends with turns open fails each one', async () => {
@@ -458,6 +597,29 @@ it('fails the waiting turns and ends the input when a turn ends and the CLI neve
   await consumed;
 });
 
+/** What a resumed session writes before it replays anything when its previous process left a subagent
+ *  unfinished (Claude Code 2.1.285): that task's notification, then a `result` that ended no turn. */
+const leftover = () => [
+  JSON.stringify({ type: 'system', subtype: 'task_notification', task_id: 't-old', status: 'stopped' }),
+  JSON.stringify({ type: 'result', subtype: 'success', is_error: false, num_turns: 0, result: '', session_id: 's1', usage: { input_tokens: 0, output_tokens: 0, iterations: [] } }),
+];
+
+it('keeps the waiting turns when a resumed session ends a turn of its own before it replays anything (TER-498)', async () => {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  for (const line of leftover()) s.push(line);
+  await settle();
+  expect(h.live.accepting).toBe(true);
+  expect(s.written).toEqual([]);
+  s.push(replay(U1)); s.push(delta('resposta')); s.push(result());
+  await settle();
+  s.end();
+  await consumed;
+  expect(await a.done).toMatchObject({ text: 'resposta', error_code: null });
+});
+
 it('keeps waiting turns waiting at a result once the CLI has replayed in this process', async () => {
   const a = await h.turn(U1, 'a');
   const b = await h.turn(U2, 'b');
@@ -600,7 +762,7 @@ it('writes a stop_task control line', async () => {
 
 it('refuses to stop once input is closed', async () => {
   const { s, consumed } = await running();
-  s.push(result()); s.push(background(0));
+  s.push(background(0)); s.push(result());
   await settle();
   expect(h.live.accepting).toBe(false);
   const before = s.written.length;

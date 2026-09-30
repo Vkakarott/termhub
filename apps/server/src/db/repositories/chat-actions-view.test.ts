@@ -29,6 +29,7 @@ const action = (over: Partial<ChatAction>): ChatAction => ({
   tool_use_id: null,
   subagent_id: null,
   created_at: '2026-09-21T00:00:00.000Z',
+  surfaced_at: null,
   ...over,
 });
 
@@ -102,6 +103,14 @@ it('reads like a sentence about the real world: the command, the tab, the projec
 // A card cannot be placed in a chronological thread without its own timestamp. Asserting the exact
 // value the row was given (not just "a string") catches a card built from `new Date()`, which would
 // pass a shape check yet silently reorder the thread.
+it('carries error_code and surfaced_at for the card to say why it ended and where it sits (TER-477)', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ status: 'failed', error_code: 'TAB_GONE', surfaced_at: '2026-09-30T06:00:00.000Z' })], OWNER);
+  expect(card).toMatchObject({ error_code: 'TAB_GONE', surfaced_at: '2026-09-30T06:00:00.000Z' });
+  const [plain] = await describeActions(repos, [action({})], OWNER);
+  expect(plain).toMatchObject({ error_code: null, surfaced_at: null });
+});
+
 it('carries the row\'s created_at unchanged', async () => {
   const repos = fakeRepos();
   const [card] = await describeActions(repos, [action({ created_at: '2020-01-02T03:04:05.000Z' })], OWNER);

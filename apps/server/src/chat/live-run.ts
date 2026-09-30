@@ -68,6 +68,10 @@ export class LiveRun {
   private waiting: LiveTurn[] = [];
   private current: Answering | null = null;
   private background = 0;
+  /** Turn ends still to come before the CLI has reported every subagent that ended: it does so in a
+   *  turn of its own, the next one when nothing was being answered, the one after the running turn
+   *  otherwise. The input stays open until then, since that turn may start another subagent. */
+  private reportsOwed = 0;
   private stream: RunStream | null = null;
   private inputOpen = true;
   private ended = 0;
@@ -95,6 +99,10 @@ export class LiveRun {
   private dir: string | null = null;
   /** What each answer says besides its text, stored with it (an account that took over, a limit). */
   private notices = new Map<string, ChatNotice>();
+  /** The process was ended on purpose (`stop`): a turn of its own that was cut is not a failed answer. */
+  private stopped = false;
+  /** Someone waits for this process to end (`giveWay`). */
+  private wanted = false;
 
   constructor(private deps: LiveRunDeps) {
     this.session = deps.sessionId;
@@ -257,13 +265,17 @@ export class LiveRun {
         } else if (frame.type === 'done') {
           await this.saveSession(frame.session_id);
           if (frame.context) await saveContext(this.deps.chat, this.deps.userId, this.deps.conversationId, frame.context);
+          const answered = this.current !== null;
           if (this.current) {
             this.current.usage = frame.usage ?? null;
             await this.finish(this.current, null);
           }
-          // A turn ended and this process never replayed a message: the CLI does not echo the uuids,
-          // so no waiting turn can ever be matched. They fail now instead of waiting for the kill.
-          if (!this.replayed && (this.waiting.length > 0 || this.notes.size > 0)) await this.failWaiting('RUN_FAILED');
+          if (this.reportsOwed > 0) this.reportsOwed -= 1;
+          // A turn was answered and this process never replayed a message: the CLI does not echo the
+          // uuids, so no waiting turn can ever be matched. They fail now instead of waiting for the kill.
+          // Only a turn that said something counts: a resumed session whose last process left a subagent
+          // unfinished writes a `result` that ended no turn before its first replay (Claude Code 2.1.285).
+          if (answered && !this.replayed && (this.waiting.length > 0 || this.notes.size > 0)) await this.failWaiting('RUN_FAILED');
           this.endInputIfIdle();
         } else if (frame.type === 'api_error') {
           this.turnReason = frame.reason;
@@ -287,20 +299,26 @@ export class LiveRun {
               await this.requeueCurrent();
               this.endInput();
             } else if (cur) await this.finish(cur, codeForReason(reason));
+            if (this.reportsOwed > 0) this.reportsOwed -= 1;
             this.endInputIfIdle();
           } else {
             code = codeForReason(frame.reason);
             if (frame.reason === 'missing_session') missingSession = true;
           }
         } else if (frame.type === 'background') {
+          // Only counted: the input ends at the end of a turn, never here. The CLI reports a subagent
+          // that ended in a turn of its own (`reportsOwed`), and that turn may start another one (a
+          // monitor that relaunches itself). With the input already closed that process would take no
+          // message, and would hold every `result` back until nothing is left in the background.
           this.background = frame.count;
-          this.endInputIfIdle();
+          this.stopIfStranded();
         } else if (frame.type === 'subagent_started') {
           await this.bookkeeping(async () => {
             const row = await this.deps.subagents.start({ conversation_id: this.deps.conversationId, task_id: frame.task_id, tool_use_id: frame.tool_use_id, description: frame.description, subagent_type: frame.subagent_type });
             this.remember(row);
           });
         } else if (frame.type === 'subagent_status') {
+          this.reportsOwed = Math.max(this.reportsOwed, this.current ? 2 : 1);
           const known = this.subagentsByTask.get(frame.task_id);
           if (!known) continue;
           this.stopping.delete(known.id);
@@ -392,6 +410,7 @@ export class LiveRun {
       this.announce(t.answer.id);
     }
     this.background = 0;
+    this.reportsOwed = 0;
     this.inputOpen = true;
     this.session = null;
     this.turnsChanged();
@@ -411,7 +430,8 @@ export class LiveRun {
     let failure: { error: unknown } | null = null;
     for (const a of open) {
       try {
-        await this.finish(a, code);
+        // A turn of the CLI's own cut by `stop` keeps what it said as a plain message (or goes, empty).
+        await this.finish(a, a.turn === null && this.stopped ? null : code);
       } catch (e) {
         failure ??= { error: e };
       }
@@ -420,12 +440,19 @@ export class LiveRun {
   }
 
   /** The server is shutting down (spec 2026-09-26 panel §3): every open turn's `done` rejects with `err`
-   *  so no request waits on it, and no row is written — the answers stay open for the instance that
-   *  resumes them. */
-  rejectOpen(err: unknown): void {
+   *  so no request waits on it, and its row is not written — the answers stay open for the instance that
+   *  resumes them. A turn the CLI started on its own is resumed by nobody: what it said is stored now
+   *  (an empty row goes), or the row would stay empty for good. Never throws: a shutdown must go on. */
+  async rejectOpen(err: unknown): Promise<void> {
     this.inputOpen = false;
     const cur = this.current;
     for (const t of [...(cur?.turn ? [cur.turn] : []), ...(cur?.merged ?? []), ...this.waiting]) t.settle.reject(err);
+    if (!cur || cur.turn !== null) return;
+    try {
+      await this.finish(cur, null);
+    } catch (e) {
+      console.error('chat: the row of a turn the CLI started could not be closed', { conversation_id: this.deps.conversationId, error: failureLabel(e) });
+    }
   }
 
   /** Nothing ran and nothing will (a setup failure): the answers go, every open turn rejects. */
@@ -522,10 +549,10 @@ export class LiveRun {
     if (failure) throw failure.error;
   }
 
-  /** Nothing to answer and nothing in the background: end the input. The CLI still runs whatever it
-   *  has (a notification turn that is on its way), and a message that comes later goes to the next run. */
+  /** A turn ended with nothing to answer, nothing in the background and no subagent left to report:
+   *  end the input. A message that comes later goes to the next run. */
   private endInputIfIdle(): void {
-    if (this.current || this.waiting.length > 0 || this.notes.size > 0 || this.background > 0) return;
+    if (this.current || this.waiting.length > 0 || this.notes.size > 0 || this.background > 0 || this.reportsOwed > 0) return;
     this.endInput();
   }
 
@@ -535,6 +562,26 @@ export class LiveRun {
     if (!this.inputOpen) return;
     this.inputOpen = false;
     this.stream?.write?.(STREAM_END_INPUT_LINE);
+  }
+
+  /** Ends the process itself, not only its input: for one that answers nobody and would otherwise hold
+   *  the conversation for as long as its subagents keep it alive. They end with it. */
+  stop(): void {
+    this.endInput();
+    this.stopped = true;
+    this.stream?.close?.();
+  }
+
+  /** A message or a decision waits for this process to end. One that takes no input and has a subagent
+   *  in the background would last as long as the subagent does, so it is stopped: now, or when a turn
+   *  still on its way starts one. With nothing in the background it exits on its own, and is left to. */
+  giveWay(): void {
+    this.wanted = true;
+    this.stopIfStranded();
+  }
+
+  private stopIfStranded(): void {
+    if (this.wanted && !this.inputOpen && this.background > 0) this.stop();
   }
 
   /** Keeps a subagent row by task and by launching tool_use_id, and tells every open screen. */

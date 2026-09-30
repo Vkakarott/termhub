@@ -136,6 +136,8 @@ function actionFromConfirmation(e: Extract<ChatEvent, { type: 'confirmation' }>)
     // verbatim, including its absence (`undefined`) on an older server.
     subagent: e.subagent,
     created_at: e.created_at,
+    // Carried through verbatim, like `subagent`: absent on an older server (spec 2026-09-30 §2.2).
+    ...(e.surfaced_at !== undefined ? { surfaced_at: e.surfaced_at } : {}),
   };
 }
 
@@ -155,14 +157,24 @@ export function applyEvent(slice: EventSlice, e: ChatEvent): EventSlice {
       const existing = slice.actions.find((a) => a.id === e.action_id);
       if (!existing) return { ...slice, actions: [...slice.actions, actionFromConfirmation(e)] };
       // The live run learned which subagent proposed a card already on screen, after the card was
-      // already published with none (spec 2026-09-26 §4): merged in, the card's status untouched. A
+      // already published with none (spec 2026-09-26 §4), or the card was brought back to the end of
+      // the thread (`surfaced_at`, spec 2026-09-30 §2.2): merged in, the card's status untouched. A
       // repeat with nothing new changes nothing.
-      if (!e.subagent) return slice;
-      return { ...slice, actions: slice.actions.map((a) => (a.id === e.action_id ? { ...a, subagent: e.subagent } : a)) };
+      const subagent = e.subagent ?? existing.subagent;
+      const surfacedAt = e.surfaced_at ?? existing.surfaced_at;
+      if (subagent === existing.subagent && surfacedAt === existing.surfaced_at) return slice;
+      return { ...slice, actions: slice.actions.map((a) => (a.id === e.action_id ? { ...a, subagent, surfaced_at: surfacedAt } : a)) };
     }
     case 'decision': {
       const actions = settlePending(slice.actions, e.action_id, e.status);
       return actions === slice.actions ? slice : { ...slice, actions };
+    }
+    case 'action_status': {
+      // The gate ran, failed or expired a card (spec 2026-09-30 §2.3): the card reads so live. An id
+      // this slot does not hold (another device's, or older than the loaded window) changes nothing.
+      const current = slice.actions.find((a) => a.id === e.action_id);
+      if (!current || (current.status === e.status && current.error_code === e.error_code)) return slice;
+      return { ...slice, actions: slice.actions.map((a) => (a === current ? { ...a, status: e.status, error_code: e.error_code } : a)) };
     }
     case 'grant':
       // One active grant per (tab, tool), as on the server: a narrow grant never drops a terminal one.

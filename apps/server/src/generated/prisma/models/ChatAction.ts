@@ -56,6 +56,7 @@ export type ChatActionMinAggregateOutputType = {
   toolUseId: string | null
   subagentId: string | null
   createdAt: Date | null
+  surfacedAt: Date | null
 }
 
 export type ChatActionMaxAggregateOutputType = {
@@ -78,6 +79,7 @@ export type ChatActionMaxAggregateOutputType = {
   toolUseId: string | null
   subagentId: string | null
   createdAt: Date | null
+  surfacedAt: Date | null
 }
 
 export type ChatActionCountAggregateOutputType = {
@@ -101,6 +103,7 @@ export type ChatActionCountAggregateOutputType = {
   toolUseId: number
   subagentId: number
   createdAt: number
+  surfacedAt: number
   _all: number
 }
 
@@ -133,6 +136,7 @@ export type ChatActionMinAggregateInputType = {
   toolUseId?: true
   subagentId?: true
   createdAt?: true
+  surfacedAt?: true
 }
 
 export type ChatActionMaxAggregateInputType = {
@@ -155,6 +159,7 @@ export type ChatActionMaxAggregateInputType = {
   toolUseId?: true
   subagentId?: true
   createdAt?: true
+  surfacedAt?: true
 }
 
 export type ChatActionCountAggregateInputType = {
@@ -178,6 +183,7 @@ export type ChatActionCountAggregateInputType = {
   toolUseId?: true
   subagentId?: true
   createdAt?: true
+  surfacedAt?: true
   _all?: true
 }
 
@@ -288,6 +294,7 @@ export type ChatActionGroupByOutputType = {
   toolUseId: string | null
   subagentId: string | null
   createdAt: Date
+  surfacedAt: Date | null
   _count: ChatActionCountAggregateOutputType | null
   _avg: ChatActionAvgAggregateOutputType | null
   _sum: ChatActionSumAggregateOutputType | null
@@ -334,6 +341,7 @@ export type ChatActionWhereInput = {
   toolUseId?: Prisma.StringNullableFilter<"ChatAction"> | string | null
   subagentId?: Prisma.StringNullableFilter<"ChatAction"> | string | null
   createdAt?: Prisma.DateTimeFilter<"ChatAction"> | Date | string
+  surfacedAt?: Prisma.DateTimeNullableFilter<"ChatAction"> | Date | string | null
   conversation?: Prisma.XOR<Prisma.ChatConversationScalarRelationFilter, Prisma.ChatConversationWhereInput>
 }
 
@@ -358,6 +366,7 @@ export type ChatActionOrderByWithRelationInput = {
   toolUseId?: Prisma.SortOrderInput | Prisma.SortOrder
   subagentId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  surfacedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   conversation?: Prisma.ChatConversationOrderByWithRelationInput
 }
 
@@ -385,6 +394,7 @@ export type ChatActionWhereUniqueInput = Prisma.AtLeast<{
   toolUseId?: Prisma.StringNullableFilter<"ChatAction"> | string | null
   subagentId?: Prisma.StringNullableFilter<"ChatAction"> | string | null
   createdAt?: Prisma.DateTimeFilter<"ChatAction"> | Date | string
+  surfacedAt?: Prisma.DateTimeNullableFilter<"ChatAction"> | Date | string | null
   conversation?: Prisma.XOR<Prisma.ChatConversationScalarRelationFilter, Prisma.ChatConversationWhereInput>
 }, "id">
 
@@ -409,6 +419,7 @@ export type ChatActionOrderByWithAggregationInput = {
   toolUseId?: Prisma.SortOrderInput | Prisma.SortOrder
   subagentId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  surfacedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.ChatActionCountOrderByAggregateInput
   _avg?: Prisma.ChatActionAvgOrderByAggregateInput
   _max?: Prisma.ChatActionMaxOrderByAggregateInput
@@ -440,6 +451,7 @@ export type ChatActionScalarWhereWithAggregatesInput = {
   toolUseId?: Prisma.StringNullableWithAggregatesFilter<"ChatAction"> | string | null
   subagentId?: Prisma.StringNullableWithAggregatesFilter<"ChatAction"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"ChatAction"> | Date | string
+  surfacedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ChatAction"> | Date | string | null
 }
 
 export type ChatActionCreateInput = {
@@ -462,6 +474,7 @@ export type ChatActionCreateInput = {
   toolUseId?: string | null
   subagentId?: string | null
   createdAt?: Date | string
+  surfacedAt?: Date | string | null
   conversation: Prisma.ChatConversationCreateNestedOneWithoutActionsInput
 }
 
@@ -486,6 +499,7 @@ export type ChatActionUncheckedCreateInput = {
   toolUseId?: string | null
   subagentId?: string | null
   createdAt?: Date | string
+  surfacedAt?: Date | string | null
 }
 
 export type ChatActionUpdateInput = {
@@ -508,6 +522,7 @@ export type ChatActionUpdateInput = {
   toolUseId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   subagentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  surfacedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   conversation?: Prisma.ChatConversationUpdateOneRequiredWithoutActionsNestedInput
 }
 
@@ -532,6 +547,7 @@ export type ChatActionUncheckedUpdateInput = {
   toolUseId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   subagentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  surfacedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type ChatActionCreateManyInput = {
@@ -555,6 +571,7 @@ export type ChatActionCreateManyInput = {
   toolUseId?: string | null
   subagentId?: string | null
   createdAt?: Date | string
+  surfacedAt?: Date | string | null
 }
 
 export type ChatActionUpdateManyMutationInput = {
@@ -577,6 +594,7 @@ export type ChatActionUpdateManyMutationInput = {
   toolUseId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   subagentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  surfacedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type ChatActionUncheckedUpdateManyInput = {
@@ -600,6 +618,7 @@ export type ChatActionUncheckedUpdateManyInput = {
   toolUseId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   subagentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  surfacedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type ChatActionListRelationFilter = {
@@ -633,6 +652,7 @@ export type ChatActionCountOrderByAggregateInput = {
   toolUseId?: Prisma.SortOrder
   subagentId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  surfacedAt?: Prisma.SortOrder
 }
 
 export type ChatActionAvgOrderByAggregateInput = {
@@ -659,6 +679,7 @@ export type ChatActionMaxOrderByAggregateInput = {
   toolUseId?: Prisma.SortOrder
   subagentId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  surfacedAt?: Prisma.SortOrder
 }
 
 export type ChatActionMinOrderByAggregateInput = {
@@ -681,6 +702,7 @@ export type ChatActionMinOrderByAggregateInput = {
   toolUseId?: Prisma.SortOrder
   subagentId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  surfacedAt?: Prisma.SortOrder
 }
 
 export type ChatActionSumOrderByAggregateInput = {
@@ -749,6 +771,7 @@ export type ChatActionCreateWithoutConversationInput = {
   toolUseId?: string | null
   subagentId?: string | null
   createdAt?: Date | string
+  surfacedAt?: Date | string | null
 }
 
 export type ChatActionUncheckedCreateWithoutConversationInput = {
@@ -771,6 +794,7 @@ export type ChatActionUncheckedCreateWithoutConversationInput = {
   toolUseId?: string | null
   subagentId?: string | null
   createdAt?: Date | string
+  surfacedAt?: Date | string | null
 }
 
 export type ChatActionCreateOrConnectWithoutConversationInput = {
@@ -823,6 +847,7 @@ export type ChatActionScalarWhereInput = {
   toolUseId?: Prisma.StringNullableFilter<"ChatAction"> | string | null
   subagentId?: Prisma.StringNullableFilter<"ChatAction"> | string | null
   createdAt?: Prisma.DateTimeFilter<"ChatAction"> | Date | string
+  surfacedAt?: Prisma.DateTimeNullableFilter<"ChatAction"> | Date | string | null
 }
 
 export type ChatActionCreateManyConversationInput = {
@@ -845,6 +870,7 @@ export type ChatActionCreateManyConversationInput = {
   toolUseId?: string | null
   subagentId?: string | null
   createdAt?: Date | string
+  surfacedAt?: Date | string | null
 }
 
 export type ChatActionUpdateWithoutConversationInput = {
@@ -867,6 +893,7 @@ export type ChatActionUpdateWithoutConversationInput = {
   toolUseId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   subagentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  surfacedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type ChatActionUncheckedUpdateWithoutConversationInput = {
@@ -889,6 +916,7 @@ export type ChatActionUncheckedUpdateWithoutConversationInput = {
   toolUseId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   subagentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  surfacedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type ChatActionUncheckedUpdateManyWithoutConversationInput = {
@@ -911,6 +939,7 @@ export type ChatActionUncheckedUpdateManyWithoutConversationInput = {
   toolUseId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   subagentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  surfacedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 
@@ -936,6 +965,7 @@ export type ChatActionSelect<ExtArgs extends runtime.Types.Extensions.InternalAr
   toolUseId?: boolean
   subagentId?: boolean
   createdAt?: boolean
+  surfacedAt?: boolean
   conversation?: boolean | Prisma.ChatConversationDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["chatAction"]>
 
@@ -960,6 +990,7 @@ export type ChatActionSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Ex
   toolUseId?: boolean
   subagentId?: boolean
   createdAt?: boolean
+  surfacedAt?: boolean
   conversation?: boolean | Prisma.ChatConversationDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["chatAction"]>
 
@@ -984,6 +1015,7 @@ export type ChatActionSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Ex
   toolUseId?: boolean
   subagentId?: boolean
   createdAt?: boolean
+  surfacedAt?: boolean
   conversation?: boolean | Prisma.ChatConversationDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["chatAction"]>
 
@@ -1008,9 +1040,10 @@ export type ChatActionSelectScalar = {
   toolUseId?: boolean
   subagentId?: boolean
   createdAt?: boolean
+  surfacedAt?: boolean
 }
 
-export type ChatActionOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "conversationId" | "messageId" | "tool" | "args" | "class" | "status" | "idempotencyKey" | "machineId" | "projectId" | "tabId" | "grantId" | "errorCode" | "durationMs" | "decidedBy" | "decidedAt" | "injectedAt" | "toolUseId" | "subagentId" | "createdAt", ExtArgs["result"]["chatAction"]>
+export type ChatActionOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "conversationId" | "messageId" | "tool" | "args" | "class" | "status" | "idempotencyKey" | "machineId" | "projectId" | "tabId" | "grantId" | "errorCode" | "durationMs" | "decidedBy" | "decidedAt" | "injectedAt" | "toolUseId" | "subagentId" | "createdAt" | "surfacedAt", ExtArgs["result"]["chatAction"]>
 export type ChatActionInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   conversation?: boolean | Prisma.ChatConversationDefaultArgs<ExtArgs>
 }
@@ -1070,6 +1103,10 @@ export type $ChatActionPayload<ExtArgs extends runtime.Types.Extensions.Internal
      */
     subagentId: string | null
     createdAt: Date
+    /**
+     * When the card was last brought back to the end of the chat (TER-477); the thread orders by it, else `createdAt`.
+     */
+    surfacedAt: Date | null
   }, ExtArgs["result"]["chatAction"]>
   composites: {}
 }
@@ -1514,6 +1551,7 @@ export interface ChatActionFieldRefs {
   readonly toolUseId: Prisma.FieldRef<"ChatAction", 'String'>
   readonly subagentId: Prisma.FieldRef<"ChatAction", 'String'>
   readonly createdAt: Prisma.FieldRef<"ChatAction", 'DateTime'>
+  readonly surfacedAt: Prisma.FieldRef<"ChatAction", 'DateTime'>
 }
     
 

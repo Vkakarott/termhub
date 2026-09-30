@@ -48,6 +48,14 @@ const NO_SESSION = { cliSessionId: null, contextTokens: null, contextWindow: nul
  */
 export type { ChatNotice };
 
+/** What a message answers (TER-447): the snapshot taken when it was sent. `id` is null once the
+ *  quoted row was deleted. */
+export interface ChatReplyRef {
+  id: string | null;
+  role: ChatRole;
+  excerpt: string;
+}
+
 export interface ChatMessage {
   id: string;
   conversation_id: string;
@@ -60,6 +68,8 @@ export interface ChatMessage {
   created_at: string;
   /** The files sent with a user message (spec 2026-09-26 §5.5). Present only when there is at least one. */
   attachments?: ChatAttachment[];
+  /** Present only on a reply (TER-447). */
+  reply_to?: ChatReplyRef;
 }
 
 const mapConversation = (c: PrismaConversation): ChatConversation => ({
@@ -88,6 +98,7 @@ const mapMessage = (m: PrismaMessage): ChatMessage => ({
   error_code: m.errorCode,
   ...(m.notice ? { notice: m.notice as ChatNotice } : {}),
   created_at: m.createdAt.toISOString(),
+  ...(m.replyToRole === null ? {} : { reply_to: { id: m.replyToId, role: m.replyToRole as ChatRole, excerpt: m.replyToExcerpt ?? '' } }),
 });
 
 export class ChatRepository {
@@ -249,7 +260,7 @@ export class ChatRepository {
     });
   }
 
-  async addMessage(input: { conversation_id: string; role: ChatRole; text: string; usage?: unknown; error_code?: string | null }): Promise<ChatMessage> {
+  async addMessage(input: { conversation_id: string; role: ChatRole; text: string; usage?: unknown; error_code?: string | null; reply_to?: { id: string; role: ChatRole; excerpt: string } }): Promise<ChatMessage> {
     const [message] = await this.db.$transaction([
       this.db.chatMessage.create({
         data: {
@@ -259,6 +270,7 @@ export class ChatRepository {
           text: input.text,
           usage: (input.usage ?? null) as never,
           errorCode: input.error_code ?? null,
+          ...(input.reply_to ? { replyToId: input.reply_to.id, replyToRole: input.reply_to.role, replyToExcerpt: input.reply_to.excerpt } : {}),
         },
       }),
       this.db.chatConversation.update({ where: { id: input.conversation_id }, data: { lastMessageAt: new Date() } }),

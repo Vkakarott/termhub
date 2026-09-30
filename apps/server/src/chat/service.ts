@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { CAPABILITY_CLAUDE_STREAM_INPUT, CAPABILITY_CLAUDE_SYSTEM_PROMPT } from '@termhub/agent-protocol';
-import { STANDING_KIND_LABEL, type ChatAttachment } from '@termhub/mobile-api';
+import { STANDING_KIND_LABEL, replyExcerpt, type ChatAttachment } from '@termhub/mobile-api';
 import type { Repositories } from '../db/repositories/index.js';
 import type { ChatConversation, ChatMessage, ChatNotice } from '../db/repositories/chat.js';
 import type { ChatAction } from '../db/repositories/chat-actions.js';
@@ -14,6 +14,7 @@ import { HttpError, notFound } from '../lib/errors.js';
 import { fallbackShortfall, pickFallback, type FallbackPick } from './account-fallback.js';
 import { attachmentContext } from './attachments/context.js';
 import { chatBus } from './bus.js';
+import { replyContext, type ReplyTarget } from './reply-context.js';
 import { saveContext } from './context.js';
 import { streamedSystemPrompt } from './concierge-prompt.js';
 import { defaultEmbedder } from './embeddings.js';
@@ -115,11 +116,14 @@ export interface RunnerInput {
 export interface SendOptions {
   projectId?: string | null;
   attachmentIds?: string[];
+  /** The message this one answers (TER-447): a message of this conversation that has something in it. */
+  replyToId?: string;
 }
 /** What `startIn` takes besides the text: a decision's marking hook, and the attachment ids of a typed message. */
 interface StartOptions {
   beforeRun?: () => Promise<void>;
   attachmentIds?: string[];
+  replyToId?: string;
 }
 /** The attachment rows a message checked before storing anything (`attachableRows`): the ids to bind and the rows themselves. */
 interface Attachable {
@@ -138,6 +142,8 @@ export interface StartedRun {
  *  buffers lines written before the channel is open. A one-shot runner does not have it. */
 export interface RunStream extends AsyncIterable<string> {
   write?(line: string): boolean;
+  /** Ends a streamed run now: the channel closes, which kills the CLI and what it started. */
+  close?(): void;
 }
 export interface RunnerClient {
   run(input: RunnerInput): RunStream;
@@ -203,6 +209,8 @@ interface QueuedTurn {
   text: string;
   runText?: string;
   attachments: AttachmentRow[];
+  /** What the message answers, for a run text built later (`runText` unset). */
+  reply: ReplyTarget | null;
   question: ChatMessage;
   answer: ChatMessage;
   settle: LiveTurn['settle'];
@@ -229,6 +237,7 @@ interface CarriedOver {
 }
 
 /** An id that does not name one of this user's unsent uploads in this conversation (spec 2026-09-26 §5.5). */
+const replyUnavailable = () => new HttpError(409, 'A mensagem citada não está mais disponível. Cancele a citação e envie de novo.', 'REPLY_UNAVAILABLE');
 const attachmentUnavailable = () => new HttpError(409, 'Um dos anexos não está disponível: envie de novo', 'ATTACHMENT_UNAVAILABLE');
 
 /** What the action targets, in the one line the model needs to tell this proposal apart from any
@@ -460,16 +469,19 @@ export class ChatService {
    * revoked first: nobody will answer a card in a thread that is no longer on screen, and a token minted
    * for a conversation that is over must not reach the gate on its behalf.
    *
-   * A streamed process whose turns have all ended but that still waits on subagents in the background
-   * holds the lock for as long as it lives, yet answers nothing: it does not stop a reset. Its input is
-   * ended so nothing more reaches the archived thread, and it keeps the lock until it exits.
+   * A streamed process that answers nobody holds the lock for as long as it lives, yet does not stop
+   * a reset: one whose turns have all ended and that waits on subagents in the background, or one
+   * whose input has ended (no turn of the person's is open in it, and none can be written to it; the
+   * CLI holds its `result`s back while a subagent runs, so its own turn may look open for as long as
+   * that lasts). The process is ended, and its subagents with it — their thread is over and their
+   * token revoked — and it keeps the lock until it exits.
    */
   async reset(user: User, projectId: string | null): Promise<ChatConversation> {
     const current = await this.conversationFor(user, projectId);
     const live = this.live.get(current.id);
-    const detached = this.running.has(current.id) && live !== undefined && !live.busy;
+    const detached = this.running.has(current.id) && live !== undefined && (!live.busy || !live.accepting);
     if (this.running.has(current.id) && !detached) throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
-    if (detached) live.endInput();
+    if (detached) live.stop();
     else this.running.add(current.id);
     this.resetting.add(current.id);
     try {
@@ -637,9 +649,10 @@ export class ChatService {
    * chat action's own lookup: a foreign or missing id is the same 404, never a hint that a subagent
    * of someone else's conversation exists. A row already at rest (`SUBAGENT_NOT_RUNNING`) or one whose
    * process is no longer around to ask (`SUBAGENT_GONE`, marked `interrupted` here) both throw a 409:
-   * the click did not fail, there is simply nothing left to cancel. A process live on another instance
-   * (a fresh, unreleased `chat_live_runs` row of theirs) is `SUBAGENT_GONE` too, but its row is left
-   * untouched: that instance still runs it and will report its real end.
+   * the click did not fail, there is simply nothing left to cancel. A process that is still there but
+   * takes no input is ended, so that `interrupted` is what happened to its subagent. A process live on
+   * another instance (a fresh, unreleased `chat_live_runs` row of theirs) is `SUBAGENT_GONE` too, but
+   * its row is left untouched: that instance still runs it and will report its real end.
    */
   async cancelSubagent(user: User, subagentId: string): Promise<SubagentView> {
     const row = await this.deps.repos.chatSubagents.findByIdForUser(subagentId, user.id);
@@ -659,7 +672,11 @@ export class ChatService {
     const stopping = await this.deps.repos.chatSubagents.setStatus(row.id, 'stopping', { from: ['running'] });
     if (!stopping) throw new HttpError(409, 'Este subagente não está rodando', 'SUBAGENT_NOT_RUNNING');
     chatBus.publish({ type: 'subagent', user_id: user.id, conversation_id: row.conversation_id, subagent: toSubagentView(stopping) });
-    if (!live.stopTask(row.task_id, row.id)) return this.subagentGone(user, row.id, row.conversation_id);
+    if (!live.stopTask(row.task_id, row.id)) {
+      // A process that takes no input cannot be asked: ending it is the only way to stop what it runs.
+      if (!live.accepting) live.stop();
+      return this.subagentGone(user, row.id, row.conversation_id);
+    }
     setTimeout(() => void live.rollbackStop(row.id).catch(() => {}), CANCEL_TIMEOUT_MS).unref?.();
     return toSubagentView(stopping);
   }
@@ -874,7 +891,7 @@ export class ChatService {
    */
   async start(user: User, text: string, opts: SendOptions = {}): Promise<StartedRun> {
     const conversation = await this.conversationFor(user, opts.projectId ?? null);
-    const started = await this.startIn(user, conversation, text, { attachmentIds: opts.attachmentIds });
+    const started = await this.startIn(user, conversation, text, { attachmentIds: opts.attachmentIds, replyToId: opts.replyToId });
     // Only a message the person typed is memory (spec D3/D4): re-injections and wakes go through
     // `startIn` directly and never reach here. Best effort, fire-and-forget: `indexMessage` never throws.
     void this.deps.indexMessage({ id: started.user_message_id, owner_id: user.id, project_id: conversation.project_id, text, created_at: new Date().toISOString() });
@@ -958,8 +975,14 @@ export class ChatService {
 
   /** Stores the question (with its attachments bound to it, see `bindAttachments`) and its empty answer,
    *  and tells every open screen. The published question carries its attachments. */
-  private async storeTurn(user: User, conversationId: string, text: string, attachable: Attachable): Promise<{ question: ChatMessage; answer: ChatMessage }> {
-    const stored = await this.deps.repos.chat.addMessage({ conversation_id: conversationId, role: 'user', text });
+  private async storeTurn(user: User, conversationId: string, text: string, attachable: Attachable, reply: ReplyTarget | null): Promise<{ question: ChatMessage; answer: ChatMessage }> {
+    const stored = await this.deps.repos.chat.addMessage({
+      conversation_id: conversationId,
+      role: 'user',
+      text,
+      // The quote the thread shows, cut now: it has to read the same once the original is gone (TER-447).
+      ...(reply ? { reply_to: { id: reply.id, role: reply.role, excerpt: replyExcerpt(reply.text, reply.attachmentNames) } } : {}),
+    });
     const question = await this.bindAttachments(stored, attachable.ids, user, conversationId);
     chatBus.publish({ type: 'message', user_id: user.id, conversation_id: conversationId, message: question });
     const answer = await this.deps.repos.chat.addMessage({ conversation_id: conversationId, role: 'assistant', text: '' });
@@ -975,11 +998,12 @@ export class ChatService {
    * prepended to this run's input only — the stored message stays the person's own words. Read and
    * stamped under the lock, before the message is written: at most once, like a decision's injection.
    * The attachment block goes next to it (spec 2026-09-26 §5.5): ids and names for `read_attachment`,
-   * never the extracted text. A message of files alone has an empty `text`.
+   * never the extracted text. A message of files alone has an empty `text`. A reply's quoted message
+   * (TER-447) goes last, right before the words that answer it.
    */
-  private async runTextFor(user: User, conversationId: string, text: string, attachments: AttachmentRow[]): Promise<string> {
+  private async runTextFor(user: User, conversationId: string, text: string, attachments: AttachmentRow[], reply: ReplyTarget | null): Promise<string> {
     const context = await this.tabQuestionContextFor(user, conversationId);
-    return [context, attachmentContext(attachments), text].filter((part): part is string => typeof part === 'string' && part.length > 0).join('\n\n');
+    return [context, attachmentContext(attachments), replyContext(reply), text].filter((part): part is string => typeof part === 'string' && part.length > 0).join('\n\n');
   }
 
   private enqueue(conversationId: string, turn: QueuedTurn): void {
@@ -993,19 +1017,26 @@ export class ChatService {
    * so it is answered at once, even with subagents at work. Otherwise it is queued, shown right away,
    * and answered by the next process. A decision (`beforeRun`) is never queued here: it keeps its own
    * durable path (409 → queued note → `drainNextDecision`).
+   *
+   * Either way, a process that takes no input is asked to give way: one that only a subagent keeps
+   * alive is ended, so what waits behind it runs now and not when the subagent is done.
    */
   private async startWhileBusy(user: User, conversation: ChatConversation, text: string, opts?: StartOptions): Promise<StartedRun> {
     // "Nova conversa" is archiving this thread: nothing typed now belongs in it.
     if (this.resetting.has(conversation.id)) throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
     const live = this.live.get(conversation.id);
-    if (!live?.accepting && opts?.beforeRun) throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
+    if (!live?.accepting && opts?.beforeRun) {
+      live?.giveWay();
+      throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
+    }
     // The attachments this message names, checked with reads only (spec 2026-09-26 §5.5), as in
     // `startIn`: a bad id is a message never sent — 409, nothing stored, no decision marked, no tab
     // context stamped — whether the message is injected or queued.
     const attachable = await this.attachableRows(user, conversation.id, opts?.attachmentIds ?? []);
+    const reply = await this.replyTargetFor(conversation.id, opts?.replyToId);
     if (live?.accepting && opts?.beforeRun) await opts.beforeRun();
-    let runText = live?.accepting ? await this.runTextFor(user, conversation.id, text, attachable.rows) : undefined;
-    const { question, answer } = await this.storeTurn(user, conversation.id, text, attachable);
+    let runText = live?.accepting ? await this.runTextFor(user, conversation.id, text, attachable.rows, reply) : undefined;
+    const { question, answer } = await this.storeTurn(user, conversation.id, text, attachable, reply);
     const d = deferred();
     const started = { conversation_id: conversation.id, user_message_id: question.id, assistant_message_id: answer.id, done: d.promise };
     // Re-read after the awaits above: the process may have ended its input in between, and a newer one
@@ -1013,15 +1044,32 @@ export class ChatService {
     // would leave the message waiting until it ends.
     const now = this.live.get(conversation.id);
     if (now?.accepting) {
-      runText ??= await this.runTextFor(user, conversation.id, text, attachable.rows);
+      runText ??= await this.runTextFor(user, conversation.id, text, attachable.rows, reply);
       if (this.live.get(conversation.id) === now && now.add({ uuid: randomUUID(), text: runText, question, answer, settle: d.settle })) return started;
     }
-    this.enqueue(conversation.id, { userId: user.id, text, runText, attachments: attachable.rows, question, answer, settle: d.settle });
+    this.enqueue(conversation.id, { userId: user.id, text, runText, attachments: attachable.rows, reply, question, answer, settle: d.settle });
     // Announced here, before the queue may run: `launchQueued` can close this turn at once.
     chatBus.publish({ type: 'run_started', user_id: user.id, conversation_id: conversation.id, message_id: answer.id });
+    this.live.get(conversation.id)?.giveWay();
     // The process may already be gone, with the lock released during the awaits above.
     if (!this.running.has(conversation.id)) void this.launchQueued(user, conversation.id);
     return started;
+  }
+
+  /**
+   * The message a reply answers (TER-447), read before anything is written, like `attachableRows`: it
+   * must belong to this conversation (`findMessagesByIds` refuses any other, and the conversation is
+   * the caller's own) and have something in it — text, or files. An empty assistant row (an answer
+   * still being written, or one that never came) is not quotable. Anything else is a message never
+   * sent: 409, nothing stored, nothing stamped.
+   */
+  private async replyTargetFor(conversationId: string, id: string | undefined): Promise<ReplyTarget | null> {
+    if (id === undefined) return null;
+    const [row] = await this.deps.repos.chat.findMessagesByIds(conversationId, [id]);
+    if (!row) throw replyUnavailable();
+    const attachmentNames = row.text ? [] : (await this.deps.repos.chatAttachments.listForMessages([row.id])).map((a) => a.name);
+    if (!row.text && attachmentNames.length === 0) throw replyUnavailable();
+    return { id: row.id, role: row.role, text: row.text, attachmentNames };
   }
 
   /**
@@ -1123,6 +1171,8 @@ export class ChatService {
       // a message never sent, so this comes before the host is pinned, before a decision is marked
       // injected and before the tab context is stamped.
       const attachable = await this.attachableRows(user, conversation.id, opts?.attachmentIds ?? []);
+      // The message this one answers (TER-447), under the same rule: read before anything is written.
+      const reply = await this.replyTargetFor(conversation.id, opts?.replyToId);
 
       // The host this run uses is the host this conversation has, and from here on it says so: a
       // conversation whose machine was auto-picked (one candidate, nothing stored) is otherwise
@@ -1144,8 +1194,8 @@ export class ChatService {
       // mark a decision injected that it never actually sent (fix round 2).
       if (opts?.beforeRun) await opts.beforeRun();
 
-      const runText = await this.runTextFor(user, conversation.id, text, attachable.rows);
-      const { question, answer } = await this.storeTurn(user, conversation.id, text, attachable);
+      const runText = await this.runTextFor(user, conversation.id, text, attachable.rows, reply);
+      const { question, answer } = await this.storeTurn(user, conversation.id, text, attachable, reply);
       const started = { conversation_id: conversation.id, user_message_id: question.id, assistant_message_id: answer.id };
 
       // Not awaited: this call resolves now, and the lock passes to the run, whose own `finally`
@@ -1434,7 +1484,7 @@ export class ChatService {
         // effect already is the mediation the gate exists to add.
         token = await mintConciergeToken(this.deps.repos, user.id, conversation.id, ['read', 'tasks', 'terminals', 'memory'], { accountWide: conversation.project_id === null });
       } catch {
-        if (this.suspending) live.rejectOpen(serverRestarting());
+        if (this.suspending) await live.rejectOpen(serverRestarting());
         else await live.failOpen('TOKEN_FAILED');
         return;
       }
@@ -1468,7 +1518,7 @@ export class ChatService {
         // A graceful shutdown killed the process: its turns stay open, for the instance that resumes
         // them, and whoever waits on one is answered now instead of never.
         if (this.suspending) {
-          live.rejectOpen(serverRestarting());
+          await live.rejectOpen(serverRestarting());
           return;
         }
         // The account hit its usage limit and the turn that met it waits again (TER-588): it goes on
@@ -1499,7 +1549,7 @@ export class ChatService {
       // A database failure mid-run must not leave `done` hanging for ever, nor escape as an unhandled
       // rejection: the open turns are failed as a runner failure, and only the label is logged.
       console.error('chat: live run failed', { conversation_id: conversation.id, error: failureLabel(err) });
-      if (this.suspending) live.rejectOpen(serverRestarting());
+      if (this.suspending) await live.rejectOpen(serverRestarting());
       else await live.failOpen('RUNNER_FAILED').catch(() => {});
     } finally {
       this.live.delete(conversation.id);
@@ -1564,7 +1614,7 @@ export class ChatService {
         const stored = queue.map((q) => ({
           question_id: q.question.id,
           answer_id: q.answer.id,
-          text: q.runText ?? [attachmentContext(q.attachments), q.text].filter(Boolean).join('\n\n'),
+          text: q.runText ?? [attachmentContext(q.attachments), replyContext(q.reply), q.text].filter(Boolean).join('\n\n'),
         }));
         const held = rows.get(conversationId);
         rows.set(conversationId, { userId: held?.userId ?? queue[0].userId, turns: [...(held?.turns ?? []), ...stored] });
@@ -1786,7 +1836,7 @@ export class ChatService {
       if (streamed) carried = await this.takeOver(user, conversation);
       taken = streamed ? queue.splice(0) : queue.splice(0, 1);
       const turns: LiveTurn[] = [];
-      for (const q of taken) turns.push({ uuid: randomUUID(), text: q.runText ?? (await this.runTextFor(user, conversationId, q.text, q.attachments)), question: q.question, answer: q.answer, settle: q.settle });
+      for (const q of taken) turns.push({ uuid: randomUUID(), text: q.runText ?? (await this.runTextFor(user, conversationId, q.text, q.attachments, q.reply)), question: q.question, answer: q.answer, settle: q.settle });
       // A one-shot run takes a single queued turn, whose question row always exists.
       const oneShot = taken[0];
       // From here the run owns the lock and releases it itself, and settles the turns.

@@ -1,9 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { chatGrantListQuery, chatGrantListResponse, chatProjectsResponse, decisionProofMessage, deviceSelf, hostOptionsResponse, mobileBatchDecisionBody, mobileDecisionBody, mobileMessageBody, sendAccepted, type PinDecision } from '@termhub/mobile-api';
+import { chatGrantListQuery, chatGrantListResponse, chatProjectsResponse, decisionProofMessage, deviceSelf, hostOptionsResponse, mobileBatchDecisionBody, projectFavoriteBody, mobileDecisionBody, mobileMessageBody, sendAccepted, type PinDecision } from '@termhub/mobile-api';
 import type { ChatAction } from '../db/repositories/chat-actions.js';
 import type { Device } from '../db/repositories/devices.js';
 import type { Repositories } from '../db/repositories/index.js';
+import { ProjectGroupRuleError } from '../db/repositories/project-groups.js';
 import { chatMemoryRoutes } from './chat-memory.js';
 import { type IndexActionsFn } from './chat.js';
 import { describeActions } from '../db/repositories/chat-actions-view.js';
@@ -46,6 +47,7 @@ const actionIdParam = z.object({ id: z.string().min(1).max(64) });
 const grantIdParam = z.object({ id: z.string().min(1).max(64) });
 const tabQuestionIdParam = z.object({ id: z.string().min(1).max(64) });
 const subagentIdParam = z.object({ id: z.string().min(1).max(64) });
+const projectIdParam = z.object({ id: z.string().min(1).max(64) });
 const hostBody = z.object({ machine_id: z.string().min(1).max(64), ai_account_id: z.string().min(1).max(64).nullish() });
 
 /**
@@ -144,10 +146,12 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
   /** The user's projects, with their chat's status; a project with no conversation yet is idle. */
   app.get('/projects', async (request) => {
     const user = request.scope.user;
-    const [projects, statuses, conversations] = await Promise.all([
+    const [projects, statuses, conversations, groups] = await Promise.all([
       repos.projects.list({ owner: user.id }),
       deps.chat.projectStatuses(user),
       repos.chat.listActiveProjectConversations(user.id),
+      // `read`, never `list`: a GET must not create the Favoritos row.
+      repos.projectGroups.read(user.id),
     ]);
     const statusOf = new Map(statuses.map((s) => [s.project_id, s]));
     const lastOf = new Map(conversations.map((c) => [c.project_id, c.last_message_at]));
@@ -159,6 +163,11 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
       const s = statusOf.get(p.id);
       return !!s && (s.busy || s.pending_confirmations > 0);
     });
+    // The web sidebar's Favoritos (TER-541): places counted over the projects listed here only, so
+    // they stay dense when a member is archived or out of scope.
+    const listed = new Set(visible.map((p) => p.id));
+    const pinned = (groups.find((g) => g.kind === 'favorites')?.project_ids ?? []).filter((id) => listed.has(id));
+    const placeOf = new Map(pinned.map((id, i) => [id, i]));
     return chatProjectsResponse.parse({
       projects: visible.map((p) => ({
         id: p.id,
@@ -167,8 +176,25 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
         busy: statusOf.get(p.id)?.busy ?? false,
         pending_confirmations: statusOf.get(p.id)?.pending_confirmations ?? 0,
         last_message_at: lastOf.get(p.id) ?? null,
+        favorite_position: placeOf.get(p.id) ?? null,
       })),
     });
+  });
+
+  /** Pins or unpins a project in the signed-in user's Favoritos, the web sidebar's group (TER-541). */
+  app.put('/projects/:id/favorite', async (request, reply) => {
+    const user = request.scope.user;
+    const { id } = projectIdParam.parse(request.params);
+    const { favorite } = projectFavoriteBody.parse(request.body);
+    const [project] = await repos.projects.findByIdsForOwner([id], user.id);
+    if (!project) throw notFound('Projeto não encontrado');
+    try {
+      await repos.projectGroups.setFavorite(user.id, project.id, favorite);
+    } catch (e) {
+      if (e instanceof ProjectGroupRuleError) throw new HttpError(400, e.message, e.code);
+      throw e;
+    }
+    return reply.code(204).send();
   });
 
   /** The machines the chat can run on (agent ones), live state and Claude accounts, in one call. */
@@ -217,8 +243,8 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
    * the same tick `start` resolved: nothing else awaits it, and an unhandled rejection kills the process.
    */
   app.post('/messages', { config: { action: 'create' } }, async (request, reply) => {
-    const { text, project_id, attachment_ids } = mobileMessageBody.parse(request.body);
-    const started = await deps.chat.start(request.scope.user, text, { projectId: project_id ?? null, ...(attachment_ids ? { attachmentIds: attachment_ids } : {}) });
+    const { text, project_id, attachment_ids, reply_to_id } = mobileMessageBody.parse(request.body);
+    const started = await deps.chat.start(request.scope.user, text, { projectId: project_id ?? null, ...(attachment_ids ? { attachmentIds: attachment_ids } : {}), ...(reply_to_id ? { replyToId: reply_to_id } : {}) });
     started.done.catch((err) => request.log.warn({ code: failureLabel(err), conversationId: started.conversation_id }, 'mobile run failed after start'));
     return reply.code(202).send(sendAccepted.parse({ conversation_id: started.conversation_id, user_message_id: started.user_message_id, assistant_message_id: started.assistant_message_id }));
   });
