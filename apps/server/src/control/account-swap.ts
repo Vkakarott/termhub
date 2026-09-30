@@ -50,6 +50,22 @@ export function rankCandidates(accounts: AiAccount[], usage: Map<string, AiAccou
     .map((s) => s.a);
 }
 
+/**
+ * What the tab's project says about swapping (TER-589 fills this in): `priority` orders the candidate
+ * accounts (ids), `model` is passed to the resumed session, and `autoSwap` turns the automatic swap on
+ * for the project's tabs even when the machine has it off. Nothing is configured today: `{}` keeps the
+ * machine's setting, the ranking by free room and the account's own default model.
+ */
+export interface SwapPreferences {
+  priority?: string[];
+  model?: string | null;
+  autoSwap?: boolean;
+}
+
+export async function swapPreferences(_repos: Repositories, _tab: Tab): Promise<SwapPreferences> {
+  return {};
+}
+
 /** Tabs with a swap running: one at a time per tab (in-process, like the monitor bus). */
 const swapping = new Set<string>();
 
@@ -117,6 +133,8 @@ export async function swapAccount(
     } else {
       pool = here.filter((a) => a.id !== tab.ai_account_id);
     }
+    // TER-589 extension point: load `swapPreferences(repos, tab)` here; its `priority` goes to
+    // rankCandidates below and its `model` to resumeLine.
     // getAccountUsage never rejects: a failed reading comes back as `ok: false` and ranks last
     const usage = new Map<string, AiAccountUsage>();
     await Promise.all(pool.map(async (a) => usage.set(a.id, await getAccountUsage(a, machine, true))));
@@ -164,6 +182,14 @@ export async function swapAccount(
         }
       }
       await sleep(RESUME_SETTLE_MS);
+      // Leaving a session whose worktree had no changes removes the worktree, and Claude Code moves the
+      // transcript to the main repository's project dir (TER-587): the link made above now points
+      // nowhere. Link again, where the transcript is now (the script looks it up by session id).
+      const relinked = await linkClaudeSession(machine, { transcriptPath, sessionId, configDir: to.config_dir });
+      log.info({ tabId: tab.id, machineId: machine.id, accountId: to.id, status: relinked }, 'account swap: relink after exit');
+      if (relinked !== 'linked') {
+        throw new ControlError('RELINK_FAILED', `O Claude saiu, mas a sessão não pôde ser preparada na conta ${to.label} (${relinked}). Retome a sessão na aba.`);
+      }
     }
     // Recorded before the line is typed, so the resumed session's first hooks (or a fast StopFailure)
     // land after it and are not overwritten. Workspace trust is stored per account: the resumed Claude
@@ -185,32 +211,48 @@ export async function swapAccount(
 export const AUTO_SWAP_COOLDOWN_MS = 10 * 60_000;
 /** Claude Code draws its "waiting for the reset" prompt right after the hook: let it settle first. */
 export const AUTO_SWAP_DELAY_MS = 3_000;
+/** When the last automatic swap of each tab was attempted. */
 const lastAuto = new Map<string, number>();
+/** Tabs with an automatic swap waiting for AUTO_SWAP_DELAY_MS: one per incident. */
+const scheduled = new Set<string>();
 
 /**
- * A tab hit a usage limit: when its machine opted in, swap it by itself — at most once per tab per
- * AUTO_SWAP_COOLDOWN_MS, so two exhausted accounts never ping-pong. Fire-and-forget; a failure is
- * written on the tab (the person still sees the limit) and never thrown.
+ * A tab hit a usage limit: when its machine (or its project, TER-589) wants it, swap it by itself — at
+ * most one attempt per tab per AUTO_SWAP_COOLDOWN_MS, so two exhausted accounts never ping-pong. The
+ * cooldown counts from an attempt, not from a call that found the limit already over, and a second
+ * StopFailure of the same incident (a queued prompt failing too) is skipped while the first call
+ * waits. Fire-and-forget; a failure is written on the tab (the person still sees the limit) and never
+ * thrown.
  */
 export function autoSwapOnLimit(repos: Repositories, log: FastifyBaseLogger, tab: Tab): void {
   void (async () => {
     const machine = await repos.machines.findById(tab.machine_id);
-    if (!machine?.claude_auto_swap) return;
-    const now = Date.now();
+    if (!machine) return;
+    if (!machine.claude_auto_swap && (await swapPreferences(repos, tab)).autoSwap !== true) return;
+    if (scheduled.has(tab.id)) {
+      log.info({ tabId: tab.id, machineId: machine.id }, 'account swap: auto skipped (already scheduled)');
+      return;
+    }
     const last = lastAuto.get(tab.id);
-    if (last !== undefined && now - last < AUTO_SWAP_COOLDOWN_MS) {
+    if (last !== undefined && Date.now() - last < AUTO_SWAP_COOLDOWN_MS) {
       log.info({ tabId: tab.id, machineId: machine.id }, 'account swap: auto skipped (cooldown)');
       return;
     }
-    lastAuto.set(tab.id, now);
-    await new Promise((r) => setTimeout(r, AUTO_SWAP_DELAY_MS));
-    // The snapshot is from the hook: during the delay the person may have swapped by hand (the limit
-    // is cleared) or a newer limit arrived (its own call handles it). Only the same incident goes on.
-    const fresh = await repos.tabs.findById(tab.id);
+    scheduled.add(tab.id);
+    let fresh: Tab | undefined;
+    try {
+      await new Promise((r) => setTimeout(r, AUTO_SWAP_DELAY_MS));
+      // The snapshot is from the hook: during the delay the person may have swapped by hand, or the
+      // account worked again (the limit is cleared). Only the same incident goes on.
+      fresh = await repos.tabs.findById(tab.id);
+    } finally {
+      scheduled.delete(tab.id);
+    }
     if (!fresh || !fresh.rate_limited_at || fresh.rate_limited_at !== tab.rate_limited_at) {
       log.info({ tabId: tab.id, machineId: machine.id }, 'account swap: auto skipped (limit no longer current)');
       return;
     }
+    lastAuto.set(tab.id, Date.now());
     try {
       await swapAccount(repos, log, fresh, machine, { auto: true });
     } catch (e) {

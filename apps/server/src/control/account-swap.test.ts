@@ -31,6 +31,7 @@ import {
   rankCandidates,
   peakUtilization,
   swapAccount,
+  swapPreferences,
   SWAP_MAX_UTILIZATION,
 } from './account-swap.js';
 
@@ -173,10 +174,12 @@ describe('swapAccount', () => {
     expect(result).toEqual({ from: { id: 'a1', label: 'a1' }, to: { id: 'a3', label: 'a3' } });
     // only the other Claude accounts of m1 were read, with a fresh reading
     expect(getAccountUsage.mock.calls.map((c) => [c[0].id, c[2]]).sort()).toEqual([['a2', true], ['a3', true]]);
-    expect(linkClaudeSession).toHaveBeenCalledTimes(1);
-    expect(linkClaudeSession).toHaveBeenCalledWith(m, { transcriptPath: TRANSCRIPT, sessionId: SID, configDir: null });
+    // linked before the tab is touched, and again once Claude exited (it may have moved the transcript)
+    expect(linkClaudeSession).toHaveBeenCalledTimes(2);
+    expect(linkClaudeSession).toHaveBeenNthCalledWith(1, m, { transcriptPath: TRANSCRIPT, sessionId: SID, configDir: null });
+    expect(linkClaudeSession).toHaveBeenNthCalledWith(2, m, { transcriptPath: TRANSCRIPT, sessionId: SID, configDir: null });
     const line = resumeLine(null, SID, RESUME_PROMPT);
-    expect(order).toEqual(['link:null', 'key:Escape', 'text:/exit', 'record', 'state', `text:${line}`]);
+    expect(order).toEqual(['link:null', 'key:Escape', 'text:/exit', 'link:null', 'record', 'state', `text:${line}`]);
     expect(sendKeyToSession).toHaveBeenCalledWith(m, 'th-t1', 'Escape');
     expect(sendTextToSession).toHaveBeenCalledWith(m, 'th-t1', '/exit', true);
     expect(sendTextToSession).toHaveBeenCalledWith(m, 'th-t1', line, true);
@@ -250,7 +253,7 @@ describe('swapAccount', () => {
     const { r } = makeRepos();
     linkClaudeSession.mockImplementation(async (_m, input: { configDir: string | null }) => (input.configDir === null ? 'same_account' : 'linked'));
     const result = await drive(swapAccount(r, log, baseTab(), machine(), { auto: false }));
-    expect(linkClaudeSession.mock.calls.map((c) => c[1].configDir)).toEqual([null, '~/.claude_b']);
+    expect(linkClaudeSession.mock.calls.map((c) => c[1].configDir)).toEqual([null, '~/.claude_b', '~/.claude_b']);
     expect(result.to).toEqual({ id: 'a2', label: 'a2' });
     expect(sendTextToSession).toHaveBeenLastCalledWith(expect.anything(), 'th-t1', resumeLine('~/.claude_b', SID, RESUME_PROMPT), true);
 
@@ -313,6 +316,31 @@ describe('swapAccount', () => {
     expect(sendKeyToSession).not.toHaveBeenCalled();
     expect(sendTextToSession).toHaveBeenCalledTimes(1);
     expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), 'th-t1', resumeLine(null, SID, RESUME_PROMPT), true);
+  });
+
+  it('links again once Claude exited: a worktree removed on exit moves the transcript (TER-587)', async () => {
+    const { repos, r } = makeRepos();
+    // the first link finds the transcript; after /exit it lives elsewhere and the new agent finds it there
+    linkClaudeSession.mockResolvedValueOnce('linked').mockResolvedValueOnce('linked');
+    await expect(drive(swapAccount(r, log, baseTab(), machine(), { auto: true }))).resolves.toMatchObject({ to: { id: 'a3' } });
+    expect(linkClaudeSession).toHaveBeenCalledTimes(2);
+    expect(repos.tabs.setAgentFields).toHaveBeenCalledWith('t1', { ai_account_id: 'a3', rate_limited_at: null });
+  });
+
+  it('RELINK_FAILED when the session cannot be linked after the exit: nothing is recorded or resumed', async () => {
+    const { repos, r } = makeRepos();
+    linkClaudeSession.mockResolvedValueOnce('linked').mockResolvedValueOnce('no_transcript');
+    await expect(drive(swapAccount(r, log, baseTab(), machine(), { auto: true }))).rejects.toMatchObject({
+      code: 'RELINK_FAILED',
+      message: 'O Claude saiu, mas a sessão não pôde ser preparada na conta a3 (no_transcript). Retome a sessão na aba.',
+    });
+    expect(sendTextToSession.mock.calls.map((c) => c[2])).toEqual(['/exit']);
+    expect(repos.tabs.setAgentFields).not.toHaveBeenCalled();
+    expect(applyState).not.toHaveBeenCalled();
+    // the lock is released
+    stored = baseTab({ state: 'idle' });
+    linkClaudeSession.mockResolvedValue('linked');
+    await expect(drive(swapAccount(r, log, baseTab(), machine(), { auto: false }))).resolves.toMatchObject({ to: { id: 'a3' } });
   });
 
   it('sees an idle that landed before it subscribed (re-reads the tab)', async () => {
@@ -466,6 +494,39 @@ describe('autoSwapOnLimit', () => {
     autoSwapOnLimit(r, log, tab);
     await vi.advanceTimersByTimeAsync(AUTO_SWAP_DELAY_MS);
     expect(linkClaudeSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('a second limit of the same incident while the first call waits is skipped; the first one swaps (TER-587)', async () => {
+    const { repos, r } = makeRepos();
+    repos.machines.findById.mockResolvedValue(machine({ claude_auto_swap: true }));
+    stored = baseTab({ id: 'auto8', state: 'idle' });
+    autoSwapOnLimit(r, log, stored);
+    await vi.advanceTimersByTimeAsync(1_000);
+    // the queued prompt failed on the limit too: same rate_limited_at (ingest keeps the first one)
+    autoSwapOnLimit(r, log, stored);
+    await vi.advanceTimersByTimeAsync(AUTO_SWAP_DELAY_MS);
+    expect(linkClaudeSession).toHaveBeenCalledTimes(1);
+    expect(log.info).toHaveBeenCalledWith({ tabId: 'auto8', machineId: 'm1' }, 'account swap: auto skipped (already scheduled)');
+  });
+
+  it('a call that found the limit over starts no cooldown: the next limit of the tab swaps (TER-587)', async () => {
+    const { repos, r } = makeRepos();
+    repos.machines.findById.mockResolvedValue(machine({ claude_auto_swap: true }));
+    stored = baseTab({ id: 'auto9', state: 'idle' });
+    autoSwapOnLimit(r, log, stored);
+    stored = { ...stored, rate_limited_at: null } as Tab; // a normal Stop: the account worked again
+    await vi.advanceTimersByTimeAsync(AUTO_SWAP_DELAY_MS);
+    expect(linkClaudeSession).not.toHaveBeenCalled();
+
+    stored = baseTab({ id: 'auto9', state: 'idle', rate_limited_at: '2026-09-26T10:05:00.000Z' });
+    autoSwapOnLimit(r, log, stored);
+    await vi.advanceTimersByTimeAsync(AUTO_SWAP_DELAY_MS);
+    expect(linkClaudeSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('swapPreferences is the TER-589 seam: nothing configured today', async () => {
+    const { r } = makeRepos();
+    await expect(swapPreferences(r, baseTab())).resolves.toEqual({});
   });
 
   it('records a failed automatic swap on the tab and never throws', async () => {
