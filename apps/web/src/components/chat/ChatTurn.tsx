@@ -3,6 +3,7 @@ import type { MouseEvent } from 'react';
 import { decorateCodeBlocks } from '../../lib/code-blocks';
 import { renderMarkdown } from '../../lib/markdown';
 import { splitSettled } from '../../lib/markdown-split';
+import { limitSentence, swapSentence } from '../../lib/chat-notice';
 import type { ChatErrorCode, ChatMessage } from '../../lib/types';
 import { MessageAttachments } from './MessageAttachments';
 
@@ -35,7 +36,17 @@ const FAILURE_LINE: Record<ChatErrorCode, string> = {
   // problem with it. What unblocks the chat is closing a few terminals, and nothing else.
   HOST_BUSY: 'A máquina do chat está com terminais demais abertos e não sobrou espaço para a conversa. Feche algumas abas e mande a mensagem de novo.',
   AGENT_TOO_OLD: 'O agente dessa máquina ainda não sabe rodar o chat. Atualize o agente e tente de novo.',
+  // The answer's notice says more (which account, when it resets): see `failureLine`.
+  USAGE_LIMIT: limitSentence(undefined),
+  MODEL_UNAVAILABLE: 'O Claude Code dessa máquina não reconhece o modelo escolhido para o chat. Escolha outro modelo ou atualize o claude nela.',
+  AUTH_FAILED: 'A conta do Claude deste chat não está logada nessa máquina. Faça o login nela (claude, depois /login) e mande a mensagem de novo.',
 };
+
+/** The sentence under a stopped answer: the limit's own, with its reset time, or the code's. */
+function failureLine(message: ChatMessage): string {
+  if (message.error_code === 'USAGE_LIMIT') return limitSentence(message.notice);
+  return (message.error_code && FAILURE_LINE[message.error_code]) || GENERIC_FAILURE;
+}
 
 /** The two things a copy attempt can end as, in the words the block shows and the ones it announces. */
 const COPY_OUTCOME = {
@@ -178,6 +189,7 @@ export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, wait
        * path quoted off a terminal; `overflow-x-auto` contains what cannot wrap, since a six-column
        * GFM table's min-content width does not shrink, and gives that scroll to the answer instead of
        * to the thread. `pre` keeps its own horizontal scroll either way. */}
+      {message.notice?.kind === 'account_swap' && <p className="mb-1 text-xs text-fg-dim">{swapSentence(message.notice)}</p>}
       {body && (
         <div
           // `min-h-10` reserves one line (a paragraph and its margins) under "pensando…", so the first
@@ -201,7 +213,7 @@ export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, wait
           ))}
         </div>
       )}
-      {failed && <p className="mt-1 text-xs text-danger">{(message.error_code && FAILURE_LINE[message.error_code]) || GENERIC_FAILURE}</p>}
+      {failed && <p className="mt-1 text-xs text-danger">{failureLine(message)}</p>}
     </li>
   );
 });
