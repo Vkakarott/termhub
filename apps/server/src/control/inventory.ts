@@ -151,10 +151,11 @@ export async function listAiAccounts(ctx: ControlContext, input: { machine_id?: 
   if (input.machine_id) await ctx.scoped.machine(input.machine_id);
   const [accounts, names] = await Promise.all([ctx.repos.aiAccounts.list(ctx.scope.ownerId), machineNames(ctx)]);
   return {
-    // never config_dir: it is a path on the user's machine and not needed to pick an account
+    // never config_dir: it is a path on the user's machine and not needed to pick an account. `default`
+    // is: the account without one is the machine's own login for that CLI (spec 2026-09-30 TER-499 D3).
     accounts: accounts
       .filter((a) => !input.machine_id || a.machine_id === input.machine_id)
-      .map((a) => ({ id: a.id, provider: a.provider, label: a.label, machine_id: a.machine_id, machine_name: names.get(a.machine_id) ?? null })),
+      .map((a) => ({ id: a.id, provider: a.provider, label: a.label, machine_id: a.machine_id, machine_name: names.get(a.machine_id) ?? null, default: a.config_dir === null })),
   };
 }
 
@@ -181,6 +182,8 @@ export interface FindMatch {
   machine_id: string | null;
   machine_name: string | null;
   score: number;
+  /** ai_account matches only: whether it is the machine's default login for its CLI (no config dir) */
+  default?: boolean;
   /** ticket matches only: the project it belongs to (what import_tickets needs) */
   project_id?: string;
   /** ticket matches only: its card when imported, null when not yet */
@@ -206,9 +209,9 @@ export async function find(ctx: ControlContext, input: { query: string; kinds?: 
   const machines = await ctx.repos.machines.list(ctx.scope.ownerId);
   const names = new Map(machines.map((m) => [m.id, m.name]));
   const matches: FindMatch[] = [];
-  const add = (kind: FindKind, id: string, name: string, machineId: string | null, key?: string) => {
+  const add = (kind: FindKind, id: string, name: string, machineId: string | null, key?: string, extra?: Pick<FindMatch, 'default'>) => {
     const s = Math.max(score(name, query), key && normalizeName(key) === query ? 3 : 0);
-    if (s > 0) matches.push({ kind, id, name, machine_id: machineId, machine_name: machineId ? (names.get(machineId) ?? null) : null, score: s });
+    if (s > 0) matches.push({ kind, id, name, machine_id: machineId, machine_name: machineId ? (names.get(machineId) ?? null) : null, score: s, ...extra });
   };
   if (kinds.has('machine') && canMachines) for (const m of machines) add('machine', m.id, m.name, null);
   // Read once, only with the grant: the projects and the groups both need it.
@@ -223,7 +226,7 @@ export async function find(ctx: ControlContext, input: { query: string; kinds?: 
       groupsUnavailable(ctx, 'find', err);
     }
   }
-  if (kinds.has('ai_account') && canAccounts) for (const a of await ctx.repos.aiAccounts.list(ctx.scope.ownerId)) add('ai_account', a.id, a.label, a.machine_id);
+  if (kinds.has('ai_account') && canAccounts) for (const a of await ctx.repos.aiAccounts.list(ctx.scope.ownerId)) add('ai_account', a.id, a.label, a.machine_id, undefined, { default: a.config_dir === null });
   // A card only by its exact ref ("TER-12"): titles are not names. Another owner's card is simply no match.
   if (kinds.has('task') && canTasks && parseRef(input.query)) {
     try {

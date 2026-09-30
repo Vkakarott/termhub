@@ -50,7 +50,11 @@ const groups: ProjectGroup[] = [
   { id: 'g2', name: 'Pessoal', kind: 'custom', position: 2, project_ids: ['p2'] },
   { id: 'g3', name: 'pessoal', kind: 'custom', position: 3, project_ids: ['p1'] },
 ];
-const accounts = [account({ id: 'a1', label: 'pedrogoiania', machine_id: 'm1' }), account({ id: 'ax', label: 'pedrogoiania', machine_id: 'mx' })];
+const accounts = [
+  account({ id: 'a1', label: 'pedrogoiania', machine_id: 'm1' }),
+  account({ id: 'a2', label: 'Claude da casa', machine_id: 'm1', config_dir: null }),
+  account({ id: 'ax', label: 'pedrogoiania', machine_id: 'mx' }),
+];
 
 function ctx(grants: string[] = ['machines:read', 'projects:read', 'terminals:read', 'ai_accounts:read']): ControlContext {
   const repos = {
@@ -257,8 +261,12 @@ describe('listTabs', () => {
 describe('listAiAccounts', () => {
   it('lists the owner\'s accounts without the config dir', async () => {
     const r = await listAiAccounts(ctx(), {});
-    expect(r.accounts).toEqual([{ id: 'a1', provider: 'claude', label: 'pedrogoiania', machine_id: 'm1', machine_name: 'MacBook Pro M4' }]);
+    expect(r.accounts).toEqual([
+      { id: 'a1', provider: 'claude', label: 'pedrogoiania', machine_id: 'm1', machine_name: 'MacBook Pro M4', default: false },
+      { id: 'a2', provider: 'claude', label: 'Claude da casa', machine_id: 'm1', machine_name: 'MacBook Pro M4', default: true },
+    ]);
     expect(JSON.stringify(r)).not.toContain('claude-secret');
+    expect(JSON.stringify(r)).not.toContain('config_dir');
   });
 });
 
@@ -274,6 +282,15 @@ describe('find', () => {
     expect(acc.matches.map((m) => `${m.kind}:${m.id}`)).toEqual(['ai_account:a1']);
 
     expect((await find(ctx(), { query: 'p2' })).matches[0]).toMatchObject({ kind: 'project', id: 'p2' });
+  });
+
+  // TER-499: which account is the machine's own login is what start_agent's caller needs; the path never is.
+  it('says whether an account match is the default login of its machine, and only for accounts', async () => {
+    const r = await find(ctx(), { query: 'claude da casa' });
+    expect(r.matches).toEqual([{ kind: 'ai_account', id: 'a2', name: 'Claude da casa', machine_id: 'm1', machine_name: 'MacBook Pro M4', score: 3, default: true }]);
+    const other = await find(ctx(), { query: 'pedrogoiania', kinds: ['ai_account'] });
+    expect(other.matches[0]).toMatchObject({ id: 'a1', default: false });
+    expect((await find(ctx(), { query: 'macbook' })).matches[0]).not.toHaveProperty('default');
   });
 
   it('ranks exact > prefix > contains > all words', async () => {
