@@ -29,6 +29,10 @@ const FAILURE_LINE: Partial<Record<ChatErrorCode, string>> = {
   // problem with it. What unblocks the chat is closing a few terminals, and nothing else.
   HOST_BUSY: 'A máquina do chat está com terminais demais abertos e não sobrou espaço para a conversa. Feche algumas abas e mande a mensagem de novo.',
   AGENT_TOO_OLD: 'O agente dessa máquina ainda não sabe rodar o chat. Atualize o agente e tente de novo.',
+  // The answer's notice says more (which account, when it resets): see `notice.ts`'s `limitSentence`.
+  USAGE_LIMIT: 'A conta do Claude deste chat atingiu o limite de uso. Espere o limite voltar e mande a mensagem de novo.',
+  MODEL_UNAVAILABLE: 'O Claude Code dessa máquina não reconhece o modelo escolhido para o chat. Escolha outro modelo ou atualize o claude nela.',
+  AUTH_FAILED: 'A conta do Claude deste chat não está logada nessa máquina. Faça o login nela (claude, depois /login) e mande a mensagem de novo.',
 };
 
 /** The sentence a stopped answer shows, one per `ChatErrorCode` (`ChatTurn.tsx`'s `FAILURE_LINE`). */
@@ -48,6 +52,9 @@ const KNOWN_CODES: Record<ChatErrorCode, true> = {
   HOST_GONE: true,
   AGENT_TOO_OLD: true,
   HOST_BUSY: true,
+  USAGE_LIMIT: true,
+  MODEL_UNAVAILABLE: true,
+  AUTH_FAILED: true,
 };
 
 /** Narrows the contract's `error_code: string` (a newer server may send a code this bundle does

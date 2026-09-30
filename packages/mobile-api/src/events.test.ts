@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { chatActionSchema, chatEventSchema, chatGrantListItemSchema, chatGrantListQuery, chatGrantListResponse, chatStandingGrantSchema, STANDING_GRANT_KINDS, subagentViewSchema, tabQuestionSchema, tabSuggestionSchema } from './events.js';
+import { chatActionSchema, chatMessage, chatEventSchema, chatGrantListItemSchema, chatGrantListQuery, chatGrantListResponse, chatStandingGrantSchema, STANDING_GRANT_KINDS, subagentViewSchema, tabQuestionSchema, tabSuggestionSchema } from './events.js';
 
 const base = { user_id: 'u1', conversation_id: 'c1' };
 const grant = { id: 'g1', tab_id: 't1', tool: 'send_input', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z', tab_name: 'api' };
@@ -215,5 +215,21 @@ describe('chatEventSchema: subagents', () => {
   });
   it('requires the subagent id on a failed cancel', () => {
     expect(chatEventSchema.safeParse({ type: 'subagent_cancel_failed', ...base }).success).toBe(false);
+  });
+});
+
+describe('chatMessage notice (TER-588)', () => {
+  const row = { id: 'm1', conversation_id: 'c1', role: 'assistant', text: '', usage: null, error_code: 'USAGE_LIMIT', created_at: '2026-09-30T06:00:00.000Z' };
+  it('reads the usage limit and the account swap, and a message without one', () => {
+    const limit = { kind: 'usage_limit', account: null, resets_at: '2026-09-30T06:20:00.000Z', fallback: 'none_free' };
+    expect(chatMessage.parse({ ...row, notice: limit }).notice).toEqual(limit);
+    const swap = { kind: 'account_swap', from: 'Pessoal', to: 'Trabalho', resets_at: null };
+    expect(chatMessage.parse({ ...row, notice: swap }).notice).toEqual(swap);
+    expect(chatMessage.parse(row).notice).toBeUndefined();
+  });
+  it('drops a notice it does not know instead of failing the message', () => {
+    const parsed = chatMessage.safeParse({ ...row, notice: { kind: 'something_new' } });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.notice).toBeUndefined();
   });
 });

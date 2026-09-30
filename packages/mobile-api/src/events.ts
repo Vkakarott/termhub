@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import { chatAttachment } from './attachments.js';
 
+/** Mirrors `ChatNotice` in `apps/server/src/db/repositories/chat.ts` (TER-588): the usage limit an answer
+ *  hit, or the account that took over. Account labels are null for the machine's default login. */
+export const chatNotice = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('usage_limit'), account: z.string().nullable(), resets_at: z.string().nullable(), fallback: z.enum(['none_free', 'no_other_account', 'auto_swap_off']) }),
+  z.object({ kind: z.literal('account_swap'), from: z.string().nullable(), to: z.string(), resets_at: z.string().nullable() }),
+]);
+export type ChatNotice = z.infer<typeof chatNotice>;
+
 /** Mirrors `ChatMessage` in `apps/server/src/db/repositories/chat.ts`. */
 export const chatMessage = z.object({
   id: z.string(),
@@ -12,6 +20,9 @@ export const chatMessage = z.object({
   created_at: z.string(),
   /** The files sent with a user message (spec 2026-09-26 §5.5); absent when there are none, and on older servers. */
   attachments: z.array(chatAttachment).optional(),
+  /** Absent when there is none, and on older servers. A shape this app does not know (a newer server)
+   *  is dropped rather than failing the whole message. */
+  notice: chatNotice.optional().catch(undefined),
 });
 
 /** Mirrors `ChatActionClass` in `apps/server/src/db/repositories/chat-actions.ts`. */

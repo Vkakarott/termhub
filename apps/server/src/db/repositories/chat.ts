@@ -1,4 +1,4 @@
-import type { ChatAttachment } from '@termhub/mobile-api';
+import type { ChatAttachment, ChatNotice } from '@termhub/mobile-api';
 import type { PrismaClient } from '../prisma.js';
 import { Prisma, type ChatConversation as PrismaConversation, type ChatMessage as PrismaMessage } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
@@ -40,15 +40,13 @@ export interface ChatContextUsage {
 const NO_SESSION = { cliSessionId: null, contextTokens: null, contextWindow: null } as const;
 
 /**
- * What the chat says about an answer besides its text (TER-588). `usage_limit`: the account the run
- * used hit its limit; `resets_at` is when it comes back, `fallback` why no other account answered
- * (`auto_swap_off`: the machine did not opt in to the automatic swap, `machines.claude_auto_swap`).
- * `account_swap`: the configured account was at its limit and `to` answered instead. Account labels
- * are null for the machine's default login.
+ * What the chat says about an answer besides its text (TER-588), in the one shape the app's contract
+ * also parses (`chatNotice` in @termhub/mobile-api). `usage_limit`: the account the run used hit its
+ * limit; `resets_at` is when it comes back, `fallback` why no other account answered (`auto_swap_off`:
+ * the machine did not opt in, `machines.claude_auto_swap`). `account_swap`: the configured account was
+ * at its limit and `to` answered instead. Account labels are null for the machine's default login.
  */
-export type ChatNotice =
-  | { kind: 'usage_limit'; account: string | null; resets_at: string | null; fallback: 'none_free' | 'no_other_account' | 'auto_swap_off' }
-  | { kind: 'account_swap'; from: string | null; to: string; resets_at: string | null };
+export type { ChatNotice };
 
 export interface ChatMessage {
   id: string;
