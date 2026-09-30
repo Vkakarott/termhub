@@ -287,6 +287,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
     chatGrants: { revokeForConversation: vi.fn(async () => 0), findActiveBySourceAction: vi.fn(async () => undefined) },
     chatProjectGrants: { revokeForConversation: vi.fn(async () => 0), findActiveBySourceAction: vi.fn(async () => undefined) },
     chatStandingGrants: { findActiveBySourceAction: vi.fn(async () => undefined), listActive: vi.fn(async () => []) },
+    chatDefaultRestrictions: { listForUser: vi.fn(async () => new Set()) },
     chatAttachments,
     chatSubagents,
     // The project's AI accounts and model (TER-589): absent unless a test configures them.
@@ -1430,7 +1431,18 @@ describe('project conversations', () => {
   it('says nothing about standing grants in the prompt when none are active (TER-386)', async () => {
     const { service, inputs } = build([delta('ok'), done()]);
     await service.send(user, 'oi', { projectId: 'p1' });
-    expect(inputs()[0].append_system_prompt).not.toContain('Liberado sem confirmação');
+    expect(inputs()[0].append_system_prompt).not.toContain('Liberado sem confirmação neste projeto');
+  });
+
+  it('tells the prompt which default allowances are on, leaving out the ones the person restricted (TER-627)', async () => {
+    const { service, inputs, repos } = build([delta('ok'), done()]);
+    vi.mocked(repos.chatDefaultRestrictions.listForUser).mockResolvedValueOnce(new Set(['terminal']) as never);
+    await service.send(user, 'oi', { projectId: 'p1' });
+    const prompt = inputs()[0].append_system_prompt as string;
+    expect(prompt).toContain('Liberado sem confirmação por padrão');
+    expect(prompt).toContain('abrir abas');
+    expect(prompt).not.toContain('teclas e texto nas abas de agente');
+    expect(repos.chatDefaultRestrictions.listForUser).toHaveBeenCalledWith('u1');
   });
 
   it('runs a project chat and the account-wide chat at the same time', async () => {

@@ -19,7 +19,7 @@ import { saveContext } from './context.js';
 import { streamedSystemPrompt } from './concierge-prompt.js';
 import { defaultEmbedder } from './embeddings.js';
 import { hostFailure, resolveHost, type HostAgents, type HostChoice } from './host.js';
-import { GRANTABLE_TOOL, STANDING_GRANT_BUDGETS, TAB_TERMINAL_GRANT, type StandingGrantKind } from './gate.js';
+import { DEFAULT_ALLOW_KINDS, GRANTABLE_TOOL, STANDING_GRANT_BUDGETS, TAB_TERMINAL_GRANT, type StandingGrantKind } from './gate.js';
 import { LiveRun, type LiveTurn } from './live-run.js';
 import { accountSystemPrompt, projectSystemPrompt } from './project-prompt.js';
 import { RESUME_WINDOW_MS, STALE_MS, resumeNote } from './resume.js';
@@ -952,12 +952,15 @@ export class ChatService {
     // TER-386: told once per run, like the machine list — a fresh grant or a revoke reaches the very
     // next message, never a stale prompt from an earlier run.
     const standing = (await this.deps.repos.chatStandingGrants.listActive(user.id, project.id)).map((g) => g.kind);
+    // TER-627: the default allowances this user did not restrict, told per run like the standing grants.
+    const restricted = await this.deps.repos.chatDefaultRestrictions.listForUser(user.id);
+    const defaults = DEFAULT_ALLOW_KINDS.filter((k) => !restricted.has(k));
     // The project's own groups, with the siblings that are not archived. Archived members are read so
     // that an archived project's own chat still finds its groups; they are dropped from the siblings.
     const groups = (await this.groupsFor(user, { archived: true }))
       .filter((g) => g.projects.some((m) => m.id === project.id))
       .map((g) => ({ name: g.name, siblings: g.projects.filter((m) => m.id !== project.id && m.status !== 'archived').map((m) => m.name) }));
-    return projectSystemPrompt(project, links.filter((l) => nameOf.has(l.machine_id)).map((l) => ({ machine: nameOf.get(l.machine_id)!, cwd: l.cwd })), standing, groups);
+    return projectSystemPrompt(project, links.filter((l) => nameOf.has(l.machine_id)).map((l) => ({ machine: nameOf.get(l.machine_id)!, cwd: l.cwd })), standing, groups, defaults);
   }
 
   /** The tabs' answered questions this conversation's model was not told yet, as the lines to prepend,

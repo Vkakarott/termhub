@@ -145,6 +145,11 @@ describe('ActionCard: "Liberar sem prazo" (standing grant, TER-386)', () => {
     await render(<ActionCard action={card({ tool: 'send_key', tab_id: 't-api', status: 'executed', grant_id: 'sg1' })} busy={false} onDecide={jest.fn()} revoking={false} onRevoke={jest.fn()} />);
     expect(screen.getByText('executada · aba confiada')).toBeTruthy();
   });
+
+  it('labels a call run under a default allowance "· liberado por padrão" (TER-627)', async () => {
+    await render(<ActionCard action={card({ tool: 'send_key', tab_id: 't-api', status: 'executed', grant_id: 'default:terminal:u1' })} busy={false} onDecide={jest.fn()} revoking={false} onRevoke={jest.fn()} />);
+    expect(screen.getByText('executada · liberado por padrão')).toBeTruthy();
+  });
 });
 
 // A confirmation that went stale or expired (spec 2026-09-30 §2.3): it says so, and offers to ask the

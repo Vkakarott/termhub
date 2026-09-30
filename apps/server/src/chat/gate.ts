@@ -33,6 +33,8 @@ const readTools = new Set([
   'search_memory',
   'list_integrations',
   'get_project_setup',
+  // TER-627: lists the tabs' question cards and their answers; nothing is sent or changed.
+  'list_tab_questions',
 ]);
 
 const writeTools = new Set([
@@ -54,7 +56,8 @@ const writeTools = new Set([
 // close_tab stays irreversible. control/terminals.ts skips its per-token ownership check for a gated
 // token because the gate mediates every gated close_tab: a card, or a standing grant (TER-386) under
 // which the gate itself resolves the tab owner-scoped and requires it to belong to the granted project
-// (chat/standing-project.ts) before the call runs. Never let close_tab through without one of the two.
+// (chat/standing-project.ts) before the call runs — or the default allowance (TER-627), which resolves
+// the tab the same owner-scoped way and only for a stopped tab. Never let close_tab through without one.
 // create_integration and set_project_repo change credentials and where the CI panel reads from
 // (spec 2026-09-28 MCP integrations D6): always a card, never covered by a grant.
 const irreversibleTools = new Set(['close_tab', 'delete_task', 'push_ticket_status', 'create_integration', 'set_project_repo']);
@@ -195,8 +198,48 @@ export function standingKindOf(tool: string, args: Record<string, unknown>): Sta
   return null;
 }
 
+/**
+ * What the chat does without asking by default, for every user (TER-627): routine, reversible actions.
+ * The standing kinds plus `link_tab_task`, under the same guards as a standing grant and stricter ones
+ * where the default reaches further (see `defaultGrantCovering` in gate-runtime.ts). A person restricts
+ * any of them in "Permissões do chat" (`chat_default_restrictions`), and then it is asked again unless
+ * one of their own grants covers it. Closed on purpose, like the sets above: delete_task, run_command,
+ * answering a permission, `!`/control characters, an interrupting key, closing a tab at work, the
+ * integrations, push_ticket_status and set_project_repo never become a default.
+ */
+export const DEFAULT_ALLOW_KINDS = ['open_tab', 'start_agent', 'link_tab_task', 'board', 'terminal', 'close_tab'] as const;
+export type DefaultAllowKind = (typeof DEFAULT_ALLOW_KINDS)[number];
+export const isDefaultAllowKind = (v: unknown): v is DefaultAllowKind => (DEFAULT_ALLOW_KINDS as readonly string[]).includes(v as string);
+
+/** pt-BR, for "Permissões do chat" and the concierge's prompt. */
+export const DEFAULT_KIND_LABEL: Record<DefaultAllowKind, string> = {
+  open_tab: 'abrir abas',
+  start_agent: 'iniciar agentes',
+  link_tab_task: 'ligar aba a card',
+  board: 'mexer no quadro (criar, mover e editar cards)',
+  terminal: 'teclas e texto nas abas de agente',
+  close_tab: 'fechar abas paradas',
+};
+
+/** Which default kind may cover this call, or null. Mirrors `standingKindOf`, plus `link_tab_task`, and
+ * minus the interrupting keys (C-c, Escape): a default never stops a process mid-way. */
+export function defaultKindOf(tool: string, args: Record<string, unknown>): DefaultAllowKind | null {
+  if (tool === 'link_tab_task') return idArg(args.tab_id) && idArg(args.task_id) ? 'link_tab_task' : null;
+  if (tool === 'send_key' && actionClass(tool, args) === 'irreversible') return null;
+  return standingKindOf(tool, args);
+}
+
+/** The `chat_actions.grant_id` a default-allowed call is audited under: no grant row has it (ids are
+ * random, never with a colon), and it names the user so the budget counts one person's calls. */
+export const defaultGrantId = (userId: string, kind: DefaultAllowKind): string => `default:${kind}:${userId}`;
+export const isDefaultGrantId = (id: string | null | undefined): boolean => typeof id === 'string' && id.startsWith('default:');
+
 /** Calls one standing grant covers per rolling hour, per kind — a brake, not a quota (spec §2). */
 export const STANDING_GRANT_BUDGETS: Record<StandingGrantKind, number> = { open_tab: 30, close_tab: 30, start_agent: 10, board: 30, terminal: 120 };
+
+/** Calls the defaults cover per user and rolling hour, per kind (TER-627): the standing budgets, the same
+ * brake, counted apart from any grant of the person's own. */
+export const DEFAULT_ALLOW_BUDGETS: Record<DefaultAllowKind, number> = { ...STANDING_GRANT_BUDGETS, link_tab_task: 30 };
 export const STANDING_BUDGET_WINDOW_MS = 60 * 60 * 1000;
 
 /**

@@ -165,6 +165,14 @@ describe('"Liberar sem prazo" (TER-386)', () => {
     render(<ChatActionCard action={card({ tool, args: {}, status: 'executed', grant_id: 'sg1' })} deciding={false} onDecide={vi.fn()} />);
     expect(screen.getByText('Executado · liberado no projeto')).toBeInTheDocument();
   });
+  it.each([
+    ['open_tab', 'default:open_tab:u1'],
+    ['send_key', 'default:terminal:u1'],
+    ['move_task', 'default:board:u1'],
+  ])('a %s run under a default allowance reads "liberado por padrão" (TER-627)', (tool, grant_id) => {
+    render(<ChatActionCard action={card({ tool, args: { tab_id: 't1', key: 'Enter' }, status: 'executed', grant_id })} deciding={false} onDecide={vi.fn()} />);
+    expect(screen.getByText('Executado · liberado por padrão')).toBeInTheDocument();
+  });
   it('a send_key run under a grant still reads "aba confiada"', () => {
     render(<ChatActionCard action={card({ tool: 'send_key', args: { tab_id: 't1', key: 'Enter' }, status: 'executed', grant_id: 'sg1' })} deciding={false} onDecide={vi.fn()} />);
     expect(screen.getByText('Executado · aba confiada')).toBeInTheDocument();

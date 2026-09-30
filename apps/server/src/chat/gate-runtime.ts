@@ -14,7 +14,9 @@ import type { Tab } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { chatBus } from './bus.js';
 import { boardProjectOf } from './board-project.js';
-import { actionClass, BOARD_GRANT_BUDGET, BOARD_GRANT_TOOLS, boardGrantable, gateDecision, grantable, GRANTABLE_TOOL, idempotencyKeyFor, STANDING_BUDGET_WINDOW_MS, STANDING_GRANT_BUDGETS, standingKindOf, TAB_TERMINAL_GRANT, TERMINAL_GRANT_BUDGET, TERMINAL_GRANT_TOOLS, terminalGrantable } from './gate.js';
+import { actionClass, BOARD_GRANT_BUDGET, BOARD_GRANT_TOOLS, boardGrantable, DEFAULT_ALLOW_BUDGETS, defaultGrantId, defaultKindOf, gateDecision, grantable, GRANTABLE_TOOL, idempotencyKeyFor, STANDING_BUDGET_WINDOW_MS, STANDING_GRANT_BUDGETS, standingKindOf, TAB_TERMINAL_GRANT, TERMINAL_GRANT_BUDGET, TERMINAL_GRANT_TOOLS, terminalGrantable } from './gate.js';
+import { SCREEN_STATE_LINES, claudeScreenState } from '../monitor/screen-state.js';
+import { STALE_WORKING_MS } from '../monitor/stale-working.js';
 import { permissionDialogVisible } from './permission-dialog.js';
 import { resurfaceCards } from './resurface.js';
 import { ACTION_TTL_MS } from './service.js';
@@ -510,6 +512,64 @@ async function standingGrantCovering(ctx: ControlContext, call: GatedCall): Prom
   return grant.id;
 }
 
+/** Tab states a default close is for (TER-627): the agent is not at work. `null` (a tab that never
+ * reported, a bare shell that may be running anything) is not among them, nor `working` read at face
+ * value, nor `waiting_permission`, which the person has to see. */
+const STOPPED_TAB_STATES: ReadonlySet<string> = new Set(['waiting_input', 'idle', 'error']);
+
+/**
+ * A Claude Code `working` tab whose state is stale in the TER-615 sense — no hook event for `STALE_WORKING_MS` — and
+ * whose screen shows Claude Code back at its input box with no spinner: the check the stale-working
+ * sweeper makes, made now, so a close does not wait for its next pass. Any doubt (a fresh state, a
+ * failed capture, a spinner, a dialog, a screen it cannot read) is "at work". Never logged.
+ */
+async function idleDespiteWorking(ctx: ControlContext, tab: Tab): Promise<boolean> {
+  // The screen check reads Claude Code's own screen; another tool's is not something it can judge.
+  if (tab.state_tool !== 'claude') return false;
+  const since = Date.parse(tab.state_at ?? '');
+  if (!Number.isFinite(since) || Date.now() - since < STALE_WORKING_MS) return false;
+  try {
+    const { text } = await readScreen(ctx, { tab_id: tab.id, lines: SCREEN_STATE_LINES + 20 }, { plain: true });
+    return claudeScreenState(text) === 'prompt';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The default allowance (TER-627) that covers this call, as the synthetic grant id it is audited under,
+ * or null: what the chat does without asking for every user who did not restrict it in "Permissões do
+ * chat". The standing grant's resolution and guards, owner-scoped, and stricter where a default reaches
+ * further than a grant someone chose:
+ * - terminal: an agent at work in the tab (`working` or `waiting_input`) — typed text on a bare shell is
+ *   `run_command` under another name — never `!`/control characters, never a permission (state or screen);
+ * - close_tab: a stopped tab (`STOPPED_TAB_STATES`), or a `working` one the screen shows idle;
+ * - link_tab_task: the tab resolves (the tool checks the card itself).
+ * Tried last, after every grant of the person's own, so theirs are spent first. Budgeted per user and kind.
+ */
+async function defaultGrantCovering(ctx: ControlContext, call: GatedCall): Promise<string | null> {
+  const kind = defaultKindOf(call.tool, call.args);
+  if (!kind) return null;
+  if (kind === 'terminal' && textOutsideGrant(call.args)) return null;
+  if ((await ctx.repos.chatDefaultRestrictions.listForUser(ctx.scope.user.id)).has(kind)) return null;
+  let tab: Tab | undefined;
+  if (kind === 'link_tab_task') {
+    [tab] = await ctx.repos.tabs.findByIdsForOwner([call.args.tab_id as string], ctx.scope.user.id);
+    if (!tab) return null;
+  } else {
+    const target = await standingProjectOf(ctx.repos, ctx.scope.user.id, kind, call.tool, call.args);
+    if (!target) return null;
+    tab = target.tab;
+  }
+  if (kind === 'terminal' && tab?.state !== 'working' && tab?.state !== 'waiting_input') return null;
+  if (kind === 'close_tab' && !(tab && (STOPPED_TAB_STATES.has(tab.state ?? '') || (tab.state === 'working' && (await idleDespiteWorking(ctx, tab)))))) return null;
+  const grantId = defaultGrantId(ctx.scope.user.id, kind);
+  const used = await ctx.repos.chatActions.countByGrantSince(grantId, new Date(Date.now() - STANDING_BUDGET_WINDOW_MS));
+  if (used >= DEFAULT_ALLOW_BUDGETS[kind]) return null;
+  if (kind === 'terminal' && (await permissionOnScreen(ctx, tab!.id))) return null;
+  return grantId;
+}
+
 /** The gate itself: run the call, or answer why it did not run. */
 export async function applyGate(ctx: ControlContext, call: GatedCall): Promise<GateOutcome> {
   const cls = actionClass(call.tool, call.args);
@@ -556,6 +616,11 @@ export async function applyGate(ctx: ControlContext, call: GatedCall): Promise<G
     // Last, the standing grants (TER-386): after every conversation-bound one, so their budgets are spent first.
     if (!row) {
       const grantId = await standingGrantCovering(ctx, call);
+      if (grantId) return executeGranted(ctx, call, conversationId, key, cls, grantId);
+    }
+    // Then the defaults every user gets unless they restricted them (TER-627).
+    if (!row) {
+      const grantId = await defaultGrantCovering(ctx, call);
       if (grantId) return executeGranted(ctx, call, conversationId, key, cls, grantId);
     }
     return ask(ctx, call, conversationId, key, cls);

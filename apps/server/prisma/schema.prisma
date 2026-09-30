@@ -81,6 +81,7 @@ model User {
   memoryItems        MemoryItem[]
   verifiedMemoryItems MemoryItem[] @relation("MemoryItemVerifier")
   standingGrants     ChatStandingGrant[]
+  chatDefaultRestrictions ChatDefaultRestriction[]
 
   @@index([roleId])
   @@map("users")
@@ -960,6 +961,20 @@ model ChatStandingGrant {
 
   @@index([userId, projectId])
   @@map("chat_standing_grants")
+}
+
+/// A default allowance of the chat (TER-627, `DEFAULT_ALLOW_KINDS` in chat/gate.ts) this user took back:
+/// that kind is asked again. No row means every default is on, so users who never opened "Permissões
+/// do chat" need nothing written for them.
+model ChatDefaultRestriction {
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// open_tab | start_agent | link_tab_task | board | terminal | close_tab
+  kind      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([userId, kind])
+  @@map("chat_default_restrictions")
 }
 
 /// A project tab stuck on a usage limit whose machine does not swap accounts by itself (TER-589): a card in

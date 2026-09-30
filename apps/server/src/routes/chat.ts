@@ -33,6 +33,7 @@ import {
   revokeGrant,
 } from '../chat/grants.js';
 import { decideMany } from '../chat/decisions.js';
+import { DEFAULT_ALLOW_KINDS, DEFAULT_KIND_LABEL } from '../chat/gate.js';
 import { indexActions as indexActionsWrite } from '../memory/index-items.js';
 import { conflict, HttpError, notFound } from '../lib/errors.js';
 
@@ -67,6 +68,13 @@ const batchBody = z.object({
     .refine((d) => new Set(d.map((x) => x.id)).size === d.length, 'Ações repetidas'),
 });
 const grantIdParam = z.object({ id: z.string().min(1).max(64) });
+const defaultKindParam = z.object({ kind: z.enum(DEFAULT_ALLOW_KINDS) });
+const defaultAllowedBody = z.object({ allowed: z.boolean() }).strict();
+
+/** The defaults as "Permissões do chat" shows them: server-worded labels, in `DEFAULT_ALLOW_KINDS` order. */
+async function chatDefaultsOf(repos: Repositories, userId: string) {
+  return (await repos.chatDefaultRestrictions.stateForUser(userId)).map((d) => ({ ...d, label: DEFAULT_KIND_LABEL[d.kind] }));
+}
 const tabQuestionIdParam = z.object({ id: z.string().min(1).max(64) });
 const subagentIdParam = z.object({ id: z.string().min(1).max(64) });
 /** The host pair the user picks: the machine, and optionally which of its Claude accounts. No account
@@ -320,6 +328,17 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
 
   /** "Abas confiáveis" (Configurações): every grant of this user, active or a page of the history. */
   app.get('/grants', async (request) => listGrants(repos, request.scope.user.id, chatGrantListQuery.parse(request.query)));
+
+  /** "Liberadas por padrão" (TER-627): every default allowance of the chat, on or restricted for this user. */
+  app.get('/defaults', async (request) => ({ defaults: await chatDefaultsOf(repos, request.scope.user.id) }));
+
+  /** Turns one default allowance on or off for this user. `create`, like granting and revoking. */
+  app.put('/defaults/:kind', { config: { action: 'create' } }, async (request) => {
+    const { kind } = defaultKindParam.parse(request.params);
+    const { allowed } = defaultAllowedBody.parse(request.body);
+    await repos.chatDefaultRestrictions.setAllowed(request.scope.user.id, kind, allowed);
+    return { defaults: await chatDefaultsOf(repos, request.scope.user.id) };
+  });
 
   /** "Revogar". Declared as `create`, the permission deciding a card needs: whoever can grant can revoke. */
   app.delete('/grants/:id', { config: { action: 'create' } }, async (request) => {

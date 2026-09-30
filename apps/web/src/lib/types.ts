@@ -1056,6 +1056,14 @@ export type ChatGrantState = 'active' | 'expired' | 'revoked' | 'ended';
  * `kind === 'tab'`; `project_id`/`project_name` are set for all three (a tab grant always belongs to a
  * project too). A standing row has no expiry and no conversation, and is only `active` or `revoked`.
  */
+/** A default allowance of the chat (TER-627): something it does without asking unless restricted. The
+ *  label is server-worded. */
+export interface ChatDefault {
+  kind: 'open_tab' | 'start_agent' | 'link_tab_task' | 'board' | 'terminal' | 'close_tab';
+  label: string;
+  allowed: boolean;
+}
+
 export interface ChatGrantListItem {
   kind: 'tab' | 'project' | 'standing';
   /** The standing grant's kind; null for a tab or project row. */

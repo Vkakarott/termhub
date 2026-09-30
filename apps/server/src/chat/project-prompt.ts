@@ -1,4 +1,5 @@
 import { STANDING_GRANT_KINDS, STANDING_KIND_LABEL, type StandingGrantKind } from '@termhub/mobile-api';
+import { DEFAULT_ALLOW_KINDS, DEFAULT_KIND_LABEL, type DefaultAllowKind } from './gate.js';
 
 /** The protocol's cap on `append_system_prompt` (packages/agent-protocol, claudeOpenParams). */
 const MAX = 4000;
@@ -14,6 +15,16 @@ const standingGrantsLine = (standing: StandingGrantKind[]): string => {
   // Closing a working tab is an exception only when close_tab is granted; other kinds never close tabs.
   const closeTab = active.has('close_tab') ? ', fechar abas trabalhando' : '';
   return `\nLiberado sem confirmação neste projeto (o usuário liberou sem prazo): ${labels}. As exceções de sempre continuam pedindo: delete_task, run_command, responder permissões, texto com "!" ou caracteres de controle${closeTab}.`;
+};
+
+/** The line telling the model which default allowances (TER-627) are on for this user, or '' when the
+ *  person restricted all of them. Listed in `DEFAULT_ALLOW_KINDS` order, once each. */
+export const defaultsLine = (defaults: DefaultAllowKind[]): string => {
+  const on = new Set(defaults);
+  const kinds = DEFAULT_ALLOW_KINDS.filter((k) => on.has(k));
+  if (!kinds.length) return '';
+  const labels = kinds.map((k) => DEFAULT_KIND_LABEL[k]).join(', ');
+  return `\nLiberado sem confirmação por padrão (o usuário pode restringir em Permissões do chat): ${labels}; leituras nunca pedem. Continuam pedindo confirmação: delete_task, run_command, responder permissões, texto com "!" ou caracteres de controle, as teclas C-c e Escape, fechar aba trabalhando, integrações, push_ticket_status, set_project_repo e ligar máquinas ao projeto.`;
 };
 
 /** The most the groups line of a project chat takes of the prompt: room for about forty names. */
@@ -99,17 +110,19 @@ const groupsLine = (groups: PromptGroup[]): string => {
  * list is what gets cut, never the prompt overflowing. `groups` (spec 2026-09-30) are the project's
  * sidebar groups with their sibling projects, told in one line after the machines; the groups in it are
  * capped at GROUPS_MAX (the line adds its prefix, a newline and a full stop) and count against the same
- * budget.
+ * budget. `defaults` (TER-627) are the default allowances still on for this user, told after the standing
+ * line and counted the same way.
  */
 export function projectSystemPrompt(
   project: { name: string; key: string },
   links: { machine: string; cwd: string }[],
   standing: StandingGrantKind[] = [],
   groups: PromptGroup[] = [],
+  defaults: DefaultAllowKind[] = [],
 ): string {
   const where = links.length ? links.map((l) => `${l.machine} → ${l.cwd}`).join('; ') : 'no machine linked yet';
   const head = `You are the termhub chat for the project "${project.name}" (key ${project.key}).\n`;
-  const standingLine = standingGrantsLine(standing);
+  const standingLine = standingGrantsLine(standing) + defaultsLine(defaults);
   const groupLine = groupsLine(groups);
   const tail =
     '\nAnswer about this project. Do not report on other projects unless the person asks about them by name.\n' +

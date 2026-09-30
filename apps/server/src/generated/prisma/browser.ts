@@ -228,6 +228,13 @@ export type ChatProjectGrant = Prisma.ChatProjectGrantModel
  */
 export type ChatStandingGrant = Prisma.ChatStandingGrantModel
 /**
+ * Model ChatDefaultRestriction
+ * A default allowance of the chat (TER-627, `DEFAULT_ALLOW_KINDS` in chat/gate.ts) this user took back:
+ * that kind is asked again. No row means every default is on, so users who never opened "Permissões
+ * do chat" need nothing written for them.
+ */
+export type ChatDefaultRestriction = Prisma.ChatDefaultRestrictionModel
+/**
  * Model TabLimitNotice
  * A project tab stuck on a usage limit whose machine does not swap accounts by itself (TER-589): a card in
  * the project's chat saying so and offering the manual swap to the project's other accounts. One per
