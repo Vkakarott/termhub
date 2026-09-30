@@ -10,6 +10,13 @@ import { SubtaskList } from './SubtaskList';
 /** Where the column select sends a card. */
 export type PlaceTarget = { column_id: string } | { status: 'backlog' };
 
+/** An open terminal tab as the editor names it. */
+export interface LinkableTab {
+  id: string;
+  name: string;
+  machine_name: string;
+}
+
 export interface TaskEditorProps {
   /** a top-level card, with its subtasks */
   task: Task;
@@ -17,18 +24,38 @@ export interface TaskEditorProps {
   /** the project's epics, default first */
   epics: Task[];
   terminalHref: string | null;
+  /** the project's open terminal tabs the card can be linked to (an agent started by hand) */
+  linkableTabs: LinkableTab[];
   onClose: () => void;
   onSave: (patch: TaskPatchInput) => void;
   onPlace: (target: PlaceTarget) => void;
   onDelete: () => void;
   onOpenTerminal: () => void;
+  onLinkTab: (tabId: string) => void;
+  onDetachTerminal: () => void;
   onPushStatus: () => Promise<string | null>;
   onSubtasks: (subtasks: Task[] | ((prev: Task[]) => Task[])) => void;
   onError: (message: string) => void;
 }
 
 /** A card's editor (spec §7 "Card editor"): title, type, epic, column, description, subtasks, link. */
-export function TaskEditor({ task, columns, epics, terminalHref, onClose, onSave, onPlace, onDelete, onOpenTerminal, onPushStatus, onSubtasks, onError }: TaskEditorProps) {
+export function TaskEditor({
+  task,
+  columns,
+  epics,
+  terminalHref,
+  linkableTabs,
+  onClose,
+  onSave,
+  onPlace,
+  onDelete,
+  onOpenTerminal,
+  onLinkTab,
+  onDetachTerminal,
+  onPushStatus,
+  onSubtasks,
+  onError,
+}: TaskEditorProps) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? '');
   const [type, setType] = useState<TaskType>(task.type);
@@ -36,6 +63,7 @@ export function TaskEditor({ task, columns, epics, terminalHref, onClose, onSave
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pushing, setPushing] = useState<'idle' | 'busy' | string>('idle');
   const [copied, setCopied] = useState<'idle' | 'ok' | 'fail'>('idle');
+  const [tabToLink, setTabToLink] = useState('');
   const ref = task.external_ref;
   const types = typeOptions(task);
 
@@ -155,15 +183,37 @@ export function TaskEditor({ task, columns, epics, terminalHref, onClose, onSave
             {ref.pushed_at && <p className="mt-1 text-fg-dim">último envio: {new Date(ref.pushed_at).toLocaleString('pt-BR')}</p>}
           </div>
         )}
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
           {terminalHref ? (
-            <Link to={terminalHref} className="btn-ghost border border-line text-ok">
-              ▮_ Ir para o terminal
-            </Link>
+            <>
+              <Link to={terminalHref} className="btn-ghost border border-line text-ok">
+                ▮_ Ir para o terminal
+              </Link>
+              <button type="button" className="btn-ghost" aria-label="Desligar a aba deste card" title="A aba continua aberta; só deixa de estar ligada ao card" onClick={onDetachTerminal}>
+                desligar
+              </button>
+            </>
           ) : (
-            <button type="button" className="btn-ghost border border-line" onClick={onOpenTerminal}>
-              ▮_ Abrir terminal para esta task
-            </button>
+            <>
+              <button type="button" className="btn-ghost border border-line" onClick={onOpenTerminal}>
+                ▮_ Abrir terminal para esta task
+              </button>
+              {linkableTabs.length > 0 && (
+                <>
+                  <select className="input w-auto py-1 text-xs" aria-label="Ligar a uma aba aberta" value={tabToLink} onChange={(e) => setTabToLink(e.target.value)}>
+                    <option value="">Ligar a uma aba aberta…</option>
+                    {linkableTabs.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} · {t.machine_name}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" className="btn-ghost border border-line" disabled={!tabToLink} onClick={() => onLinkTab(tabToLink)}>
+                    Ligar
+                  </button>
+                </>
+              )}
+            </>
           )}
           <span className="text-fg-dim">a tab fica ligada ao card e aparece nele</span>
         </div>

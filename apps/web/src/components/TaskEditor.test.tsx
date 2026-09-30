@@ -25,7 +25,8 @@ const epics = [
 
 function mount(t: Task, over: Partial<TaskEditorProps> = {}) {
   const props: TaskEditorProps = {
-    task: t, columns, epics, terminalHref: null, onClose: vi.fn(), onSave: vi.fn(), onPlace: vi.fn(), onDelete: vi.fn(), onOpenTerminal: vi.fn(),
+    task: t, columns, epics, terminalHref: null, linkableTabs: [], onClose: vi.fn(), onSave: vi.fn(), onPlace: vi.fn(), onDelete: vi.fn(), onOpenTerminal: vi.fn(),
+    onLinkTab: vi.fn(), onDetachTerminal: vi.fn(),
     onPushStatus: vi.fn(async () => null), onSubtasks: vi.fn(), onError: vi.fn(), ...over,
   };
   render(
@@ -100,5 +101,39 @@ describe('TaskEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
     fireEvent.click(screen.getByRole('button', { name: 'Sim, excluir' }));
     expect(props.onDelete).toHaveBeenCalled();
+  });
+});
+
+// TER-499: a tab that is already open (an agent started by hand) can be linked to the card from here.
+describe('TaskEditor: linking an open tab', () => {
+  const linkableTabs = [
+    { id: 'ta', name: 'claude', machine_name: 'mac' },
+    { id: 'tb', name: 'codex', machine_name: 'jarvis' },
+  ];
+
+  it('lists the open tabs by name and machine and links the chosen one', () => {
+    const props = mount(task({ id: 'Pagar' }), { linkableTabs });
+    const select = screen.getByLabelText('Ligar a uma aba aberta') as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Ligar a uma aba aberta…', 'claude · mac', 'codex · jarvis']);
+    const link = screen.getByRole('button', { name: 'Ligar' });
+    expect(link).toBeDisabled();
+    fireEvent.change(select, { target: { value: 'tb' } });
+    fireEvent.click(link);
+    expect(props.onLinkTab).toHaveBeenCalledWith('tb');
+    expect(props.onOpenTerminal).not.toHaveBeenCalled();
+  });
+
+  it('offers nothing to link when the project has no open tab', () => {
+    mount(task({ id: 'Pagar' }));
+    expect(screen.queryByLabelText('Ligar a uma aba aberta')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Abrir terminal para esta task/ })).toBeInTheDocument();
+  });
+
+  it('a linked card goes to its terminal or is unlinked, and offers no other tab', () => {
+    const props = mount(task({ id: 'Pagar', tab_id: 'ta' }), { terminalHref: '/projects/p1?tab=ta', linkableTabs });
+    expect(screen.getByRole('link', { name: /Ir para o terminal/ })).toHaveAttribute('href', '/projects/p1?tab=ta');
+    expect(screen.queryByLabelText('Ligar a uma aba aberta')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Desligar a aba deste card' }));
+    expect(props.onDetachTerminal).toHaveBeenCalled();
   });
 });
