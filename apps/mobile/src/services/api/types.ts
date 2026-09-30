@@ -73,6 +73,8 @@ export interface MobileApi {
 
   // chat (P§6, §6.1)
   chatProjects(auth: Auth): Promise<TChatProjectsResponse>;
+  /** Pins or unpins a project in the person's Favoritos, the web sidebar's group (TER-541). */
+  setProjectFavorite(auth: Auth, projectId: string, favorite: boolean): Promise<void>;
   chat(auth: Auth, projectId: string | null): Promise<TChatResponse>;
   hostOptions(auth: Auth): Promise<THostOptionsResponse>;
   setHost(auth: Auth, body: TSetHostBody): Promise<void>;

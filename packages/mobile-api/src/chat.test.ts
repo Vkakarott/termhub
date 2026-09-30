@@ -4,6 +4,7 @@ import {
   replyExcerpt,
   chatMemoryPatchBody,
   chatMemoryResponse,
+  chatProjectsResponse,
   decisionsResponse,
   isBoardGrantable,
   isTabGrantable,
@@ -15,6 +16,7 @@ import {
   mobileDecisionBody,
   mobileMessageBody,
   notesResponse,
+  projectFavoriteBody,
   STANDING_KIND_LABEL,
   standingKindOf,
   tabQuestionAutoAnswerCancelResponse,
@@ -368,5 +370,30 @@ describe('replyExcerpt (TER-447)', () => {
   it('names the files of a message with no text', () => {
     expect(replyExcerpt('', ['relatorio.pdf', 'foto.jpg'])).toBe('📎 relatorio.pdf, foto.jpg');
     expect(replyExcerpt('   ', [])).toBe('');
+  });
+});
+
+describe('chatProjectsResponse: favorites (TER-541)', () => {
+  const project = { id: 'p1', name: 'termhub', key: 'TER', busy: false, pending_confirmations: 0, last_message_at: null };
+
+  it('reads a project with no favorite_position (an older server) as not pinned', () => {
+    expect(chatProjectsResponse.parse({ projects: [project] }).projects[0]!.favorite_position).toBeNull();
+  });
+
+  it('keeps the place of a pinned project', () => {
+    expect(chatProjectsResponse.parse({ projects: [{ ...project, favorite_position: 2 }] }).projects[0]!.favorite_position).toBe(2);
+  });
+
+  it('refuses a place that is not a whole number', () => {
+    expect(chatProjectsResponse.safeParse({ projects: [{ ...project, favorite_position: 1.5 }] }).success).toBe(false);
+  });
+});
+
+describe('projectFavoriteBody (TER-541)', () => {
+  it('takes the wanted end state, and nothing else', () => {
+    expect(projectFavoriteBody.safeParse({ favorite: true }).success).toBe(true);
+    expect(projectFavoriteBody.safeParse({ favorite: false }).success).toBe(true);
+    expect(projectFavoriteBody.safeParse({}).success).toBe(false);
+    expect(projectFavoriteBody.safeParse({ favorite: 'yes' }).success).toBe(false);
   });
 });

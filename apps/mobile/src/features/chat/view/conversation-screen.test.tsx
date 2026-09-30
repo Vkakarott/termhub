@@ -579,7 +579,8 @@ describe('Conversa', () => {
     mockRouter.canGoBack.mockReturnValue(false);
     await fireEvent.press(screen.getByRole('button', { name: 'Voltar' }));
     expect(mockRouter.back).toHaveBeenCalledTimes(1);
-    expect(mockRouter.replace).toHaveBeenCalledWith('/(tabs)');
+    // The tabs' index is Home now (TER-541): a conversation falls back to the list it belongs to.
+    expect(mockRouter.replace).toHaveBeenCalledWith('/(tabs)/chats');
   });
 
   const QUESTION_BASE = { tab_id: 't-api', tab_name: 'api', error_code: null, created_at: new Date().toISOString(), answered_at: null, closed_at: null };
