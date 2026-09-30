@@ -584,7 +584,8 @@ export const ChatActionScalarFieldEnum = {
   injectedAt: 'injectedAt',
   toolUseId: 'toolUseId',
   subagentId: 'subagentId',
-  createdAt: 'createdAt'
+  createdAt: 'createdAt',
+  surfacedAt: 'surfacedAt'
 } as const
 
 export type ChatActionScalarFieldEnum = (typeof ChatActionScalarFieldEnum)[keyof typeof ChatActionScalarFieldEnum]
@@ -684,7 +685,8 @@ export const TabQuestionScalarFieldEnum = {
   suggestion: 'suggestion',
   autoAnswer: 'autoAnswer',
   answeredVia: 'answeredVia',
-  wokenAt: 'wokenAt'
+  wokenAt: 'wokenAt',
+  surfacedAt: 'surfacedAt'
 } as const
 
 export type TabQuestionScalarFieldEnum = (typeof TabQuestionScalarFieldEnum)[keyof typeof TabQuestionScalarFieldEnum]

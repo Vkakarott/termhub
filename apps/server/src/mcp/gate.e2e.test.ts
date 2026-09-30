@@ -115,9 +115,16 @@ function fakeChatActions() {
         // were the current time — the row and "now" land in the same millisecond in practically
         // every run.
         created_at: PENDING_CREATED_AT,
+        surfaced_at: null,
       };
       rows.push(row);
       return row;
+    }),
+    /** TER-477: the pending rows of the conversation (or only `ids`) get `surfaced_at`, like the repository. */
+    surfacePending: vi.fn(async (conversationId: string, ids?: string[]) => {
+      const moved = rows.filter((r) => r.conversation_id === conversationId && r.status === 'pending' && (!ids || ids.includes(r.id)));
+      for (const r of moved) r.surfaced_at = '2030-01-01T00:00:00.000Z';
+      return moved.map((r) => ({ ...r }));
     }),
     /** Same duplicate check and row shape as `insertPending`, but born `approved`, already tied to
      * the grant that answered it and to whoever granted it. */
@@ -146,6 +153,7 @@ function fakeChatActions() {
         tool_use_id: input.tool_use_id ?? null,
         subagent_id: input.subagent_id ?? null,
         created_at: PENDING_CREATED_AT,
+        surfaced_at: null,
       };
       rows.push(row);
       return row;
@@ -354,6 +362,19 @@ it('does not ask twice for the same proposal', async () => {
   expect(actions.rows).toHaveLength(1);
 });
 
+it('a repeated proposal still pending brings its card back to the end of the chat, without a new push (TER-477)', async () => {
+  attachFakeTmux([]);
+  const { app, actions } = build({ gated: true });
+
+  await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+  collected.length = 0;
+  const again = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(textOf(again)).toMatch(/trazido de volta para o fim da conversa/i);
+  expect(actions.surfacePending).toHaveBeenCalledWith(CONVERSATION, [actions.rows[0].id]);
+  expect(collected).toEqual([expect.objectContaining({ type: 'confirmation', action_id: actions.rows[0].id, surfaced_at: '2030-01-01T00:00:00.000Z', resurfaced: true })]);
+});
+
 it('asks only once when a concurrent duplicate insert loses the unique index', async () => {
   attachFakeTmux([]);
   const { app, actions } = build({ gated: true });
@@ -461,6 +482,8 @@ it('re-validates the tab before executing an approved action', async () => {
   expect(typed).toEqual([]);
   expect(actions.markExecuted).toHaveBeenCalledWith(row.id, false, 'TAB_GONE', expect.any(Number));
   expect(actions.rows[0].status).toBe('failed');
+  // TER-477: every open screen hears it at once, and the card reads as stale.
+  expect(collected).toContainEqual(expect.objectContaining({ type: 'action_status', user_id: 'u1', conversation_id: CONVERSATION, action_id: row.id, status: 'failed', error_code: 'TAB_GONE' }));
 });
 
 it('refuses an approved keystroke into a tab that is now waiting for a permission', async () => {
@@ -778,7 +801,8 @@ it('stops honouring an approval nobody consumed for a day, and asks again instea
   expect(textOf(res)).not.toMatch(/recusou/i); // an approval that lapsed is not a "no"
   expect(actions.claimApproved).not.toHaveBeenCalled();
   expect(actions.rows[0].status).toBe('expired');
-  expect(collected).toEqual([]); // no question either: this call only retired the dead approval
+  // No question either: this call only retired the dead approval — and the screens hear it (TER-477).
+  expect(collected).toEqual([expect.objectContaining({ type: 'action_status', action_id: actions.rows[0].id, status: 'expired', error_code: null })]);
 
   // And "propose it again" is now something the model can actually do: the retired row no longer
   // occupies the key, so the identical call asks the user instead of finding the same dead approval.
@@ -786,7 +810,7 @@ it('stops honouring an approval nobody consumed for a day, and asks again instea
   expect(textOf(again)).toMatch(/pendente de confirmação/i);
   expect(actions.rows.map((r) => r.status)).toEqual(['expired', 'pending']);
   expect(typed).toEqual([]);
-  expect(collected.map((e) => e.type)).toEqual(['confirmation']);
+  expect(collected.map((e) => e.type)).toEqual(['action_status', 'confirmation']);
 });
 
 it('still executes an approval given hours ago, inside the window', async () => {
@@ -817,7 +841,8 @@ it('fails an approved action the machine cannot do, and never puts the row back 
   expect(actions.markExecuted).toHaveBeenCalledWith(row.id, false, 'MACHINE_OFFLINE', expect.any(Number));
   expect(actions.rows[0]).toMatchObject({ status: 'failed', error_code: 'MACHINE_OFFLINE' });
   expect(actions.insertPending).not.toHaveBeenCalled();
-  expect(collected).toEqual([]);
+  // No new question: only the card's live status (TER-477).
+  expect(collected).toEqual([expect.objectContaining({ type: 'action_status', action_id: row.id, status: 'failed', error_code: 'MACHINE_OFFLINE' })]);
   // The error reached the caller, which is what the per-call audit row records.
   await settle();
   expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'send_input', ok: false, error_code: 'MACHINE_OFFLINE' });

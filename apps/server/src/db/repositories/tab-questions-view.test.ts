@@ -31,3 +31,8 @@ it('carries the countdown while the card is open, and afterwards only once sent 
   expect(toTabQuestionView({ ...answered, auto_answer: { ...auto, status: 'cancelled' }, answered_via: 'card' }, 'api')).toMatchObject({ auto_answer: null, answered_via: 'card' });
   expect(toTabQuestionView(row(), 'api')).toMatchObject({ auto_answer: null, answered_via: null });
 });
+
+it('carries surfaced_at, null until the card is brought back (TER-477)', () => {
+  expect(toTabQuestionView(row(), 'api').surfaced_at).toBeNull();
+  expect(toTabQuestionView(row({ surfaced_at: '2026-09-30T06:00:00.000Z' }), 'api').surfaced_at).toBe('2026-09-30T06:00:00.000Z');
+});

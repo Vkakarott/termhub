@@ -16,6 +16,7 @@ import { chatBus } from './bus.js';
 import { boardProjectOf } from './board-project.js';
 import { actionClass, BOARD_GRANT_BUDGET, BOARD_GRANT_TOOLS, boardGrantable, gateDecision, grantable, GRANTABLE_TOOL, idempotencyKeyFor, STANDING_BUDGET_WINDOW_MS, STANDING_GRANT_BUDGETS, standingKindOf, TAB_TERMINAL_GRANT, TERMINAL_GRANT_BUDGET, TERMINAL_GRANT_TOOLS, terminalGrantable } from './gate.js';
 import { permissionDialogVisible } from './permission-dialog.js';
+import { resurfaceCards } from './resurface.js';
 import { ACTION_TTL_MS } from './service.js';
 import { standingProjectOf } from './standing-project.js';
 import { subagentOrigins } from './subagent-origin.js';
@@ -46,6 +47,17 @@ const WAITING: GateOutcome = {
   code: 'CONFIRMATION_WAITING',
   message:
     'Esta ação ainda está aguardando a confirmação do usuário no chat: a pergunta já foi enviada e nada foi executado. Não repita a chamada: diga a ele que está esperando e pare.',
+};
+
+/**
+ * The same proposal asked again while its card still waits (TER-477): the card was just brought back to
+ * the end of the chat, so the model points the person at it instead of telling them to scroll up.
+ */
+const RESURFACED: GateOutcome = {
+  ok: false,
+  code: 'CONFIRMATION_WAITING',
+  message:
+    'Esta ação ainda está aguardando a confirmação do usuário no chat e nada foi executado. O card foi trazido de volta para o fim da conversa: diga a ele que está logo abaixo e pare. Não repita a chamada.',
 };
 
 /**
@@ -133,6 +145,7 @@ const approvalInForce = (row: ChatAction): boolean => {
  */
 async function expireApproval(ctx: ControlContext, row: ChatAction): Promise<GateOutcome> {
   if (!(await ctx.repos.chatActions.expireApproved(row.id))) return raceLost(ctx, row);
+  publishStatus(ctx, row, 'expired', null);
   return APPROVAL_EXPIRED;
 }
 
@@ -262,6 +275,11 @@ async function raceLost(ctx: ControlContext, row: ChatAction): Promise<GateOutco
   return current?.status === 'expired' ? APPROVAL_EXPIRED : ALREADY_CLAIMED;
 }
 
+/** Tells every open screen how a gated action ended (TER-477). Publishing never throws (`chatBus`). */
+function publishStatus(ctx: ControlContext, row: ChatAction, status: 'executed' | 'failed' | 'expired', errorCode: string | null): void {
+  chatBus.publish({ type: 'action_status', user_id: ctx.scope.user.id, conversation_id: row.conversation_id, action_id: row.id, status, error_code: errorCode });
+}
+
 /** Runs an approved action and closes its row. Ruling R2: an offline machine, an agent too old, any
  * failure at all is a `failed` row carrying the real error code, and the error reaches the model —
  * never a new question, because asking again for what the machine cannot do is a loop with no exit. */
@@ -274,15 +292,18 @@ async function execute(ctx: ControlContext, call: GatedCall, row: ChatAction): P
   const stale = await staleApproval(ctx, call, row);
   if (stale) {
     await ctx.repos.chatActions.markExecuted(row.id, false, stale.code, Date.now() - started);
+    publishStatus(ctx, row, 'failed', stale.code);
     return { ok: false, ...stale };
   }
   try {
     const value = await call.run();
     await ctx.repos.chatActions.markExecuted(row.id, true, null, Date.now() - started);
+    publishStatus(ctx, row, 'executed', null);
     return { ok: true, value };
   } catch (err) {
     const code = err instanceof ControlError || err instanceof HttpError ? (err.code ?? 'ERROR') : 'INTERNAL';
     await ctx.repos.chatActions.markExecuted(row.id, false, code, Date.now() - started);
+    publishStatus(ctx, row, 'failed', code);
     throw err; // the caller turns it into the same answer any other failed tool call gets
   }
 }
@@ -539,7 +560,17 @@ export async function applyGate(ctx: ControlContext, call: GatedCall): Promise<G
     }
     return ask(ctx, call, conversationId, key, cls);
   }
-  if (decision === 'waiting') return WAITING;
+  if (decision === 'waiting') {
+    // Asked again while the card still waits (TER-477): bring it back where the person is reading.
+    // Best effort — a failure here leaves the card where it was and the answer as before.
+    try {
+      const { actions } = await resurfaceCards(ctx.repos, ctx.scope.user.id, conversationId, { actionIds: [row.id], questions: false });
+      if (actions.length > 0) return RESURFACED;
+    } catch {
+      // the card stays where it was
+    }
+    return WAITING;
+  }
   if (decision === 'allow') return execute(ctx, call, row);
   return REFUSED;
 }

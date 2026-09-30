@@ -26,6 +26,24 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatActionsRepository (Po
 
   const pending = (key: string) => repo.insertPending({ conversation_id: conversationId, tool: 'send_input', args: { tab_id: 't1', text: 'npm test' }, idempotency_key: key, class: 'write' });
 
+  it('surfaces only the pending rows of the conversation, and says which (TER-477)', async () => {
+    const a = await pending('s1');
+    const b = await pending('s2');
+    await repo.decide(b.id, userId, 'approved');
+    expect(a.surfaced_at).toBeNull();
+    const now = new Date('2030-01-01T00:00:00.000Z');
+    const surfaced = await repo.surfacePending(conversationId, undefined, now);
+    expect(surfaced.map((r) => r.id)).toContain(a.id);
+    expect(surfaced.map((r) => r.id)).not.toContain(b.id);
+    expect(surfaced.find((r) => r.id === a.id)?.surfaced_at).toBe(now.toISOString());
+    // Narrowed to some ids: the others are left alone.
+    const c = await pending('s3');
+    const only = await repo.surfacePending(conversationId, [c.id], new Date('2030-01-02T00:00:00.000Z'));
+    expect(only.map((r) => r.id)).toEqual([c.id]);
+    expect((await repo.findByIdForUser(a.id, userId))?.surfaced_at).toBe(now.toISOString());
+    for (const r of [a, c]) await repo.decide(r.id, userId, 'denied');
+  });
+
   it('finds an open row by its key and does not see a decided one', async () => {
     const row = await pending('k1');
     expect(row.status).toBe('pending');

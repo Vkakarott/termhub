@@ -32,6 +32,8 @@ export interface ChatAction {
   /** The subagent (`chat_subagents`) whose turn proposed this action, when it ran inside one. */
   subagent_id: string | null;
   created_at: string;
+  /** When the card was last brought back to the end of the chat (TER-477): the thread orders by it, else `created_at`. */
+  surfaced_at: string | null;
 }
 
 export interface InsertPendingInput {
@@ -74,6 +76,7 @@ const mapAction = (a: PrismaChatAction): ChatAction => ({
   tool_use_id: a.toolUseId,
   subagent_id: a.subagentId,
   created_at: a.createdAt.toISOString(),
+  surfaced_at: a.surfacedAt?.toISOString() ?? null,
 });
 
 export class ChatActionsRepository {
@@ -378,6 +381,19 @@ export class ChatActionsRepository {
       data: { status: 'expired' satisfies ChatActionStatus },
     });
     return count;
+  }
+
+  /**
+   * Brings the conversation's pending cards back to the end of the chat (TER-477): `surfaced_at = now`
+   * on each row still `pending` — all of them, or only `ids`. Resolves the rows it moved, oldest first.
+   */
+  async surfacePending(conversationId: string, ids?: string[], now = new Date()): Promise<ChatAction[]> {
+    const where = { conversationId, status: 'pending' satisfies ChatActionStatus, ...(ids ? { id: { in: ids } } : {}) };
+    const rows = await this.db.chatAction.findMany({ where, select: { id: true } });
+    if (rows.length === 0) return [];
+    await this.db.chatAction.updateMany({ where: { ...where, id: { in: rows.map((r) => r.id) } }, data: { surfacedAt: now } });
+    const moved = await this.db.chatAction.findMany({ where: { id: { in: rows.map((r) => r.id) }, surfacedAt: now }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+    return moved.map(mapAction);
   }
 
   async countPendingByConversation(ids: string[]): Promise<Map<string, number>> {

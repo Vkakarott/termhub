@@ -29,6 +29,8 @@ export interface ControlToken {
   scopes: readonly ApiTokenScope[];
   gated?: boolean;
   tab?: { id: string; project_id: string };
+  /** The chat conversation a concierge token was minted for (`recap_pending_cards`, TER-477). */
+  chat_conversation_id?: string | null;
 }
 
 /** A user's own scope — never "view as", even for admins (API tokens act as their owner only). */

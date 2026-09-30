@@ -51,6 +51,20 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
   };
   const openPermission = (tabId: string, tool: string) => repo.open({ tab_id: tid(tabId), project_id: projectId, conversation_id: conversationId, kind: 'permission', payload: { tool_name: tool }, tool_use_id: null });
 
+  it('surfaces the open questions of the conversation, never a suggestion nor a closed one (TER-477)', async () => {
+    const { question } = await open('tsurf1');
+    const closedOne = (await open('tsurf2')).question;
+    await repo.closeOne(closedOne.id, 'answered_in_tab');
+    expect(question.surfaced_at).toBeNull();
+    const now = new Date('2030-01-01T00:00:00.000Z');
+    const surfaced = await repo.surfaceOpen(conversationId, now);
+    expect(surfaced.map((r) => r.id)).toContain(question.id);
+    expect(surfaced.map((r) => r.id)).not.toContain(closedOne.id);
+    expect(surfaced.every((r) => r.kind !== 'suggestion' && r.status === 'open')).toBe(true);
+    expect(surfaced.find((r) => r.id === question.id)?.surfaced_at).toBe(now.toISOString());
+    await repo.closeOne(question.id, 'answered_in_tab');
+  });
+
   it('opens a question owned through its conversation, the tab\'s only open one', async () => {
     const { question, closed } = await open('t1');
     expect(closed).toEqual([]);
