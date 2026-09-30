@@ -7,7 +7,7 @@ Card: **TER-179**, epic TER-407. Front 8 of the roadmap
 Every decision below was taken without the user (2026-09-30, asked to plan and execute by
 recommendation); the reason is written next to each one. Section 3 is what was measured on a real
 Claude Code before any of it was designed. The first version of this design was reviewed against the
-code before any of it was written; section 8 says what that review changed.
+code before any of it was written; section 9 says what that review changed.
 
 ## 1. Problem
 
@@ -178,7 +178,25 @@ export function dialogTool(screen: string): string | null
   ordinary case, and only the hint above would cover this one.
 - Codex and Cursor subagents.
 
-## 8. What the review of the first version changed
+## 8. Impact on other users
+
+The default for everyone, with no setting: it corrects when a card closes, and adds no behaviour a person
+could want off.
+
+- Anyone who runs Claude Code subagents in a tab: a subagent's permission card now closes when that
+  subagent moves on, and its next permission gets a card; with background subagents, the main thread
+  ending its turn no longer closes their cards.
+- Anyone who never uses subagents: nothing changes. Every row has no agent, and the main thread's events
+  close them as today. The one difference is a `UserPromptSubmit`, which now closes the main thread's
+  rows only, which are all of them.
+- Codex and Cursor users: nothing changes.
+- Machines: each gets one more Claude hook entry (`SubagentStop`) in `~/.claude/settings.json`, written by
+  the same install and repair that write the others, and removed by the same uninstall. The script posts
+  one more small request per subagent that ends. Nothing new leaves the machine but an opaque id of the
+  session's subagent: no tool input, no message text.
+- A machine whose agent has not updated keeps today's behaviour.
+
+## 9. What the review of the first version changed
 
 | First version | Problem found | Now |
 |---|---|---|
