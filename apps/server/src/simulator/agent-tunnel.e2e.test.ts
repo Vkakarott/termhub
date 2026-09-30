@@ -1,6 +1,9 @@
 import http from 'node:http';
+import fs from 'node:fs';
 import net from 'node:net';
 import type { AddressInfo } from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthContext } from '../auth/index.js';
@@ -98,8 +101,15 @@ describe('agent e2e: server tunnel <-> agent tcp channel <-> local WDA port', ()
   let agentController: AbortController;
   let agentRunPromise: Promise<void>;
   let machine: Machine;
+  let agentHome: string;
+  let prevHome: string | undefined;
 
   beforeAll(async () => {
+    // `runAgent` heals the monitor hooks of the HOME it runs in (os.homedir() reads $HOME):
+    // without a temporary one this suite rewrote the developer's real hooks (TER-491).
+    agentHome = fs.mkdtempSync(path.join(os.tmpdir(), 'thtest-home-'));
+    prevHome = process.env.HOME;
+    process.env.HOME = agentHome;
     stub = await startStub(WDA_PORT);
     if (!stub) return;
 
@@ -157,6 +167,9 @@ describe('agent e2e: server tunnel <-> agent tcp channel <-> local WDA port', ()
     await agentRunPromise?.catch(() => {});
     if (server) await shutdown(server);
     if (stub) await new Promise<void>((r) => stub!.close(() => r()));
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    fs.rmSync(agentHome, { recursive: true, force: true });
   });
 
   it('reads the stub WDA /status through the tunnel, reusing one channel for two requests', { timeout: 20_000 }, async () => {
