@@ -15,6 +15,7 @@ import {
   mobileDecisionBody,
   mobileMessageBody,
   resetBody,
+  projectFavoriteBody,
   setHostBody,
   standingKindOf,
   type StandingGrantKind,
@@ -678,9 +679,22 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
         busy: state.busyProjects.has(project.id),
         pending_confirmations: pending,
         last_message_at: conversation?.last_message_at ?? null,
+        favorite_position: state.favorites.includes(project.id) ? state.favorites.indexOf(project.id) : null,
       };
     });
     return { status: 200, body: { projects } };
+  });
+
+  router.route('PUT', '/api/m/v1/chat/projects/:id/favorite', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'PUT', htu: ctx.htu, now: ctx.now() });
+    const { favorite } = projectFavoriteBody.parse(ctx.body);
+    const id = ctx.params.id!;
+    if (!state.projects.has(id)) throw new WireError(404, 'NOT_FOUND', 'Projeto não encontrado');
+    const without = state.favorites.filter((p) => p !== id);
+    // Pinned again: keeps its place, as the server does; a new pin goes last.
+    if (favorite) state.favorites = state.favorites.includes(id) ? state.favorites : [...without, id];
+    else state.favorites = without;
+    return { status: 204, body: {} };
   });
 
   router.route('GET', '/api/m/v1/chat', (ctx) => {
