@@ -221,6 +221,7 @@ model Project {
   tickets        Ticket[]
   chatConversations ChatConversation[]
   tabQuestions   TabQuestion[]
+  tabLimitNotices TabLimitNotice[]
   chatDecisions  ChatDecision[]
   groupItems     ProjectGroupItem[]
   memoryItems    MemoryItem[]
@@ -729,6 +730,7 @@ model ChatConversation {
   grants        ChatGrant[]
   projectGrants ChatProjectGrant[]
   tabQuestions  TabQuestion[]
+  tabLimitNotices TabLimitNotice[]
   attachments   ChatAttachment[]
   chatDecisions ChatDecision[]
   subagents     ChatSubagent[]
@@ -958,6 +960,33 @@ model ChatStandingGrant {
 
   @@index([userId, projectId])
   @@map("chat_standing_grants")
+}
+
+/// A project tab stuck on a usage limit whose machine does not swap accounts by itself (TER-589): a card in
+/// the project's chat saying so and offering the manual swap to the project's other accounts. One per
+/// incident (`tab_id`, `limited_at` = the tab's `rate_limited_at`). Kept out of `tab_questions` on purpose:
+/// an installed phone app parses that list strictly.
+model TabLimitNotice {
+  id             String           @id
+  /// Not a foreign key, like tab_questions: a removed tab closes the notice as `expired`.
+  tabId          String           @map("tab_id")
+  projectId      String           @map("project_id")
+  project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  conversationId String           @map("conversation_id")
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  limitedAt      DateTime         @map("limited_at")
+  /// `{ account: {id,label}|null, machine: {id,name}, resets_at, candidates: [{id,label}] }`
+  payload        Json
+  /// open | swapped | dismissed | expired | failed
+  status         String
+  /// the account chosen on the card (swapped), or the error code (failed)
+  result         String?
+  createdAt      DateTime         @default(now()) @map("created_at")
+  closedAt       DateTime?        @map("closed_at")
+
+  @@unique([tabId, limitedAt])
+  @@index([conversationId, status])
+  @@map("tab_limit_notices")
 }
 
 /// A question an agent in a tab put to the person — Claude Code's AskUserQuestion (`choice`) or a

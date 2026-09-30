@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { tabLimitSchema } from './project-ai.js';
 import { chatAttachment } from './attachments.js';
 
 /** Mirrors `ChatNotice` in `apps/server/src/db/repositories/chat.ts` (TER-588): the usage limit an answer
@@ -316,6 +317,9 @@ export const chatEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('tab_question_closed'), user_id: z.string(), conversation_id: z.string(), question: tabQuestionSchema }),
   z.object({ type: z.literal('tab_suggestion'), user_id: z.string(), conversation_id: z.string(), suggestion: tabSuggestionSchema }),
   z.object({ type: z.literal('tab_suggestion_closed'), user_id: z.string(), conversation_id: z.string(), suggestion: tabSuggestionSchema }),
+  /** A project tab stuck on a usage limit (TER-589): the card, and its closing. New events, so an older app drops them. */
+  z.object({ type: z.literal('tab_limit'), user_id: z.string(), conversation_id: z.string(), notice: tabLimitSchema }),
+  z.object({ type: z.literal('tab_limit_closed'), user_id: z.string(), conversation_id: z.string(), notice: tabLimitSchema }),
   /** An attachment finished extracting, or failed (spec 2026-09-26 §5.5): the chip updates its status. */
   z.object({ type: z.literal('attachment_status'), user_id: z.string(), conversation_id: z.string(), attachment: chatAttachment }),
   /** A subagent started, changed status or was interrupted: the panel's row. */

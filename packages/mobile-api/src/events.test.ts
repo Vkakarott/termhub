@@ -282,3 +282,15 @@ describe('pending cards at hand (TER-477)', () => {
     expect(chatEventSchema.safeParse({ type: 'action_status', ...base, action_id: 'a1', status: 'pending', error_code: null }).success).toBe(false);
   });
 });
+
+describe('tab limit events (TER-589)', () => {
+  const notice = {
+    id: 'n1', tab_id: 't1', tab_name: 'api', status: 'open', result: null, created_at: '2026-09-30T02:30:00.000Z', closed_at: null,
+    payload: { account: { id: 'a1', label: 'pessoal' }, machine: { id: 'm1', name: 'mac' }, resets_at: '2026-09-30T03:20:00.000Z', candidates: [{ id: 'a2', label: 'trabalho' }] },
+  };
+  it('parses the card events, and the card never passes as a tab question', () => {
+    expect(chatEventSchema.safeParse({ type: 'tab_limit', user_id: 'u', conversation_id: 'c', notice }).success).toBe(true);
+    expect(chatEventSchema.safeParse({ type: 'tab_limit_closed', user_id: 'u', conversation_id: 'c', notice: { ...notice, status: 'swapped', result: 'a2' } }).success).toBe(true);
+    expect(tabQuestionSchema.safeParse({ ...notice, kind: 'usage_limit', answer: null, error_code: null, answered_at: null }).success).toBe(false);
+  });
+});

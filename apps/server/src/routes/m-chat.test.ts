@@ -122,6 +122,7 @@ function build(opts: {
     },
     chatActions: { decide, findByIdForUser, listByConversation: vi.fn(async () => []) },
     tabQuestions: { listByConversation: vi.fn(async () => opts.tabQuestions ?? []) },
+    tabLimitNotices: { listByConversation: vi.fn(async () => []) },
     tabs: { findByIdsForOwner: vi.fn(async (ids: string[]) => (opts.tabs ?? []).filter((t) => ids.includes(t.id))) },
     chatGrants: {
       grant: vi.fn(async (input: { conversation_id: string; tab_id: string; tool: string; source_action_id: string; granted_by: string }) => ({ id: 'g1', ...input, created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z', revoked_at: null, revoked_by: null })),

@@ -91,6 +91,7 @@ function build(opts: {
     chat: { listMessages: vi.fn(async () => [{ id: 'm1', role: 'user', text: 'oi' }]), setHost, clearProjectSessions },
     chatActions: { decide, findByIdForUser, listByConversation },
     tabQuestions: { listByConversation: vi.fn(async () => opts.tabQuestions ?? []) },
+    tabLimitNotices: { listByConversation: vi.fn(async () => []) },
     tabs: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === fixturesOwner ? tabs.filter((t) => ids.includes(t.id)) : [])) },
     projects: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === fixturesOwner ? projects.filter((p) => ids.includes(p.id)) : [])) },
     // Both the trail's machine names and the host's own machine, owner-scoped exactly like the

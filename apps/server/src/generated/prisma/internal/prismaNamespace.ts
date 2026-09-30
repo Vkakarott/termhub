@@ -431,6 +431,7 @@ export const ModelName = {
   ChatGrant: 'ChatGrant',
   ChatProjectGrant: 'ChatProjectGrant',
   ChatStandingGrant: 'ChatStandingGrant',
+  TabLimitNotice: 'TabLimitNotice',
   TabQuestion: 'TabQuestion',
   ChatDecision: 'ChatDecision',
   MemoryItem: 'MemoryItem',
@@ -458,7 +459,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "tabLastAnswer" | "machineHook" | "ticket" | "taskColumn" | "task" | "taskPullRequest" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAttachment" | "chatAction" | "chatSubagent" | "chatLiveRun" | "chatGrant" | "chatProjectGrant" | "chatStandingGrant" | "tabQuestion" | "chatDecision" | "memoryItem" | "instanceSecret" | "projectGroup" | "projectGroupItem" | "deviceRequest" | "device" | "deviceToken" | "deviceChallenge" | "deviceEvent" | "userNotification"
+    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "tabLastAnswer" | "machineHook" | "ticket" | "taskColumn" | "task" | "taskPullRequest" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAttachment" | "chatAction" | "chatSubagent" | "chatLiveRun" | "chatGrant" | "chatProjectGrant" | "chatStandingGrant" | "tabLimitNotice" | "tabQuestion" | "chatDecision" | "memoryItem" | "instanceSecret" | "projectGroup" | "projectGroupItem" | "deviceRequest" | "device" | "deviceToken" | "deviceChallenge" | "deviceEvent" | "userNotification"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -2978,6 +2979,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    TabLimitNotice: {
+      payload: Prisma.$TabLimitNoticePayload<ExtArgs>
+      fields: Prisma.TabLimitNoticeFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TabLimitNoticeFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLimitNoticePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TabLimitNoticeFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLimitNoticePayload>
+        }
+        findFirst: {
+          args: Prisma.TabLimitNoticeFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLimitNoticePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TabLimitNoticeFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLimitNoticePayload>
+        }
+        findMany: {
+          args: Prisma.TabLimitNoticeFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLimitNoticePayload>[]
+        }
+        create: {
+          args: Prisma.TabLimitNoticeCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLimitNoticePayload>
+        }
+        createMany: {
+          args: Prisma.TabLimitNoticeCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TabLimitNoticeCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLimitNoticePayload>[]
+        }
+        delete: {
+          args: Prisma.TabLimitNoticeDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLimitNoticePayload>
+        }
+        update: {
+          args: Prisma.TabLimitNoticeUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLimitNoticePayload>
+        }
+        deleteMany: {
+          args: Prisma.TabLimitNoticeDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TabLimitNoticeUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TabLimitNoticeUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLimitNoticePayload>[]
+        }
+        upsert: {
+          args: Prisma.TabLimitNoticeUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabLimitNoticePayload>
+        }
+        aggregate: {
+          args: Prisma.TabLimitNoticeAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTabLimitNotice>
+        }
+        groupBy: {
+          args: Prisma.TabLimitNoticeGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TabLimitNoticeGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TabLimitNoticeCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TabLimitNoticeCountAggregateOutputType> | number
+        }
+      }
+    }
     TabQuestion: {
       payload: Prisma.$TabQuestionPayload<ExtArgs>
       fields: Prisma.TabQuestionFieldRefs
@@ -4461,6 +4536,22 @@ export const ChatStandingGrantScalarFieldEnum = {
 export type ChatStandingGrantScalarFieldEnum = (typeof ChatStandingGrantScalarFieldEnum)[keyof typeof ChatStandingGrantScalarFieldEnum]
 
 
+export const TabLimitNoticeScalarFieldEnum = {
+  id: 'id',
+  tabId: 'tabId',
+  projectId: 'projectId',
+  conversationId: 'conversationId',
+  limitedAt: 'limitedAt',
+  payload: 'payload',
+  status: 'status',
+  result: 'result',
+  createdAt: 'createdAt',
+  closedAt: 'closedAt'
+} as const
+
+export type TabLimitNoticeScalarFieldEnum = (typeof TabLimitNoticeScalarFieldEnum)[keyof typeof TabLimitNoticeScalarFieldEnum]
+
+
 export const TabQuestionScalarFieldEnum = {
   id: 'id',
   tabId: 'tabId',
@@ -5131,6 +5222,7 @@ export type GlobalOmitConfig = {
   chatGrant?: Prisma.ChatGrantOmit
   chatProjectGrant?: Prisma.ChatProjectGrantOmit
   chatStandingGrant?: Prisma.ChatStandingGrantOmit
+  tabLimitNotice?: Prisma.TabLimitNoticeOmit
   tabQuestion?: Prisma.TabQuestionOmit
   chatDecision?: Prisma.ChatDecisionOmit
   memoryItem?: Prisma.MemoryItemOmit
