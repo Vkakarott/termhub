@@ -29,6 +29,10 @@ export interface ChatActionCard {
    * none at all. Null for an action the top-level run proposed directly. */
   subagent: { id: string; description: string } | null;
   created_at: string;
+  /** Why a `failed` row ended (`TAB_GONE`, `WAITING_PERMISSION`…): the card says it (TER-477). Null otherwise. */
+  error_code: string | null;
+  /** When the card was last brought back to the end of the chat (TER-477): screens order by it, else `created_at`. */
+  surfaced_at: string | null;
 }
 
 const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -216,6 +220,8 @@ const toCard = (action: ChatAction, summary: string, subagent: { id: string; des
   summary,
   subagent,
   created_at: action.created_at,
+  error_code: action.error_code,
+  surfaced_at: action.surfaced_at ?? null,
 });
 
 /**

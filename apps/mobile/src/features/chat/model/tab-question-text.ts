@@ -74,6 +74,9 @@ export function autoAnswerFailureText(code?: string | null): string {
 
 export const tabLabel = (q: TabQuestion): string => (q.tab_name ? `A aba «${q.tab_name}»` : 'Uma aba');
 
+/** A permission card's title, also its line in the pending bar (TER-477). */
+export const permissionTitle = (q: Extract<TabQuestion, { kind: 'permission' }>): string => `${tabLabel(q)} pede permissão para usar «${q.payload.tool_name}»`;
+
 export function statusLabel(q: TabQuestion): string {
   switch (q.status) {
     case 'open':

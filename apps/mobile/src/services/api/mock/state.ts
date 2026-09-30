@@ -199,6 +199,8 @@ export interface MockState {
   sockets: Set<MockSocket>;
 
   projects: Map<string, MockProject>;
+  /** The mock user's Favoritos (TER-541): pinned project ids, in order. Starts empty. */
+  favorites: string[];
   conversations: Map<string, MockConversation>;
   /** Conversation id -> its messages, oldest first. */
   messages: Map<string, MockMessage[]>;
@@ -251,6 +253,7 @@ export function createMockState(): MockState {
     jtis: new Map(),
     sockets: new Set(),
     projects: new Map(),
+    favorites: [],
     conversations: new Map(),
     messages: new Map(),
     actions: new Map(),

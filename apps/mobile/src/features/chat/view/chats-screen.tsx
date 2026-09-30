@@ -1,42 +1,16 @@
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
-import { relativeTime } from '@/features/shared/relative-time';
+import { FlatList, RefreshControl, View } from 'react-native';
+import { isFavorite } from '@/features/home/model/favorites';
 import { AppText, Banner, EmptyState, Screen, SPLIT_LIST_WIDTH, useWideLayout } from '@/ui';
 import { useChatStore } from '../viewmodel/useChatStore';
 import { ConversationView } from './conversation-screen';
+import { FavoriteSheet } from './favorite-sheet';
+import { ProjectRow, type ProjectRowData } from './project-row';
 
 /** How long the split's list waits after the last socket event of a burst before re-reading the
  * projects: one request per burst of cards, decisions and messages, not one per event. */
 const LIVE_LIST_DEBOUNCE_MS = 1000;
-
-type Row = { route: string; name: string; busy: boolean; pending: number; lastMessageAt: string | null };
-
-function ChatRow({ row, selected, onPress }: { row: Row; selected: boolean; onPress(): void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={row.name}
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      className={`flex-row items-center gap-3 border-b border-app-border px-6 py-4 ${selected ? 'bg-app-surface' : ''}`}
-    >
-      <View className="flex-1 gap-0.5">
-        <AppText className="font-semibold">{row.name}</AppText>
-        {row.busy ? <AppText variant="muted" className="text-app-accent">respondendo…</AppText> : null}
-      </View>
-      {row.pending > 0 ? (
-        <View
-          accessibilityLabel={`${row.pending} ${row.pending === 1 ? 'confirmação pendente' : 'confirmações pendentes'}`}
-          className="min-w-6 items-center rounded-full bg-app-accent px-2 py-0.5"
-        >
-          <Text className="text-xs font-semibold text-white">{row.pending}</Text>
-        </View>
-      ) : null}
-      {row.lastMessageAt ? <AppText variant="muted">{relativeTime(row.lastMessageAt, Date.now())}</AppText> : null}
-    </Pressable>
-  );
-}
 
 /** Chats (spec §11.2): the account-wide chat, then one per project, each saying whether it is
  * answering and how many confirmations wait for the person. From `WIDE_MIN_WIDTH` (spec 2026-09-28
@@ -57,6 +31,9 @@ export function ChatsScreen() {
   // (it mounts `ConversationView`, whose own effect calls `openByRoute`), so the focus callback must
   // not change identity — and re-run — on every selection or width change, or it would fire a
   // redundant `openByRoute`/`loadProjects` on each tap and each rotation across the breakpoint.
+  const setFavorite = useChatStore((s) => s.setFavorite);
+  /** The project whose long-press sheet is open (TER-541). */
+  const [sheetFor, setSheetFor] = useState<string | null>(null);
   const paneRef = useRef({ wide, selected });
   paneRef.current = { wide, selected };
 
@@ -99,10 +76,11 @@ export function ChatsScreen() {
 
   const open = (route: string) => (wide ? setSelected(route) : router.push(`/chat/${route}` as Href));
 
-  const rows: Row[] = [
-    { route: 'general', name: 'Chat geral', busy: false, pending: 0, lastMessageAt: null },
-    ...projects.map((p) => ({ route: p.id, name: p.name, busy: p.busy, pending: p.pending_confirmations, lastMessageAt: p.last_message_at })),
+  const rows: (ProjectRowData & { pinned: boolean | null })[] = [
+    { route: 'general', name: 'Chat geral', busy: false, pending: 0, lastMessageAt: null, pinned: null },
+    ...projects.map((p) => ({ route: p.id, name: p.name, busy: p.busy, pending: p.pending_confirmations, lastMessageAt: p.last_message_at, pinned: isFavorite(p) })),
   ];
+  const sheetProject = projects.find((p) => p.id === sheetFor);
 
   const list = (
     <>
@@ -115,8 +93,20 @@ export function ChatsScreen() {
         data={rows}
         keyExtractor={(row) => row.route}
         extraData={wide ? selected : null}
-        renderItem={({ item }) => <ChatRow row={item} selected={wide && item.route === selected} onPress={() => open(item.route)} />}
+        renderItem={({ item }) => (
+          <ProjectRow
+            row={item}
+            selected={wide && item.route === selected}
+            onPress={() => open(item.route)}
+            favorite={item.pinned === null ? undefined : { pinned: item.pinned, onToggle: () => void setFavorite(item.route, !item.pinned), onLongPress: () => setSheetFor(item.route) }}
+          />
+        )}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void loadProjects()} />}
+      />
+      <FavoriteSheet
+        project={sheetProject ? { id: sheetProject.id, name: sheetProject.name, pinned: isFavorite(sheetProject) } : null}
+        onClose={() => setSheetFor(null)}
+        onToggle={() => sheetProject && void setFavorite(sheetProject.id, !isFavorite(sheetProject))}
       />
     </>
   );

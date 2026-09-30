@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { TabQuestion, TabQuestionAnswer, TabQuestionChoice, TabQuestionPermission, TabQuestionSuggestionItem } from '../../lib/types';
-import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerDescription, choiceAnswerLabel, formatCountdown, statusLabel, suggestionLine, suggestionSourceSentence, tabLabel } from './tab-question-text';
+import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerDescription, choiceAnswerLabel, formatCountdown, permissionTitle, statusLabel, suggestionLine, suggestionSourceSentence, tabLabel } from './tab-question-text';
 
 export interface TabQuestionCardProps {
   question: TabQuestion;
@@ -28,7 +28,8 @@ export interface TabQuestionCardProps {
 export const TabQuestionCard = memo(function TabQuestionCard(props: TabQuestionCardProps) {
   const { question, error } = props;
   return (
-    <li className="chat-enter rounded-xl border border-attention/40 bg-bg-2 px-4 py-3 text-sm">
+    // `data-chat-card`: how the pending bar finds this card to scroll to it (TER-477).
+    <li data-chat-card={question.id} className="chat-enter rounded-xl border border-attention/40 bg-bg-2 px-4 py-3 text-sm">
       {question.kind === 'choice' ? <ChoiceBody {...props} question={question} /> : <PermissionBody {...props} question={question} />}
       {question.status !== 'open' && <p className="mt-1 text-xs text-fg-dim">{statusLabel(question)}</p>}
       {error && <p className="mt-1 text-xs text-danger">{error}</p>}
@@ -305,7 +306,7 @@ function PermissionBody({ question, answering, onAnswer, loadScreen }: TabQuesti
   }, [open, question.id, loadScreen]);
   return (
     <>
-      <p className="whitespace-pre-wrap text-fg">{`${tabLabel(question)} pede permissão para usar «${question.payload.tool_name}»`}</p>
+      <p className="whitespace-pre-wrap text-fg">{permissionTitle(question)}</p>
       {open && screen !== null && (
         <details className="mt-2" open>
           <summary className="cursor-pointer text-xs text-fg-dim">Tela da aba</summary>

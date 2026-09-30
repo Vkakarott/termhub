@@ -5,6 +5,7 @@ import { ChatActionGroup, type BatchDecision } from './ChatActionGroup';
 import { ChatComposer } from './ChatComposer';
 import { ChatContextMeter } from './ChatContextMeter';
 import { ChatHost } from './ChatHost';
+import { ChatPendingBar } from './ChatPendingBar';
 import { ChatSubagents } from './ChatSubagents';
 import { ChatThread } from './ChatThread';
 import { ChatTurn } from './ChatTurn';
@@ -350,15 +351,20 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
         // Enriched server-side exactly like GET /api/chat's trail (same summary, same ids): no name
         // is resolved and no sentence is built here. A repeated event for an id already on screen is
         // the live run telling us which subagent proposed it after the card was already published
-        // with none — merged in, never re-added.
+        // with none, or the card brought back to the end of the chat (`resurfaced`, TER-477, with a
+        // new `surfaced_at`) — merged in, never re-added.
         setActions((prev) =>
           prev.some((a) => a.id === e.action_id)
-            ? prev.map((a) => (a.id === e.action_id && e.subagent ? { ...a, subagent: e.subagent } : a))
-            : [...prev, { id: e.action_id, tool: e.tool, args: e.args, class: e.class, status: 'pending', machine_id: e.machine_id, project_id: e.project_id, tab_id: e.tab_id, summary: e.summary, subagent: e.subagent, created_at: e.created_at }],
+            ? prev.map((a) => (a.id === e.action_id ? { ...a, ...(e.subagent ? { subagent: e.subagent } : {}), ...(e.surfaced_at ? { surfaced_at: e.surfaced_at } : {}) } : a))
+            : [...prev, { id: e.action_id, tool: e.tool, args: e.args, class: e.class, status: 'pending', machine_id: e.machine_id, project_id: e.project_id, tab_id: e.tab_id, summary: e.summary, subagent: e.subagent, created_at: e.created_at, surfaced_at: e.surfaced_at ?? null }],
         );
       } else if (e.type === 'decision') {
         // Someone answered — possibly in another open tab. Keyed on the action id alone.
         setActions((prev) => prev.map((a) => (a.id === e.action_id ? { ...a, status: e.status } : a)));
+      } else if (e.type === 'action_status') {
+        // The gate ran it, or it failed or went stale (TER-477): the card reads so without a reload. An
+        // id not on screen (outside the loaded window) is left to the next read.
+        setActions((prev) => (prev.some((a) => a.id === e.action_id) ? prev.map((a) => (a.id === e.action_id ? { ...a, status: e.status, error_code: e.error_code } : a)) : prev));
       } else if (e.type === 'grant') setGrants((prev) => [...prev.filter((g) => g.id !== e.grant.id && !(g.tab_id === e.grant.tab_id && g.tool === e.grant.tool)), e.grant]);
       else if (e.type === 'grant_revoked') setGrants((prev) => prev.filter((g) => g.id !== e.grant_id));
       else if (e.type === 'project_grant') setProjectGrants((prev) => [...prev.filter((g) => g.id !== e.grant.id && g.project_id !== e.grant.project_id), e.grant]);
@@ -448,6 +454,8 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   }, [load]);
 
   const onDecideBatch = useCallback((d: BatchDecision[]) => void decideBatch(d), [decideBatch]);
+  /** "Aprovar as reversíveis" in the pending bar (TER-477): the group card's batch call, with only those ids. */
+  const approveReversible = useCallback((ids: string[]) => void decideBatch(ids.map((id) => ({ id, decision: 'approve' }))), [decideBatch]);
   const onShowSeparately = useCallback(() => setSeparate(true), []);
 
   /** "Revogar", from the card that granted it — a tab, project or standing grant, this call does not
@@ -754,6 +762,15 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
     [projectId, load],
   );
 
+  /** "Propor de novo" on an expired or stale card (TER-477): an ordinary message of this conversation,
+   *  so the concierge proposes it again through the gate, on a fresh card. */
+  const repropose = useCallback((a: ChatAction) => void send(`Proponha de novo: ${a.summary}`, []), [send]);
+  /** Scrolling to a card from the pending bar is the reader leaving the bottom: stop following first, so
+   *  a streamed line does not pin the thread back down mid-scroll. */
+  const unstick = useCallback(() => {
+    stick.current = false;
+  }, []);
+
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
   /** Whether an answer is being written right now — the only time a reset is refused (409): any row the
@@ -988,6 +1005,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
                 revoking={(g !== undefined && revokingId === g.id) || (pg !== undefined && revokingId === pg.id) || (sg !== undefined && revokingId === sg.id)}
                 onRevoke={revoke}
                 onDecide={decide}
+                onRepropose={repropose}
               />
             );
           }
@@ -1005,6 +1023,8 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
           return <ChatTurn key={m.id} message={m} streaming={streaming} tools={row?.tools} waiting={waiting} failed={Boolean(m.error_code) || (empty && !waiting)} />;
         })}
       </ChatThread>
+      {/* What waits on the person, however far up it sits (TER-477): hidden while nothing does. */}
+      <ChatPendingBar entries={timeline} batchDeciding={batchDeciding} onApprove={approveReversible} onLocate={unstick} />
       {/* A host that cannot run the message is why the box refuses, and the box says so. The send and
        *  decision errors go in its status line too: a line that mounts above the thread shifts it.
        *  `projectId` travels with every upload, so a file lands in this project's conversation. */}

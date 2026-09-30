@@ -175,6 +175,37 @@ describe('tab suggestions', () => {
   });
 });
 
+describe('chatTimeline — surfaced cards', () => {
+  const T3 = '2026-01-01T00:03:00.000Z';
+  const idOf = (e: ReturnType<typeof chatTimeline>[number]) => (e.kind === 'message' ? e.message.id : e.kind === 'action' ? e.action.id : e.kind === 'tab_question' ? e.question.id : e.kind === 'tab_suggestion' ? e.suggestion.id : '');
+
+  it('orders a card brought back to the end by surfaced_at, not created_at', () => {
+    const entries = chatTimeline(
+      [message({ id: 'm1', created_at: T0 }), message({ id: 'm2', created_at: T2 })],
+      [action({ id: 'a1', created_at: T1, surfaced_at: T3 })],
+      [tabQuestion({ id: 'q1', created_at: T1, surfaced_at: T3 })],
+    );
+    expect(entries.map(idOf)).toEqual(['m1', 'm2', 'a1', 'q1']);
+    expect(entries[2].at).toBe(T3);
+  });
+
+  it('keeps a surfaced card whose created_at is older than the message window', () => {
+    // The card was proposed before the oldest loaded message, but brought back after it: it belongs on screen.
+    const entries = chatTimeline([message({ id: 'm1', created_at: T1 })], [action({ id: 'a-old', created_at: T0, surfaced_at: T2 })], [tabQuestion({ id: 'q-old', created_at: T0, surfaced_at: T2 })]);
+    expect(entries.map(idOf)).toEqual(['m1', 'a-old', 'q-old']);
+  });
+
+  it('orders a suggestion by surfaced_at too', () => {
+    const s: TabSuggestion = { id: 's1', tab_id: 't1', tab_name: 'api', kind: 'suggestion', payload: { text: 'x' }, status: 'open', answer: null, error_code: null, created_at: T0, surfaced_at: T3, answered_at: null, closed_at: null };
+    expect(chatTimeline([message({ id: 'm1', created_at: T0 }), message({ id: 'm2', created_at: T2 })], [], [], [s]).map(idOf)).toEqual(['m1', 'm2', 's1']);
+  });
+
+  it('falls back to created_at when surfaced_at is null', () => {
+    const entries = chatTimeline([message({ id: 'm1', created_at: T0 }), message({ id: 'm2', created_at: T2 })], [action({ id: 'a1', created_at: T1, surfaced_at: null })]);
+    expect(entries.map(idOf)).toEqual(['m1', 'a1', 'm2']);
+  });
+});
+
 describe('groupPendingActions', () => {
   it('leaves a single pending card alone', () => {
     const entries = chatTimeline([message({ id: 'm1', created_at: T0 })], [action({ id: 'a1', created_at: T1 }), action({ id: 'a2', created_at: T2, status: 'approved' })]);

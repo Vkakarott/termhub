@@ -8,7 +8,7 @@ import { AppText, Banner, Button, EmptyState, MAX_READABLE_WIDTH, readableColumn
 import { activeGrantIndex, isGrantActive } from '../model/grant-time';
 import { isActive } from '../model/subagents';
 import { chatTimeline, groupPendingActions, type ChatEntry } from '../model/timeline';
-import type { ChatMessage, ChatStandingGrant } from '../model/types';
+import type { ChatAction, ChatMessage, ChatStandingGrant } from '../model/types';
 import type { ChatDecision } from '../viewmodel/createChatStore';
 import { useChatStore } from '../viewmodel/useChatStore';
 import { ActionCard } from './action-card';
@@ -16,6 +16,7 @@ import { ActionGroupCard } from './action-group-card';
 import { Composer } from './composer';
 import { HostLine } from './host-line';
 import { MessageBubble } from './message-bubble';
+import { PendingBar } from './pending-bar';
 import { SubagentsSheet } from './subagents-sheet';
 import { TabQuestionCard } from './tab-question-card';
 import { TabSuggestionCard } from './tab-suggestion-card';
@@ -35,6 +36,15 @@ const entryKey = (entry: ChatEntry) =>
         : entry.kind === 'tab_suggestion'
           ? `s:${entry.suggestion.id}`
           : `q:${entry.question.id}`;
+
+/** Whether `entry` is the card of the action or question `id` — a group holds several actions. */
+const holds = (entry: ChatEntry, id: string): boolean =>
+  (entry.kind === 'action' && entry.action.id === id) ||
+  (entry.kind === 'action_group' && entry.actions.some((a) => a.id === id)) ||
+  (entry.kind === 'tab_question' && entry.question.id === id);
+
+/** How long the thread waits, after an approximate scroll, to retry a jump to a row not measured yet. */
+const JUMP_RETRY_MS = 300;
 
 /** The thread and the composer never stretch past a readable width (spec 2026-09-28 iPad §2.4); the
  * header and the list's own frame still span the pane. */
@@ -147,7 +157,7 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
   }, [standingGrants]);
 
   // A deep link followed after unlock replaces `/unlock` with this screen: nothing behind it.
-  const goBack = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)'));
+  const goBack = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/chats'));
   const onDecide = useCallback((actionId: string, decision: ChatDecision) => void decide(actionId, decision), [decide]);
   const onDecideMany = useCallback((d: { id: string; decision: 'approve' | 'deny' }[]) => void decideMany(d), [decideMany]);
   const onRevoke = useCallback((grantId: string) => void revokeGrant(grantId), [revokeGrant]);
@@ -156,6 +166,9 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
   const onForget = useCallback((decisionId: string) => forgetDecision(decisionId), [forgetDecision]);
   const onSendSuggestion = useCallback((id: string, text: string) => void sendTabSuggestion(id, text), [sendTabSuggestion]);
   const onDismissSuggestion = useCallback((id: string) => void dismissTabSuggestion(id), [dismissTabSuggestion]);
+  // "Propor de novo" (TER-477): a plain chat message; the concierge proposes a fresh card through the gate.
+  const onRepropose = useCallback((action: ChatAction) => void send(`Proponha de novo: ${action.summary}`), [send]);
+  const onApproveWrites = useCallback((ids: string[]) => void decideMany(ids.map((id) => ({ id, decision: 'approve' as const }))), [decideMany]);
   const timeline = useMemo(() => chatTimeline(messages ?? [], actions ?? [], tabQuestions ?? [], tabSuggestions ?? []), [messages, actions, tabQuestions, tabSuggestions]);
   const pendingKey = (actions ?? [])
     .filter((a) => a.status === 'pending')
@@ -164,6 +177,27 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
   useEffect(() => setSeparate(false), [pendingKey]);
   // Newest first, for the inverted list that keeps the thread pinned to its end.
   const entries = useMemo(() => (separate ? timeline : groupPendingActions(timeline)).slice().reverse(), [separate, timeline]);
+
+  // The pending bar's jump (TER-477): scrolls the thread to the row that holds the card. A row far
+  // up the list may not be measured yet: `onScrollToIndexFailed` scrolls to its estimated offset,
+  // which renders it, then tries once more.
+  const listRef = useRef<FlatList<ChatEntry>>(null);
+  const retriedJump = useRef(false);
+  const onJump = useCallback(
+    (id: string) => {
+      const index = entries.findIndex((e) => holds(e, id));
+      if (index < 0) return;
+      retriedJump.current = false;
+      listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+    },
+    [entries],
+  );
+  const onScrollToIndexFailed = useCallback((info: { index: number; averageItemLength: number }) => {
+    listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+    if (retriedJump.current) return;
+    retriedJump.current = true;
+    setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.5, animated: true }), JUMP_RETRY_MS);
+  }, []);
 
   // Stable across deltas: a message row reads its own streamed text from the store (`MessageRow`),
   // so neither this callback nor `extra` change while an answer streams. The memoised rows re-render
@@ -203,6 +237,7 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
           standingGrant={standingGrantIndex.get(item.action.id)}
           revoking={revokingId !== null}
           onRevoke={onRevoke}
+          onRepropose={onRepropose}
         />
       ),
     [
@@ -223,6 +258,7 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
       onShowSeparately,
       onDismissSuggestion,
       onRevoke,
+      onRepropose,
       onSendSuggestion,
       revokingId,
     ],
@@ -289,6 +325,7 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
           )
         ) : (
           <FlatList
+            ref={listRef}
             testID="conversation-thread"
             inverted
             keyboardDismissMode="interactive"
@@ -299,11 +336,14 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
             contentContainerStyle={READABLE_COLUMN}
             extraData={extra}
             renderItem={renderItem}
+            onScrollToIndexFailed={onScrollToIndexFailed}
           />
         )}
         {/* The footer block, a sibling of the list like the header: its height changes the list's
             frame, not its content (spec 2026-09-26 §4.2 "Keyboard"). */}
         <View testID="conversation-composer-column" style={READABLE_COLUMN}>
+          {/* What waits on the person, however far up the thread (TER-477); hidden while nothing does. */}
+          <PendingBar entries={timeline} deciding={decidingId !== null} onJump={onJump} onApprove={onApproveWrites} />
           <Composer sending={sending} onSend={send} uploadAttachment={uploadAttachment} deleteAttachment={deleteAttachment} attachmentStatuses={attachmentStatuses} />
         </View>
       </KeyboardAvoidingView>

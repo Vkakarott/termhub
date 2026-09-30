@@ -68,6 +68,8 @@ export interface TabQuestion {
   answered_via: AnsweredVia | null;
   /** Set once, before a wake turn starts, so one card never wakes the concierge twice (spec §7). */
   woken_at: string | null;
+  /** When the card was last brought back to the end of the chat (TER-477): the thread orders by it, else `created_at`. */
+  surfaced_at: string | null;
 }
 
 export interface OpenTabQuestionInput {
@@ -126,6 +128,7 @@ const mapQuestion = (q: Row): TabQuestion => ({
   auto_answer: (q.autoAnswer ?? null) as unknown as AutoAnswer | null,
   answered_via: (q.answeredVia ?? null) as AnsweredVia | null,
   woken_at: iso(q.wokenAt),
+  surfaced_at: iso(q.surfacedAt),
 });
 
 /**
@@ -539,6 +542,20 @@ export class TabQuestionsRepository {
   async markInjected(ids: string[], now = new Date()): Promise<void> {
     if (ids.length === 0) return;
     await this.db.tabQuestion.updateMany({ where: { id: { in: ids }, injectedAt: null }, data: { injectedAt: now } });
+  }
+
+  /**
+   * Brings the conversation's open questions and permission prompts (never a suggestion) back to the end
+   * of the chat (TER-477): `surfaced_at = now`, conditional on still being open. The rows it moved, oldest first.
+   */
+  async surfaceOpen(conversationId: string, now = new Date()): Promise<TabQuestion[]> {
+    const where = { conversationId, status: 'open', kind: { not: 'suggestion' } };
+    const rows = await this.db.tabQuestion.findMany({ where, select: { id: true } });
+    if (rows.length === 0) return [];
+    const ids = rows.map((r) => r.id);
+    await this.db.tabQuestion.updateMany({ where: { ...where, id: { in: ids } }, data: { surfacedAt: now } });
+    const moved = await this.db.tabQuestion.findMany({ where: { id: { in: ids }, status: 'open', surfacedAt: now }, include: withOwner, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+    return moved.map(mapQuestion);
   }
 
   /** Open questions (not suggestions) per conversation: they wait on the person like a pending action (spec 2026-09-26 §4.9). */

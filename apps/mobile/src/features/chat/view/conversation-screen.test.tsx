@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
-import { DeviceEventEmitter, StyleSheet } from 'react-native';
+import { DeviceEventEmitter, FlatList, StyleSheet } from 'react-native';
 import { getAnimatedStyle } from 'react-native-reanimated';
 
 jest.mock('@/features/session/viewmodel/useSessionStore', () => ({ useSessionStore: require('../../../../test/helpers/ui-stores').stores.store }));
@@ -63,7 +63,7 @@ function addRows(rows: ChatMessage[], live: TChatEvent[]) {
 /** Replaces one of the store's actions for a test. Not `jest.spyOn(getState(), …)`: zustand
  * replaces the state object on every `setState`, so a restored spy would linger on the new one. */
 const realActions = { ...stores.chat.getState() };
-function stubAction<K extends 'decide' | 'decideMany' | 'reset' | 'setHost' | 'revokeGrant' | 'answerTabQuestion' | 'sendTabSuggestion' | 'dismissTabSuggestion' | 'retrySend' | 'cancelSubagent'>(name: K) {
+function stubAction<K extends 'send' | 'decide' | 'decideMany' | 'reset' | 'setHost' | 'revokeGrant' | 'answerTabQuestion' | 'sendTabSuggestion' | 'dismissTabSuggestion' | 'retrySend' | 'cancelSubagent'>(name: K) {
   const fn = jest.fn(async () => undefined);
   useChatStore.setState({ [name]: fn } as Partial<ReturnType<typeof useChatStore.getState>>);
   return fn;
@@ -123,6 +123,7 @@ afterEach(() => {
     sending: false,
     live: emptyFold(),
     conversations: conversationsBefore,
+    send: realActions.send,
     decide: realActions.decide,
     decideMany: realActions.decideMany,
     reset: realActions.reset,
@@ -578,7 +579,8 @@ describe('Conversa', () => {
     mockRouter.canGoBack.mockReturnValue(false);
     await fireEvent.press(screen.getByRole('button', { name: 'Voltar' }));
     expect(mockRouter.back).toHaveBeenCalledTimes(1);
-    expect(mockRouter.replace).toHaveBeenCalledWith('/(tabs)');
+    // The tabs' index is Home now (TER-541): a conversation falls back to the list it belongs to.
+    expect(mockRouter.replace).toHaveBeenCalledWith('/(tabs)/chats');
   });
 
   const QUESTION_BASE = { tab_id: 't-api', tab_name: 'api', error_code: null, created_at: new Date().toISOString(), answered_at: null, closed_at: null };
@@ -764,6 +766,56 @@ describe('Conversa', () => {
       reject(new ApiError(409, 'HOST_OFFLINE', 'A máquina do chat está offline.'));
     });
     expect(screen.getByLabelText('Mensagem').props.value).toBe('oi');
+  });
+});
+
+describe('Conversa: pending cards at hand (spec 2026-09-30 TER-477)', () => {
+  const SECOND = 'mover a tarefa TER-12 "Revisar o login" do projeto termhub';
+
+  it('shows the pending bar above the composer; a line scrolls the thread to the card that holds it', async () => {
+    serveChat(undefined, true);
+    const scrollToIndex = jest.spyOn(FlatList.prototype, 'scrollToIndex').mockImplementation(() => undefined);
+    await render(<ConversationScreen />);
+    expect(await screen.findByText('2 ações aguardando sua confirmação', undefined, LOAD)).toBeTruthy();
+    // Nothing else waits in the seed: the two confirmations.
+    await fireEvent.press(within(screen.getByTestId('pending-bar')).getByRole('button', { name: /2 pendentes$/ }));
+    await fireEvent.press(within(screen.getByTestId('pending-bar')).getByText(SECOND));
+    // Both are in one group card: the line finds the group that holds its id.
+    const data = screen.getByTestId('conversation-thread').props.data as { kind: string }[];
+    const index = data.findIndex((e) => e.kind === 'action_group');
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(scrollToIndex).toHaveBeenCalledWith({ index, viewPosition: 0.5, animated: true });
+    // The bar folds after the jump.
+    expect(within(screen.getByTestId('pending-bar')).queryByText(SECOND)).toBeNull();
+  });
+
+  it('"Aprovar as reversíveis (2)" approves both writes through decideMany', async () => {
+    serveChat(undefined, true);
+    const decideMany = stubAction('decideMany');
+    await render(<ConversationScreen />);
+    await screen.findByText('2 ações aguardando sua confirmação', undefined, LOAD);
+    await fireEvent.press(within(screen.getByTestId('pending-bar')).getByRole('button', { name: /2 pendentes$/ }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Aprovar as reversíveis (2)' }));
+    expect(decideMany).toHaveBeenCalledWith([
+      { id: 'a-termhub-1', decision: 'approve' },
+      { id: 'a-termhub-2', decision: 'approve' },
+    ]);
+  });
+
+  it('no bar while nothing waits', async () => {
+    serveChat((res) => ({ actions: withAction(res, { status: 'executed' }) }));
+    await render(<ConversationScreen />);
+    await screen.findByText('executada', undefined, LOAD);
+    expect(screen.queryByTestId('pending-bar')).toBeNull();
+  });
+
+  it('an expired card offers "Propor de novo", which sends "Proponha de novo: <summary>" in this conversation', async () => {
+    serveChat((res) => ({ actions: withAction(res, { status: 'failed', error_code: 'TAB_GONE' }) }));
+    const send = stubAction('send');
+    await render(<ConversationScreen />);
+    expect(await screen.findByText('expirou: a aba foi fechada', undefined, LOAD)).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Propor de novo' }));
+    expect(send).toHaveBeenCalledWith('Proponha de novo: digitar `npm test` na aba api do projeto termhub, no jarvis');
   });
 });
 

@@ -4,7 +4,7 @@
  * rule without importing the answer flow, which reaches back into the gate through `service.ts`.
  */
 import type { TabQuestion } from '../db/repositories/tab-questions.js';
-import type { ChoicePayload } from './tab-question-payload.js';
+import type { ChoicePayload, PermissionPayload } from './tab-question-payload.js';
 
 /** How much of the pane the excerpt shown with a question reads. */
 export const SCREEN_EXCERPT_LINES = 20;
@@ -12,6 +12,37 @@ export const SCREEN_EXCERPT_LINES = 20;
 export const DIALOG_FOOTER = 'Esc to cancel';
 /** How far above the footer the question's marker may sit: the dialog block, not the scrollback. */
 export const PROMPT_MARKER_LINES = 25;
+
+/** A box-drawing rule: Claude Code draws its input box between two of them. ASCII dashes are not a rule —
+ * they are as likely a command preview's output (`printf '%s\n' '----------'`) as a real input box. */
+const RULE = /^\s*[─━]{10,}\s*$/;
+
+/**
+ * The first line of Claude Code's permission dialog for the tools whose title is known from a real
+ * capture (fixtures/permission-dialogs, and spec 2026-09-30 tab questions per subagent §3), lower-cased.
+ * A subagent's dialog adds " · from the <type> agent" after it.
+ */
+const DIALOG_TITLES: readonly (readonly [title: string, tool: string])[] = [
+  ['bash command', 'Bash'],
+  ['edit file', 'Edit'],
+  ['fetch', 'WebFetch'],
+];
+
+/**
+ * The tool whose dialog the capture shows, when its title is one the server knows: the line under the
+ * lowest box rule. Null for a dialog with another title, and for a capture with no rule. Only that one
+ * rule is read: above it is the transcript, where a rule and a line that looks like a title may be
+ * anybody's text. Used to refuse a card whose dialog is not the one on screen; never to accept one.
+ */
+export function dialogTool(screen: string): string | null {
+  const lines = screen.split('\n').filter((l) => l.trim() !== '');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!RULE.test(lines[i]!)) continue;
+    const under = (lines[i + 1] ?? '').trim().toLowerCase();
+    return DIALOG_TITLES.find(([title]) => under === title || under.startsWith(`${title} `))?.[1] ?? null;
+  }
+  return null;
+}
 
 /**
  * Letters and digits only: whitespace (Claude Code wraps a long question over indented rows) and
@@ -43,9 +74,19 @@ export function dialogFooterVisible(screen: string): boolean {
  * alone is not enough, it stays in the scrollback). For a choice, the first question's text — or, when
  * the card is taller than the pane and the question's start is above the top of the screen (TER-542),
  * every option label of that question, within the whole capture. Both sides are reduced to letters and
- * digits (`squash`) before comparing.
+ * digits (`squash`) before comparing. A permission is also refused when the known title under the lowest
+ * box rule belongs to another tool (spec 2026-09-30 tab questions per subagent §5). That check fails open
+ * on purpose: an unknown or renamed title makes it a no-op, not a refusal of every card.
  */
 export function promptVisible(screen: string, row: Pick<TabQuestion, 'kind' | 'payload'>): boolean {
+  if (!dialogShown(screen, row)) return false;
+  if (row.kind !== 'permission') return true;
+  const tool = dialogTool(screen);
+  return tool === null || tool === (row.payload as PermissionPayload).tool_name;
+}
+
+/** The shared footer/marker check, independent of the permission card's tool. */
+function dialogShown(screen: string, row: Pick<TabQuestion, 'kind' | 'payload'>): boolean {
   if (!dialogFooterVisible(screen)) return false;
   const shown = squash(lastNonBlankLines(screen, PROMPT_MARKER_LINES));
   if (row.kind === 'choice') {
@@ -81,9 +122,6 @@ const MARKERS = PERMISSION_MARKERS.map(squashLower);
 const SELECTED_OPTION = /^\s*([❯›>])\s*(\d+)\./;
 /** An option that is not selected: a number and a dot, no cursor. */
 const PLAIN_OPTION = /^\s*(\d+)\./;
-/** A box-drawing rule: Claude Code draws its input box between two of them. ASCII dashes are not a rule —
- * they are as likely a command preview's output (`printf '%s\n' '----------'`) as a real input box. */
-const RULE = /^\s*[─━]{10,}\s*$/;
 
 /**
  * Option labels that exist only in an approval menu, never in a routine one (spec 2026-09-28 TER-374
@@ -139,7 +177,7 @@ function menuCursor(lines: string[]): number {
 
 /**
  * Whether the screen shows an agent's permission dialog right now. Used by the gate before a terminal
- * grant presses a key (TER-325), so it leans towards "yes": `promptVisible`'s rule for a permission row
+ * grant presses a key (TER-325), so it leans towards "yes": the shared rule for a permission row
  * (footer + "Do you want"), or — for dialogs worded otherwise or without that footer — a marker phrase
  * above the menu's selected option, or an approval option at or below it, both inside the last
  * `PROMPT_MARKER_LINES` non-blank lines. The cursor keeps the model's own prose ("Would you like to
@@ -151,7 +189,7 @@ function menuCursor(lines: string[]): number {
  * window (TER-380).
  */
 export function permissionDialogVisible(screen: string): boolean {
-  if (promptVisible(screen, { kind: 'permission', payload: { tool_name: '' } })) return true;
+  if (dialogShown(screen, { kind: 'permission', payload: { tool_name: '' } })) return true;
   const lines = lastNonBlankLines(screen, PROMPT_MARKER_LINES).split('\n');
   const cursor = menuCursor(lines);
   if (cursor < 0) return false;
