@@ -18,4 +18,6 @@ export const CHAT_MSG = {
   attachmentGalleryDenied: 'Permissão da galeria negada',
   forgetDecisionFailed: 'Não foi possível esquecer a decisão',
   autoAnswerAlreadySent: 'A resposta automática já foi enviada.',
+  /** A run that could not even be attempted (`run_finished` with no message id, spec 2026-09-29 §5). */
+  setupFailed: 'O concierge não conseguiu começar a resposta. Tente de novo.',
 } as const;

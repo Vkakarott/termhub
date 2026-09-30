@@ -1412,6 +1412,22 @@ describe('which answers are being written (spec 2026-09-29 §5)', () => {
     expect(await screen.findByText('começo da resposta')).toBeInTheDocument();
   });
 
+  it('lets go of what streamed for a row the re-read shows final, as the phone does (pruneLive)', async () => {
+    chatMock.mockResolvedValueOnce(thread([q('q1', 'pergunta', 0), a('a1', 1)], ['a1']));
+    mount();
+    await screen.findByText(/pensando/i);
+    act(() => onEvent({ type: 'delta', message_id: 'a1', delta: 'meio da resposta', conversation_id: 'c1' }));
+    expect(await screen.findByText('meio da resposta')).toBeInTheDocument();
+    // The socket dropped mid-answer and the server closed the row with no text (its host went away).
+    chatMock.mockResolvedValue(thread([q('q1', 'pergunta', 0), msg({ id: 'a1', role: 'assistant', text: '', error_code: 'HOST_GONE', created_at: at(1) })], []));
+    await act(async () => {
+      await onReconnect();
+    });
+    expect(screen.getByText(/saiu do ar no meio da resposta/)).toBeInTheDocument();
+    expect(screen.queryByText('meio da resposta')).toBeNull();
+    expect(screen.queryByText(/pensando/i)).toBeNull();
+  });
+
   it('keeps a row whose message arrived while the re-read was in flight', async () => {
     chatMock.mockResolvedValueOnce(thread([q('q1', 'um', 0), a('a1', 1, 'resposta um')], []));
     mount();

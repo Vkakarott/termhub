@@ -340,7 +340,7 @@ export class ChatService {
      *  which machine runs a conversation is decided per send, by `resolveHost`. */
     runnerFor: (machineId: string) => RunnerClient;
     /** Indexes a message the person typed, best effort (spec 2026-09-26 concierge memory D3/D4/§4):
-     *  only `start` calls it — `sendIn` (re-injections, wakes) never does, since only what the person
+     *  only `start` calls it — `startIn` (re-injections, wakes, the drain) never does, since only what the person
      *  actually typed is memory. Defaults to the real writer, bound to `repos` and the configured
      *  embed service, so only a test needs to override it to observe the call. */
     indexMessage: (m: { id: string; owner_id: string; project_id: string | null; text: string; created_at: string }) => Promise<void>;

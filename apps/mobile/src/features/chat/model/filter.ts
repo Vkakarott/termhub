@@ -9,8 +9,8 @@
 // `conversation_id` is a required field on every event but `hello` (`events.ts`; `hello` carries no
 // conversation at all, it is the socket's own first frame) — so the rule collapses to "equal to the
 // open conversation", and `conversationId === null` (nothing open yet, before the first `GET chat`
-// resolves) drops everything, tagged or not, same as the web drops a tagged event before its own
-// `conversationId` is known.
+// resolves) matches nothing. The store holds the tagged events it gets meanwhile and replays those of
+// the conversation its first read names (`early` in `createChatStore.ts`), as the web does.
 import type { ChatEvent } from './types';
 
 /**
