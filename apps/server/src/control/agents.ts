@@ -79,12 +79,12 @@ function claudeMcpFlags(tabId: string): string {
 const MCP_URL_RE = /^https?:\/\/[^\s'"\\\x00-\x1f\x7f]+$/;
 
 /**
- * Whether a Codex (chatgpt) tab gets the memory MCP (D9). Off until the `-c mcp_servers.…` overrides are
- * checked against a real Codex (TER-356, "verificar no hulk"): an older Codex could refuse to start with
- * them. While off, Codex tabs start with the plain line and nothing is minted; `launchLine` still builds
- * the Codex MCP line, so turning this on is the whole switch.
+ * Whether a Codex (chatgpt) tab gets the memory MCP (D9). Verified on hulk with codex-cli 0.159.2 (TER-356):
+ * `codex -c 'mcp_servers.termhub_tab.url="…"' -c 'mcp_servers.termhub_tab.bearer_token_env_var="TERMHUB_MCP_TOKEN"' mcp list`
+ * lists `termhub_tab` with a Bearer token. Kept as a switch: turning it off makes Codex tabs start with the
+ * plain line and nothing minted, should an older Codex refuse the `-c mcp_servers.…` overrides.
  */
-export const CODEX_TAB_MCP_ENABLED = false;
+export const CODEX_TAB_MCP_ENABLED = true;
 
 /**
  * The exact line typed into the tab; every value goes through `shellQuote`, so nothing in it is interpreted.
@@ -229,8 +229,8 @@ export async function startAgent(
 const MCP_SKIPPED = {
   no_mcp_url: 'MCP_URL não configurado',
   invalid_mcp_url: 'MCP_URL inválido',
+  codex_disabled: 'o MCP no Codex está desligado',
   agent_outdated: 'o termhub-agent desta máquina é anterior à 0.10.0',
-  codex_unverified: 'o MCP no Codex ainda não foi verificado',
   install_failed: 'não foi possível gravar a configuração na máquina',
 } as const;
 
@@ -248,7 +248,7 @@ async function tabMcp(ctx: ControlContext, machine: Machine, provider: AiProvide
   if (!url) reason = 'no_mcp_url';
   // checked before anything is minted: launchLine would refuse it after the install
   else if (!MCP_URL_RE.test(url)) reason = 'invalid_mcp_url';
-  else if (provider === 'chatgpt' && !CODEX_TAB_MCP_ENABLED) reason = 'codex_unverified';
+  else if (provider === 'chatgpt' && !CODEX_TAB_MCP_ENABLED) reason = 'codex_disabled';
   else if (!tabMcpSupported(machine)) reason = 'agent_outdated';
   else {
     try {

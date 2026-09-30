@@ -454,3 +454,102 @@ describe('heal', () => {
     err.mockRestore();
   });
 });
+
+describe('Codex hooks.json', () => {
+  const script = () => path.join(home, '.termhub/bin/termhub-hook');
+  type CodexHooks = { hooks: Record<string, { hooks: { command: string }[] }[]> };
+
+  it('install writes ~/.codex/hooks.json (644) next to the notify, keeping the person\'s own hooks, and is idempotent', async () => {
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    await writeFile(path.join(home, '.codex/hooks.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] } }));
+    await expect(install(params, home)).resolves.toMatchObject({ codex: 'installed' });
+    const once = await read('.codex/hooks.json');
+    expect(await mode('.codex/hooks.json')).toBe(0o644);
+    const file = JSON.parse(once) as CodexHooks;
+    expect(file.hooks.Stop?.flatMap((g) => g.hooks.map((h) => h.command))).toContain('say done');
+    expect(once).toContain(script());
+    expect(await read('.codex/config.toml')).toContain('notify = [');
+    await install(params, home);
+    expect(await read('.codex/hooks.json')).toBe(once);
+  });
+
+  it('install creates hooks.json in a ~/.codex that has none, and writes none without ~/.codex', async () => {
+    await install(params, home);
+    await expect(stat(path.join(home, '.codex'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    await install(params, home);
+    expect((JSON.parse(await read('.codex/hooks.json')) as CodexHooks).hooks).toHaveProperty('UserPromptSubmit');
+  });
+
+  it('install refuses an unparseable hooks.json before writing anything', async () => {
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    await writeFile(path.join(home, '.codex/hooks.json'), '{not json');
+    await expect(install(params, home)).rejects.toMatchObject({ code: 'failed', path: '.codex/hooks.json', message: '~/.codex/hooks.json não é JSON válido' });
+    expect(await read('.codex/hooks.json')).toBe('{not json');
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('install refuses a hooks.json it cannot read, naming the file', async () => {
+    await mkdir(path.join(home, '.codex/hooks.json'), { recursive: true });
+    await expect(install(params, home)).rejects.toMatchObject({ code: 'failed', path: '.codex/hooks.json', message: expect.stringContaining('não foi possível ler ~/.codex/hooks.json') });
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('uninstall deletes a hooks.json that termhub created, keeping ~/.codex', async () => {
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    await install(params, home);
+    await uninstall({}, home);
+    await expect(stat(path.join(home, '.codex/hooks.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await stat(path.join(home, '.codex'))).isDirectory()).toBe(true);
+  });
+
+  it('uninstall keeps the person\'s own hooks and leaves an unparseable file alone', async () => {
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    const theirs = { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] } };
+    await writeFile(path.join(home, '.codex/hooks.json'), JSON.stringify(theirs));
+    await install(params, home);
+    await uninstall({}, home);
+    expect(JSON.parse(await read('.codex/hooks.json'))).toEqual(theirs);
+    await writeFile(path.join(home, '.codex/hooks.json'), `{not json ${HOOK_SCRIPT}`);
+    await expect(uninstall({}, home)).resolves.toEqual({ removed: true });
+    expect(await read('.codex/hooks.json')).toBe(`{not json ${HOOK_SCRIPT}`);
+  });
+
+  it('heal adds hooks.json when it is missing (once for ~/.codex), and settles', async () => {
+    await install(params, home);
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    await expect(heal(home)).resolves.toEqual(['~/.codex']);
+    expect(await read('.codex/hooks.json')).toContain(script());
+    expect(await read('.codex/config.toml')).toContain('notify = [');
+    await expect(heal(home)).resolves.toEqual([]);
+  });
+
+  it('heal repairs hooks.json alone when notify is already there, and keeps a foreign notify', async () => {
+    await install(params, home);
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    await writeFile(path.join(home, '.codex/config.toml'), 'notify = ["say"]\n');
+    await expect(heal(home)).resolves.toEqual(['~/.codex']);
+    expect(await read('.codex/config.toml')).toBe('notify = ["say"]\n');
+    expect(await read('.codex/hooks.json')).toContain(script());
+  });
+
+  it('heal repairs notify even when hooks.json cannot be parsed, and leaves that file alone', async () => {
+    await install(params, home);
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    await writeFile(path.join(home, '.codex/hooks.json'), '{not json');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(heal(home)).resolves.toEqual(['~/.codex']);
+    log.mockRestore();
+    expect(await read('.codex/hooks.json')).toBe('{not json');
+    expect(await read('.codex/config.toml')).toContain('notify = [');
+  });
+
+  it('heal repairs hooks.json even when config.toml cannot be read', async () => {
+    await install(params, home);
+    await mkdir(path.join(home, '.codex/config.toml'), { recursive: true });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(heal(home)).resolves.toEqual(['~/.codex']);
+    log.mockRestore();
+    expect(await read('.codex/hooks.json')).toContain(script());
+  });
+});

@@ -166,7 +166,8 @@ function interpretClaudeEvent(ev: Record<string, unknown>): Interpreted | null {
 
 /**
  * A subagent's event (spec 2026-09-26 §4.5): the hook script flags the reduced PreToolUse / PermissionRequest
- * bodies (`subagent: true`), and an AskUserQuestion, which travels whole, carries its own `agent_id`. Only
+ * bodies (`subagent: true`), and an AskUserQuestion, which travels whole, carries its own `agent_id` (so does
+ * a Codex PermissionRequest, also whole; Codex's reduced tool events carry the flag the same way). Only
  * the boolean true and a non-blank string count: an old script sends neither and keeps today's behaviour.
  */
 const isSubagent = (ev: Record<string, unknown>): boolean => ev.subagent === true || str(ev.agent_id) !== null;
@@ -201,11 +202,57 @@ function isTitleTurn(ev: Record<string, unknown>): boolean {
 }
 
 /**
- * Codex CLI `notify` payload (argv JSON): `{ type: "agent-turn-complete", "last-assistant-message": ... }`.
- * Codex has no idle/permission notification, so a finished turn is its "needs you" signal:
- * the last assistant message is the question the person has to answer.
+ * Codex CLI hook payloads (stdin JSON, Claude-shaped, spec 2026-09-29 codex monitor hooks D3), from
+ * `~/.codex/hooks.json`. They run only once the person trusted them in Codex, so a machine may send
+ * nothing but `notify` — which keeps working as the end of every turn, as before.
+ */
+function interpretCodexHook(ev: Record<string, unknown>, name: string): Interpreted | null {
+  switch (name) {
+    case 'UserPromptSubmit':
+      // the prompt is the person's content: only the fact that it is busy is kept
+      return { kind: 'working', text: null, meta: { event: name } };
+    case 'PreToolUse':
+    case 'PostToolUse': {
+      // Reduced to the tool's name on the machine. A PostToolUse says the tab works again after an
+      // approval; one that lands after an Esc is dropped by recordEvent (monitor/wait-decision.ts).
+      const tool = str(ev.tool_name);
+      return { kind: 'working', text: null, activity: activityOf(tool), verb: null, meta: { event: name, tool } };
+    }
+    case 'PermissionRequest': {
+      // Travels whole: `tool_input.description` is the question Codex shows above its approval menu,
+      // written for the person, so it is the text. Nothing else of `tool_input` is read — the command
+      // is the person's and never leaves here. No question card: answering one types into Claude's
+      // dialog layout (chat/permission-dialog.ts), which Codex's menu does not share.
+      const description = isObj(ev.tool_input) ? str(ev.tool_input.description) : null;
+      // The whole payload is untrusted: only the validated name is kept, in the text and in meta.
+      const valid = parsePermissionTool(str(ev.tool_name))?.tool_name ?? null;
+      const text = cap(description) ?? (valid ? `O Codex precisa da sua permissão para usar ${valid}` : 'O Codex precisa da sua permissão');
+      return { kind: 'waiting_permission', text, meta: { event: name, tool: valid } };
+    }
+    case 'Stop':
+      // The same finished turn the `notify` that follows reports: decideWait pairs the two into one wait.
+      return { kind: 'waiting_input', text: cap(str(ev.last_assistant_message)), meta: { event: name } };
+    case 'Interrupt':
+      // An Esc, during a turn or on an approval menu: the turn is over and neither Stop nor notify follows.
+      return { kind: 'waiting_input', text: null, meta: { event: name } };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Codex CLI: its hooks (`hook_event_name`, see `interpretCodexHook`) and its `notify` payload (argv
+ * JSON): `{ type: "agent-turn-complete", "last-assistant-message": ... }`. `notify` needs no trust and
+ * fires at the end of every turn, so without trusted hooks a finished turn is the only "needs you"
+ * signal: the last assistant message is the question the person has to answer. With them, the hooks
+ * add working and waiting_permission, and a turn's `Stop` and `notify` count as one wait.
  */
 function interpretCodex(ev: Record<string, unknown>): Interpreted | null {
+  const name = str(ev.hook_event_name);
+  if (name !== null) {
+    const out = interpretCodexHook(ev, name);
+    return out && isSubagent(ev) ? { ...out, meta: { ...out.meta, subagent: true } } : out;
+  }
   const type = str(ev.type);
   if (type === 'agent-turn-complete' && !isTitleTurn(ev)) {
     return { kind: 'waiting_input', text: cap(str(ev['last-assistant-message'])), meta: { event: type } };

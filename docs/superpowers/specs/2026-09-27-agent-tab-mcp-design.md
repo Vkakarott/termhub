@@ -27,7 +27,7 @@ Taken alone by Claude, as asked (autonomy granted on the card's scope). None cha
 | D6 | Lifecycle | Minted after the tab exists and before the launch line is typed. **Revoked** in the same transaction that deletes the tab row (`TabsRepository.delete`, which every close path uses: `close_tab`, the web's close, unlinking a project from a machine). **And** `authenticateToken` refuses a tab token whose tab row no longer exists (covers the machine delete cascade and any path that forgets). 30-day expiry as the last floor. | Belt and braces: the transactional revoke is the rule; the auth check makes "tab gone ⇒ token dead" hold even for a delete that bypasses the repository method. |
 | D7 | Delivery of the config | A private directory per tab on the machine: `~/.termhub/tabs/<tab_id>/` (mode 0700), written by one POSIX script in `@termhub/machine-ops` that reads the file body **from stdin** and writes it with `umask 077` (file 0600) via a temp file + rename. Agent machines run it through a new RPC `tab.mcp.write` (agent **0.10.0**); ssh/local machines through `runOnMachineWithInput`. The token never appears in the typed line, in an argv, in the shell history or in a log. | Same pattern the hooks' env file and the concierge's run dir already use. Stdin keeps the secret out of `ps`. |
 | D8 | Claude | File `mcp.json` = `mcpConfig(url, token)` with the server named **`termhub_tab`**. Line: `claude --mcp-config <dir>/mcp.json --allowedTools mcp__termhub_tab__search_memory mcp__termhub_tab__record_lesson -- '<prompt>'`. No `--strict-mcp-config`. | A distinct name never collides with a `termhub` server the person configured with a personal token. `--mcp-config` and `--allowedTools` are variadic, so `--` ends them before the prompt. Pre-allowing exactly these two tools keeps a read (and an unverified lesson) from raising a permission card on every call; this is not a bypass flag — every other tool asks as before. |
-| D9 | Codex | File `token` (the bare token, 0600). Line: `TERMHUB_MCP_TOKEN="$(cat <dir>/token)" codex -c 'mcp_servers.termhub_tab.url="<mcp url>"' -c 'mcp_servers.termhub_tab.bearer_token_env_var="TERMHUB_MCP_TOKEN"' '<prompt>'`. | Codex takes MCP servers from `config.toml` or `-c` overrides; streamable HTTP servers read the bearer from an env var (`bearer_token_env_var`). The typed line holds only the path; the env var is visible to that user's processes only — the same boundary as the 0600 file. **Not verified live**: the only machine with Codex (hulk) was offline while this was built (§8). **Disabled for now** (`CODEX_TAB_MCP_ENABLED = false` in `control/agents.ts`, TER-356): until it is checked on hulk, a Codex tab starts with the plain line, nothing is minted, and the note says `o MCP no Codex ainda não foi verificado` — an older Codex could refuse to start with unknown `-c` overrides. `launchLine` still builds the Codex line above (unit-tested), so turning the constant on is the whole switch. |
+| D9 | Codex | File `token` (the bare token, 0600). Line: `TERMHUB_MCP_TOKEN="$(cat <dir>/token)" codex -c 'mcp_servers.termhub_tab.url="<mcp url>"' -c 'mcp_servers.termhub_tab.bearer_token_env_var="TERMHUB_MCP_TOKEN"' '<prompt>'`. | Codex takes MCP servers from `config.toml` or `-c` overrides; streamable HTTP servers read the bearer from an env var (`bearer_token_env_var`). The typed line holds only the path; the env var is visible to that user's processes only — the same boundary as the 0600 file. **Verified live on 2026-09-29 and enabled** (`CODEX_TAB_MCP_ENABLED = true` in `control/agents.ts`, TER-356): on hulk, codex-cli 0.159.2 with the two `-c` overrides lists `termhub_tab` (Bearer token) in `codex mcp list`. The constant stays as a switch: turned off, a Codex tab starts with the plain line, nothing is minted, and the note says `o MCP no Codex está desligado`. `launchLine` builds the Codex line above (unit-tested). |
 | D10 | When it is skipped | No MCP (the tab starts exactly as today, and the result's `note` says why) when: `MCP_URL` is not configured; the provider is not Claude/Codex; an agent machine is older than 0.10.0; or writing the file fails. A failed write revokes the token it minted. | `start_agent` must never fail because of an optional extra. |
 | D11 | Account swap | `resumeLine` (Claude, account swap) adds the same `--mcp-config`/`--allowedTools` when the tab has a live tab token: the file is still there, the token still valid. | The resumed session keeps the memory. |
 | D12 | Cleanup on the machine | On tab close, best effort `tab.mcp.remove` / the ssh twin deletes `~/.termhub/tabs/<tab_id>/`. Failure is ignored: the token is already revoked (D6). | Hygiene, not security. |
@@ -103,8 +103,9 @@ transaction.
 
 ## 8. Out of scope and known limits
 
-- Codex path unverified live (D9), so disabled behind `CODEX_TAB_MCP_ENABLED`: when hulk is online,
-  turn it on, open one Codex tab with `start_agent` and check that `search_memory` is listed (TER-356).
+- Codex path: verified on hulk on 2026-09-29 (codex-cli 0.159.2, `codex mcp list` shows `termhub_tab`)
+  and enabled (`CODEX_TAB_MCP_ENABLED = true`, TER-356); an end-to-end `start_agent` Codex tab on hulk
+  was not part of that check.
 - Tabs opened by hand (the "+" in the UI) get no tab token: the card is about `start_agent`.
 - Tabs opened before this release keep running without MCP.
 
@@ -129,9 +130,9 @@ the gap they close; none changes the design's decisions above.
   to `request.log`. `startAgent` needed a way to log `{ tabId, machineId, installed, reason }` for the
   tab MCP install without a module-level logger anywhere in `control/`; passing it on the context kept
   that one call site the only logger the module needs.
-- **Codex tabs get no MCP yet** (D9, D10): `CODEX_TAB_MCP_ENABLED = false` adds the skip reason
-  `o MCP no Codex ainda não foi verificado` (log reason `codex_unverified`), checked after the
-  `MCP_URL` checks and before anything is minted. Claude tabs are unaffected.
+- **Codex tabs get the MCP since 2026-09-29** (D9, D10, TER-356): `CODEX_TAB_MCP_ENABLED` is `true`. Turned
+  off it would add the skip reason `o MCP no Codex está desligado` (log reason `codex_disabled`, it replaced
+  the earlier `codex_unverified`), checked after the `MCP_URL` checks and before anything is minted.
 - **`MCP_URL` must not contain a control byte either** (`\x00`–`\x1f`, `\x7f`): the check above also
   refuses them, so nothing in the value can act on the terminal the line is typed into.
 - **Tab calls are validated with `project_id`/`tab_id` optional** (D5): the MCP SDK and the route's

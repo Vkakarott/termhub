@@ -175,3 +175,59 @@ describe('installHooks on a local/ssh machine', () => {
     await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
+
+describe('installHooks: Codex hooks.json on a local/ssh machine', () => {
+  type CodexHooks = { hooks: Record<string, { hooks: { command: string }[] }[]> };
+
+  it('writes ~/.codex/hooks.json next to the notify, keeping the person\'s own hooks, and gives them back on uninstall', async () => {
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    const theirs = { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] } };
+    await writeFile(path.join(home, '.codex/hooks.json'), JSON.stringify(theirs));
+    const r = await installHooks(machine, 'thb_hk_abc', url);
+    expect(r.codex).toBe('installed');
+    const once = await read('.codex/hooks.json');
+    const file = JSON.parse(once) as CodexHooks;
+    expect(file.hooks.Stop?.flatMap((g) => g.hooks.map((h) => h.command))).toContain('say done');
+    expect(file.hooks).toHaveProperty('UserPromptSubmit');
+    expect(once).toContain(`${home}/.termhub/bin/termhub-hook`);
+    expect(await read('.codex/config.toml')).toContain('notify = [');
+    await installHooks(machine, 'thb_hk_abc', url);
+    expect(await read('.codex/hooks.json')).toBe(once);
+    await uninstallHooks(machine);
+    expect(JSON.parse(await read('.codex/hooks.json'))).toEqual(theirs);
+  });
+
+  it('writes none without ~/.codex, and uninstall deletes a hooks.json that termhub created', async () => {
+    await installHooks(machine, 'thb_hk_abc', url);
+    await expect(stat(path.join(home, '.codex'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    await installHooks(machine, 'thb_hk_abc', url);
+    expect((JSON.parse(await read('.codex/hooks.json')) as CodexHooks).hooks).toHaveProperty('Stop');
+    await uninstallHooks(machine);
+    await expect(stat(path.join(home, '.codex/hooks.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await stat(path.join(home, '.codex'))).isDirectory()).toBe(true);
+  });
+
+  it('refuses a broken ~/.codex/hooks.json before writing anything', async () => {
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    await writeFile(path.join(home, '.codex/hooks.json'), '{not json');
+    await expect(installHooks(machine, 'thb_hk_abc', url)).rejects.toThrow('~/.codex/hooks.json não é JSON válido');
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await read('.codex/hooks.json')).toBe('{not json');
+  });
+
+  it('refuses a ~/.codex/hooks.json that is there but cannot be read', async () => {
+    await mkdir(path.join(home, '.codex/hooks.json'), { recursive: true });
+    await expect(installHooks(machine, 'thb_hk_abc', url)).rejects.toThrow('Não foi possível ler ~/.codex/hooks.json');
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await stat(path.join(home, '.codex/hooks.json'))).isDirectory()).toBe(true);
+  });
+
+  it('uninstall leaves an unparseable hooks.json alone', async () => {
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    await installHooks(machine, 'thb_hk_abc', url);
+    await writeFile(path.join(home, '.codex/hooks.json'), `{not json ${home}/.termhub/bin/termhub-hook`);
+    await uninstallHooks(machine);
+    expect(await read('.codex/hooks.json')).toBe(`{not json ${home}/.termhub/bin/termhub-hook`);
+  });
+});

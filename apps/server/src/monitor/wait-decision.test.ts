@@ -207,3 +207,59 @@ describe('rearmOf — a wait alerts although the person had seen the last one an
     expect(rearmOf(seen, history, event({ kind: 'idle', name: 'sessionStart' }), { action: 'drop', reason: 'session_start_during_turn' })).toBeNull();
   });
 });
+
+describe('decideWait — Codex: one finished turn, one alert (spec 2026-09-29 codex monitor hooks D4, D5)', () => {
+  const stop = event({ name: 'Stop' });
+  const notify = event({ name: 'agent-turn-complete' });
+  const CONTINUES_SEEN: WaitOutcome = { action: 'record', seen: 'carry', continuing: true };
+  const CONTINUES_UNSEEN: WaitOutcome = { action: 'record', seen: 'none', continuing: true };
+
+  it('a notify right after its Stop continues that wait', () => {
+    expect(decideWait(current({ state: 'waiting_input', seen: true }), [row('waiting_input', 'Stop', 500)], notify)).toEqual(CONTINUES_SEEN);
+    expect(decideWait(current({ state: 'waiting_input' }), [row('waiting_input', 'Stop', 500)], notify)).toEqual(CONTINUES_UNSEEN);
+  });
+
+  it('a Stop right after its notify (the other order) continues that wait', () => {
+    expect(decideWait(current({ state: 'waiting_input', seen: true }), [row('waiting_input', 'agent-turn-complete', 500)], stop)).toEqual(CONTINUES_SEEN);
+    expect(decideWait(current({ state: 'waiting_input' }), [row('waiting_input', 'agent-turn-complete', 500)], stop)).toEqual(CONTINUES_UNSEEN);
+  });
+
+  it('pairs up to the reorder window, not beyond it', () => {
+    expect(decideWait(current({ state: 'waiting_input', seen: true }), [row('waiting_input', 'Stop', REORDER_WINDOW_MS)], notify)).toEqual(CONTINUES_SEEN);
+    expect(decideWait(current({ state: 'waiting_input', seen: true }), [row('waiting_input', 'Stop', REORDER_WINDOW_MS + 1)], notify)).toEqual(NEW);
+    expect(decideWait(current({ state: 'waiting_input', seen: true }), [row('waiting_input', 'agent-turn-complete', REORDER_WINDOW_MS + 1)], stop)).toEqual(NEW);
+  });
+
+  it('two notifies in a row stay two waits (a machine whose hooks are not trusted)', () => {
+    expect(decideWait(current({ state: 'waiting_input', seen: true }), [row('waiting_input', 'agent-turn-complete', 500)], notify)).toEqual(NEW);
+  });
+
+  it('two Stops in a row stay two waits', () => {
+    expect(decideWait(current({ state: 'waiting_input', seen: true }), [row('waiting_input', 'Stop', 500)], stop)).toEqual(NEW);
+  });
+
+  it('pairs only while the tab still waits for input', () => {
+    expect(decideWait(current({ state: 'working' }), [row('waiting_input', 'Stop', 500)], notify)).toEqual(NEW);
+    expect(decideWait(current({ state: 'waiting_permission', seen: true }), [row('waiting_input', 'Stop', 500)], notify)).toEqual(NEW);
+  });
+
+  it('pairs only with the last row', () => {
+    expect(decideWait(current({ state: 'waiting_input', seen: true }), [row('waiting_input', 'Interrupt', 200), row('waiting_input', 'Stop', 500)], notify)).toEqual(NEW);
+  });
+
+  it('drops a PostToolUse that lands on a waiting_input tab: the late tail of an Esc', () => {
+    const post = event({ kind: 'working', name: 'PostToolUse' });
+    expect(decideWait(current({ state: 'waiting_input', seen: true }), [row('waiting_input', 'Interrupt', 200)], post)).toEqual({ action: 'drop', reason: 'post_tool_after_interrupt' });
+    expect(decideWait(current({ state: 'waiting_input' }), [row('waiting_input', 'Stop', 200)], post)).toEqual({ action: 'drop', reason: 'post_tool_after_interrupt' });
+  });
+
+  it('records a PostToolUse after an approval: the tab is working again', () => {
+    const post = event({ kind: 'working', name: 'PostToolUse' });
+    expect(decideWait(current({ state: 'waiting_permission', seen: true }), [row('waiting_permission', 'PermissionRequest', 2_000)], post)).toEqual(NEW);
+    expect(decideWait(current({ state: 'working' }), [row('working', 'PreToolUse', 2_000)], post)).toEqual(NEW);
+  });
+
+  it('records a PreToolUse on a waiting_input tab (a new turn, not a tail)', () => {
+    expect(decideWait(current({ state: 'waiting_input' }), [row('waiting_input', 'Stop', 200)], event({ kind: 'working', name: 'PreToolUse' }))).toEqual(NEW);
+  });
+});

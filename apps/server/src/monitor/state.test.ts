@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { STATE_TEXT_MAX, claudeSessionOf, interpretHookEvent, isRateLimit, needsYou, runningBackgroundTasks } from './state.js';
+import { activityOf } from './activity.js';
 
 describe('interpretHookEvent — claude', () => {
   it('maps permission and idle notifications to waiting states with the message', () => {
@@ -152,6 +153,95 @@ describe('interpretHookEvent — codex', () => {
 
   it('treats every finished turn as a new wait: Codex has no working signal between turns', () => {
     expect(interpretHookEvent('codex', { type: 'agent-turn-complete', 'last-assistant-message': 'dois' })?.continuesWait).toBeUndefined();
+  });
+});
+
+describe('interpretHookEvent — codex hooks', () => {
+  // shapes captured from codex-cli 0.159.2 on hulk (spec 2026-09-29 codex monitor hooks §2), ids shortened
+  const base = { session_id: 's1', turn_id: 't1', transcript_path: '/home/x/.codex/sessions/r.jsonl', cwd: '/w' };
+  const COMMAND = 'touch hello.txt && echo segredo';
+  const permission = {
+    ...base,
+    hook_event_name: 'PermissionRequest',
+    tool_name: 'Bash',
+    tool_input: { command: COMMAND, description: '  Allow creating hello.txt in /w? The workspace sandbox is read-only.  ' },
+  };
+
+  it('maps UserPromptSubmit to working and keeps nothing of the prompt', () => {
+    expect(interpretHookEvent('codex', { ...base, hook_event_name: 'UserPromptSubmit', prompt: 'meu pedido' })).toEqual({ kind: 'working', text: null, meta: { event: 'UserPromptSubmit' } });
+  });
+
+  it('maps the reduced PreToolUse and PostToolUse to working with the tool activity', () => {
+    for (const name of ['PreToolUse', 'PostToolUse']) {
+      expect(interpretHookEvent('codex', { hook_event_name: name, tool_name: 'Bash' })).toEqual({ kind: 'working', text: null, activity: activityOf('Bash'), verb: null, meta: { event: name, tool: 'Bash' } });
+    }
+    expect(interpretHookEvent('codex', { hook_event_name: 'PreToolUse', tool_name: 'apply_patch' })?.activity).toBe(activityOf('apply_patch'));
+  });
+
+  it('maps PermissionRequest to waiting_permission with the description as text, and no question card', () => {
+    expect(interpretHookEvent('codex', permission)).toEqual({
+      kind: 'waiting_permission',
+      text: 'Allow creating hello.txt in /w? The workspace sandbox is read-only.',
+      meta: { event: 'PermissionRequest', tool: 'Bash' },
+    });
+  });
+
+  it('never keeps the command of a PermissionRequest', () => {
+    for (const ev of [permission, { ...permission, tool_input: { command: COMMAND } }, { ...permission, tool_input: { command: COMMAND, description: 42 } }]) {
+      const out = interpretHookEvent('codex', ev);
+      expect(JSON.stringify(out)).not.toContain('segredo');
+      expect(JSON.stringify(out)).not.toContain('hello.txt &&');
+      expect(out).not.toHaveProperty('question');
+    }
+  });
+
+  it('falls back to a generic pt-BR text when the description is missing or blank', () => {
+    expect(interpretHookEvent('codex', { ...permission, tool_input: { command: COMMAND } })?.text).toBe('O Codex precisa da sua permissão para usar Bash');
+    expect(interpretHookEvent('codex', { ...permission, tool_input: { command: COMMAND, description: '   ' } })?.text).toBe('O Codex precisa da sua permissão para usar Bash');
+    expect(interpretHookEvent('codex', { ...permission, tool_input: 'nope' })?.text).toBe('O Codex precisa da sua permissão para usar Bash');
+    expect(interpretHookEvent('codex', { ...permission, tool_input: undefined, tool_name: 'bad name\n' })?.text).toBe('O Codex precisa da sua permissão');
+    expect(interpretHookEvent('codex', { hook_event_name: 'PermissionRequest' })?.text).toBe('O Codex precisa da sua permissão');
+  });
+
+  it('keeps only a valid tool name in meta', () => {
+    expect(interpretHookEvent('codex', { ...permission, tool_name: 'bad name\n' })?.meta).toEqual({ event: 'PermissionRequest', tool: null });
+    expect(interpretHookEvent('codex', { ...permission, tool_name: 'x'.repeat(500) })?.meta).toMatchObject({ tool: null });
+  });
+
+  it('caps a long description', () => {
+    const text = interpretHookEvent('codex', { ...permission, tool_input: { description: 'x'.repeat(STATE_TEXT_MAX + 50) } })?.text;
+    expect(text).toHaveLength(STATE_TEXT_MAX);
+    expect(text?.endsWith('…')).toBe(true);
+  });
+
+  it('maps Stop to waiting_input with the last assistant message', () => {
+    expect(interpretHookEvent('codex', { ...base, hook_event_name: 'Stop', stop_hook_active: false, last_assistant_message: ' Pronto. Rodo os testes? ' })).toEqual({
+      kind: 'waiting_input',
+      text: 'Pronto. Rodo os testes?',
+      meta: { event: 'Stop' },
+    });
+    expect(interpretHookEvent('codex', { ...base, hook_event_name: 'Stop' })?.text).toBeNull();
+  });
+
+  it('maps Interrupt to waiting_input with no text', () => {
+    expect(interpretHookEvent('codex', { ...base, hook_event_name: 'Interrupt', model: 'gpt-5', permission_mode: 'default' })).toEqual({ kind: 'waiting_input', text: null, meta: { event: 'Interrupt' } });
+  });
+
+  it('ignores the hook events it does not install', () => {
+    for (const name of ['SessionStart', 'SessionEnd', 'PreCompact', 'SubagentStart', 'Notification', 'agent-turn-complete']) {
+      expect(interpretHookEvent('codex', { ...base, hook_event_name: name })).toBeNull();
+    }
+  });
+
+  it('flags a subagent event, from the script flag or the payload agent_id', () => {
+    expect(interpretHookEvent('codex', { hook_event_name: 'PreToolUse', tool_name: 'Bash', subagent: true })?.meta).toEqual({ event: 'PreToolUse', tool: 'Bash', subagent: true });
+    expect(interpretHookEvent('codex', { ...permission, agent_id: 'a1' })?.meta).toEqual({ event: 'PermissionRequest', tool: 'Bash', subagent: true });
+    expect(interpretHookEvent('codex', { hook_event_name: 'PreToolUse', tool_name: 'Bash', subagent: 'yes' })?.meta).not.toHaveProperty('subagent');
+    expect(interpretHookEvent('codex', { type: 'agent-turn-complete', 'last-assistant-message': 'ok' })?.meta).not.toHaveProperty('subagent');
+  });
+
+  it('keeps reading notify when a payload has no hook_event_name', () => {
+    expect(interpretHookEvent('codex', { type: 'agent-turn-complete', 'last-assistant-message': 'ok' })?.meta).toEqual({ event: 'agent-turn-complete' });
   });
 });
 

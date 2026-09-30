@@ -33,8 +33,9 @@ export async function ingestHookEvent(
   if (input.tool === 'claude') current = await noteClaudeSession(repos, current, input.event, interpreted);
   if (!interpreted) return { ok: false, reason: 'ignored' };
   const recorded = await recordInterpretation(repos, log, current, input.tool, interpreted);
-  // Dropped by the wait rule (a Cursor session start that arrived after its own prompt): nothing
-  // changed, so no card opens or closes and no suggestion check is scheduled.
+  // Dropped by the wait rule (a Cursor session start that arrived after its own prompt, a Codex
+  // PostToolUse that trails an Esc): nothing changed, so no card opens or closes and no suggestion
+  // check is scheduled.
   if (recorded.dropped) return { ok: false, reason: 'ignored' };
   const updated = recorded.tab;
   // After the tab row (spec 2026-09-25 §4.2): a question opens a card in the project's chat, any

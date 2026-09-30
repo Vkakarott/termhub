@@ -26,7 +26,7 @@ describe('monitorHealthNote', () => {
 describe('hooksInstallNote', () => {
   it('names every tool it hooked, including the Cursor CLI', () => {
     const note = hooksInstallNote({ claude: 'installed', claude_dirs: ['~/.claude', '~/.claude_work'], codex: 'installed', cursor: 'installed' });
-    expect(note).toBe('Claude Code: ok (~/.claude, ~/.claude_work) · Codex: ok · Cursor CLI: ok. Vale para sessões abertas a partir de agora.');
+    expect(note).toBe('Claude Code: ok (~/.claude, ~/.claude_work) · Codex: ok (abra o Codex uma vez e confie nos hooks) · Cursor CLI: ok. Vale para sessões abertas a partir de agora.');
   });
 
   it('says a tool was not found, and asks for an agent update when the agent does not know Cursor yet', () => {
