@@ -44,6 +44,11 @@ export interface Interpreted {
    * permission prompt. For the tab-question service only — never stored on the tab nor its events.
    */
   question?: TabQuestionInput;
+  /**
+   * The final message of the agent's last turn, whole (cut at LAST_ANSWER_MAX), when the event
+   * carries one. Stored apart from `text`, which stays capped for the UI (spec 2026-09-30 last answer).
+   */
+  answer?: string;
 }
 
 /**
@@ -60,6 +65,16 @@ const verbOf = (v: unknown): string | null => {
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const cap = (v: string | null): string | null => (v && v.length > STATE_TEXT_MAX ? `${v.slice(0, STATE_TEXT_MAX - 1)}…` : v);
+
+/** The most of an agent's answer that is kept whole (spec 2026-09-30 last answer): the hook body is
+ *  capped at 256 KB, and a hundred thousand characters is a long answer. */
+export const LAST_ANSWER_MAX = 100_000;
+const whole = (v: string | null): string | undefined => (v === null ? undefined : v.length > LAST_ANSWER_MAX ? `${v.slice(0, LAST_ANSWER_MAX - 1)}…` : v);
+/** `out` with the event's whole answer, when it has one (`asSubagent` takes it off a subagent's event). */
+const withAnswer = (out: Interpreted, raw: string | null): Interpreted => {
+  const a = whole(raw);
+  return a === undefined ? out : { ...out, answer: a };
+};
 
 export const RATE_LIMIT_TEXT = 'Limite de uso da conta atingido';
 /** Claude Code's StopFailure matcher values (hooks docs); anything else is reported as "unknown". */
@@ -141,10 +156,11 @@ function interpretClaudeEvent(ev: Record<string, unknown>): Interpreted | null {
     case 'Stop': {
       // A finished turn is the tool waiting for the person (same as Codex); the idle_prompt
       // notification only comes about a minute later. The last answer, when sent, is the question.
-      const text = cap(str(ev.last_assistant_message));
+      const raw = str(ev.last_assistant_message);
+      const text = cap(raw);
       const background = runningBackgroundTasks(ev.background_tasks);
-      if (background === 0) return { kind: 'waiting_input', text, meta: { event: name } };
-      return { kind: 'waiting_input', text, meta: { event: name, background_tasks: background }, backgroundTasks: background };
+      if (background === 0) return withAnswer({ kind: 'waiting_input', text, meta: { event: name } }, raw);
+      return withAnswer({ kind: 'waiting_input', text, meta: { event: name, background_tasks: background }, backgroundTasks: background }, raw);
     }
     case 'StopFailure': {
       // An API error ended the turn (spec 2026-09-26 account swap). On a usage limit Claude Code does
@@ -172,9 +188,15 @@ function interpretClaudeEvent(ev: Record<string, unknown>): Interpreted | null {
  */
 const isSubagent = (ev: Record<string, unknown>): boolean => ev.subagent === true || str(ev.agent_id) !== null;
 
+/** A subagent's event, flagged in meta and without an answer: a subagent's `Stop` never writes the turn's answer. */
+const asSubagent = (out: Interpreted): Interpreted => {
+  const { answer: _answer, ...rest } = out;
+  return { ...rest, meta: { ...out.meta, subagent: true } };
+};
+
 function interpretClaude(ev: Record<string, unknown>): Interpreted | null {
   const out = interpretClaudeEvent(ev);
-  return out && isSubagent(ev) ? { ...out, meta: { ...out.meta, subagent: true } } : out;
+  return out && isSubagent(ev) ? asSubagent(out) : out;
 }
 
 /** How Codex's own naming prompt begins; the person's request is appended after it. */
@@ -229,9 +251,11 @@ function interpretCodexHook(ev: Record<string, unknown>, name: string): Interpre
       const text = cap(description) ?? (valid ? `O Codex precisa da sua permissão para usar ${valid}` : 'O Codex precisa da sua permissão');
       return { kind: 'waiting_permission', text, meta: { event: name, tool: valid } };
     }
-    case 'Stop':
+    case 'Stop': {
       // The same finished turn the `notify` that follows reports: decideWait pairs the two into one wait.
-      return { kind: 'waiting_input', text: cap(str(ev.last_assistant_message)), meta: { event: name } };
+      const raw = str(ev.last_assistant_message);
+      return withAnswer({ kind: 'waiting_input', text: cap(raw), meta: { event: name } }, raw);
+    }
     case 'Interrupt':
       // An Esc, during a turn or on an approval menu: the turn is over and neither Stop nor notify follows.
       return { kind: 'waiting_input', text: null, meta: { event: name } };
@@ -251,11 +275,12 @@ function interpretCodex(ev: Record<string, unknown>): Interpreted | null {
   const name = str(ev.hook_event_name);
   if (name !== null) {
     const out = interpretCodexHook(ev, name);
-    return out && isSubagent(ev) ? { ...out, meta: { ...out.meta, subagent: true } } : out;
+    return out && isSubagent(ev) ? asSubagent(out) : out;
   }
   const type = str(ev.type);
   if (type === 'agent-turn-complete' && !isTitleTurn(ev)) {
-    return { kind: 'waiting_input', text: cap(str(ev['last-assistant-message'])), meta: { event: type } };
+    const raw = str(ev['last-assistant-message']);
+    return withAnswer({ kind: 'waiting_input', text: cap(raw), meta: { event: type } }, raw);
   }
   return null;
 }
@@ -279,11 +304,13 @@ function interpretCursor(ev: Record<string, unknown>): Interpreted | null {
     case 'beforeSubmitPrompt':
       // the prompt is the user's content: only the fact that it is busy is kept
       return { kind: 'working', text: null, meta: { event: name } };
-    case 'afterAgentResponse':
+    case 'afterAgentResponse': {
       // Same wait as `stop`: when stop arrived first (inverted race) and the person already saw
       // the tab, this must carry the seen mark and only fill in the answer — not open a second alert.
       // From `working` it is still a new wait (`continuesWait` only continues an open waiting_input).
-      return { kind: 'waiting_input', text: cap(str(ev.text)), meta: { event: name }, continuesWait: true };
+      const raw = str(ev.text);
+      return withAnswer({ kind: 'waiting_input', text: cap(raw), meta: { event: name }, continuesWait: true }, raw);
+    }
     case 'stop':
       // Whatever the status (completed, or the error then aborted an Esc sends), the turn ended, so the
       // tab is waiting — always as a continuation: when afterAgentResponse already opened this wait,

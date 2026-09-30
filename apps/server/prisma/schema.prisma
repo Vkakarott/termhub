@@ -287,6 +287,7 @@ model Tab {
   machine       Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
   tasks         Task[]
   events        TabEvent[]
+  lastAnswer    TabLastAnswer?
 
   @@index([projectId])
   @@index([machineId])
@@ -327,6 +328,19 @@ model TabEvent {
 
   @@index([tabId, createdAt])
   @@map("tab_events")
+}
+
+/// The final message of the agent's last turn in a tab, whole, as its hooks delivered it (spec
+/// 2026-09-30 last answer). One row per tab, overwritten at every turn; read only by the concierge's
+/// read_last_answer, never part of a tab row. stateText on the tab keeps the capped copy for the UI.
+model TabLastAnswer {
+  tabId String   @id @map("tab_id")
+  text  String
+  tool  String
+  at    DateTime
+  tab   Tab      @relation(fields: [tabId], references: [id], onDelete: Cascade)
+
+  @@map("tab_last_answers")
 }
 
 /// Hook install on a machine: the token its hook script posts with (sha256 only). Row = installed.

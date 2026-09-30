@@ -91,6 +91,7 @@ async function recordState(repos: Repositories, log: FastifyBaseLogger, tab: Tab
     activityVerb: next.verb,
     ...(next.continuesWait ? { continuesWait: true } : {}),
     ...(next.keepsWaitText ? { keepsWaitText: true } : {}),
+    ...(next.answer === undefined ? {} : { answer: next.answer }),
   });
   const name = typeof next.meta.event === 'string' ? next.meta.event : null;
   if (!event) {
@@ -98,7 +99,7 @@ async function recordState(repos: Repositories, log: FastifyBaseLogger, tab: Tab
     return { tab: updated, dropped: true };
   }
   const machine = await repos.machines.findById(tab.machine_id);
-  log.info({ tabId: tab.id, machineId: machine?.id, tool, kind: next.kind, textLen: next.text?.length ?? 0 }, 'monitor: tab state');
+  log.info({ tabId: tab.id, machineId: machine?.id, tool, kind: next.kind, textLen: next.text?.length ?? 0, answerLen: next.answer?.length ?? 0 }, 'monitor: tab state');
   // What re-arms a wait the person had seen, counted: names and flags only (spec 2026-09-29 §4.5).
   if (rearm) log.info({ tabId: tab.id, tool, previous: rearm.previous, event: name, background: rearm.background, afterSessionEnd: rearm.afterSessionEnd }, 'monitor: seen wait re-armed');
   publishTabChange(updated, tab.project_id, machine);
