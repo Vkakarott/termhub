@@ -66,17 +66,17 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('MachinesRepository.findBy
     }
   });
 
-  it('sets claude_auto_swap on update, and keeps it on a later update that does not mention it', async () => {
+  it('claude_auto_swap is on by default (TER-587), turned off on update, and kept on a later update that does not mention it', async () => {
     const ownerId = newId();
     await db.user.create({ data: { id: ownerId, email: `${ownerId}@test.local`, name: 'owner' } });
     try {
       const created = await repo.create({ name: 'mac', type: 'agent', owner_id: ownerId });
-      expect(created.claude_auto_swap).toBe(false);
-      const swapped = await repo.update(created.id, { claude_auto_swap: true });
-      expect(swapped?.claude_auto_swap).toBe(true);
-      expect((await repo.findById(created.id))?.claude_auto_swap).toBe(true);
+      expect(created.claude_auto_swap).toBe(true);
+      const off = await repo.update(created.id, { claude_auto_swap: false });
+      expect(off?.claude_auto_swap).toBe(false);
+      expect((await repo.findById(created.id))?.claude_auto_swap).toBe(false);
       const renamed = await repo.update(created.id, { name: 'x' });
-      expect(renamed?.claude_auto_swap).toBe(true);
+      expect(renamed?.claude_auto_swap).toBe(false);
     } finally {
       await db.machine.deleteMany({ where: { ownerId } });
       await db.user.deleteMany({ where: { id: ownerId } });

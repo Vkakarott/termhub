@@ -170,7 +170,7 @@ model Machine {
   /// Install newer agent versions on their own while no terminal is open on the machine (see agent/latest-version.ts)
   agentAutoUpdate     Boolean   @default(false) @map("agent_auto_update")
   /// Swap a tab's Claude to another account of this machine by itself when it hits a usage limit (opt-in).
-  claudeAutoSwap  Boolean  @default(false) @map("claude_auto_swap")
+  claudeAutoSwap  Boolean  @default(true) @map("claude_auto_swap")
   /// The user's own computer (an agent machine): browsers other than the one that added it hide it
   isLocal             Boolean   @default(false) @map("is_local")
   /// Owner: everything under the machine (projects, tabs, tasks, notes, AI accounts) is visible only to
