@@ -76,7 +76,8 @@ the app cut it the same way, and copied into the web (`apps/web/src/lib/chat-rep
 not depend on that package:
 
 1. Markdown noise is dropped, since an answer is quoted as plain text: code-fence lines, leading `#`
-   and `>` of a line, the emphasis markers `*`, `_`, `` ` ``, and `[label](url)` becomes `label`.
+   and `>` of a line, `*` and `` ` ``, and `[label](url)` becomes `label`. Underscores stay: in this
+   chat they are far more often part of an identifier than emphasis.
 2. Whitespace collapses to single spaces and the result is trimmed.
 3. Longer than `REPLY_EXCERPT_MAX` (200) characters, it is cut there and ends in `…`.
 4. With no text left, it is `📎 ` and the attachment names joined by `, `, cut the same way.
