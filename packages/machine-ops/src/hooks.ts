@@ -158,10 +158,16 @@ case "$KIND" in
         esac
       fi
     fi
-    # The server rejects a body over 256 KB (HOOK_BODY_LIMIT): past 200000 characters a Codex question
-    # goes reduced, without touching the marker (so its PostToolUse still gets through).
-    if [ "$ASK" = true ] && [ "$TOOL" = codex ] && [ "\${#EVENT}" -gt 200000 ]; then
-      EVENT=$(printf '{"hook_event_name":"PreToolUse","tool_name":"%s"%s}' "$NAME" "$SUB")
+    # A Codex question also clears the marker: the PostToolUse of the previous question left
+    # "request_user_input" there, and without the reset the next question's PostToolUse would match it
+    # and be suppressed. (Claude's AskUserQuestion has no PostToolUse hook, so its rule is unchanged.)
+    # The server rejects a body over 256 KB (HOOK_BODY_LIMIT): past 200000 characters the question
+    # goes reduced instead.
+    if [ "$ASK" = true ] && [ "$TOOL" = codex ]; then
+      rm -f "$MARK"
+      if [ "\${#EVENT}" -gt 200000 ]; then
+        EVENT=$(printf '{"hook_event_name":"PreToolUse","tool_name":"%s"%s}' "$NAME" "$SUB")
+      fi
     fi
     if [ "$ASK" != true ]; then
       # Claude Code's spinner verb ("✻ Moonwalking… (12s · esc to interrupt)"): the visible pane is

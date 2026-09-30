@@ -612,6 +612,31 @@ describe('hook script — Codex', () => {
       expect(logged().map((b) => eventOf(b).tool_name)).toEqual(['request_user_input', 'request_user_input', 'Bash']);
     });
 
+    it('sends the PostToolUse of every question in a row (the question clears the marker)', async () => {
+      const answered = { ...post, tool_name: 'request_user_input', tool_response: 'azul.txt' };
+      runAs('codex', ask);
+      await bodies(1);
+      runAs('codex', answered);
+      await bodies(2);
+      runAs('codex', ask);
+      await bodies(3);
+      runAs('codex', answered);
+      const sent = await bodies(4);
+      expect(sent.map((b) => eventOf(b).hook_event_name)).toEqual(['PreToolUse', 'PostToolUse', 'PreToolUse', 'PostToolUse']);
+    });
+
+    it('also clears the marker when the oversize question goes reduced', async () => {
+      const answered = { ...post, tool_name: 'request_user_input' };
+      const huge = { ...ask, tool_input: { questions: [{ question: 'x'.repeat(210000), options: [] }] } };
+      runAs('codex', answered);
+      await bodies(1);
+      runAs('codex', huge);
+      await bodies(2);
+      runAs('codex', answered);
+      const sent = await bodies(3);
+      expect(sent.map((b) => eventOf(b).hook_event_name)).toEqual(['PostToolUse', 'PreToolUse', 'PostToolUse']);
+    });
+
     it('posts the reduced body when the question is too big for the server (256 KB limit)', async () => {
       const huge = { ...ask, tool_input: { questions: [{ question: 'x'.repeat(210000), options: [] }] } };
       runAs('codex', huge);
