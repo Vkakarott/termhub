@@ -260,18 +260,22 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
       expect(JSON.stringify(out)).not.toContain(token);
     }, 30_000);
 
-    it('starts codex with the plain line, no token minted nor written, while its MCP is unverified (TER-356)', async () => {
+    it('writes the bare token file for codex (0600) and starts it with the -c overrides, the token in no typed line (TER-356)', async () => {
       const { app, apiTokens } = build(cwd);
 
       const out = payloadOf(await callTool(app, 'start_agent', { project_id: 'p1', account_id: 'a2', prompt: 'arrume o teste' }));
-      expect(out.note).toContain('o MCP no Codex ainda não foi verificado');
-      expect(apiTokens.create).not.toHaveBeenCalled();
-      // (tab ids restart per build, so an earlier test's dir may sit at the same path: look for the file)
-      expect(existsSync(join(home, '.termhub', 'tabs', out.tab_id, 'token'))).toBe(false);
+      expect(out.note).toContain('A aba tem o MCP termhub_tab');
+      expect(apiTokens.create).toHaveBeenCalledWith('u1', expect.objectContaining({ tabId: out.tab_id }), expect.any(String));
+      const dir = join(home, '.termhub', 'tabs', out.tab_id);
+      expect(statSync(join(dir, 'token')).mode & 0o777).toBe(0o600);
+      const token = readFileSync(join(dir, 'token'), 'utf8').trim();
+      expect(token).toMatch(/^thb_pat_/);
 
       const flat = await screenWith(app, out.tab_id, 'fake-cli toklen=');
-      expect(flat).toContain('fake-cli toklen=0');
-      expect(flat).toContain(`fake-cli argv=[${flatten(withLessonsReminder('arrume o teste'))}]`);
+      expect(flat).toContain(`fake-cli toklen=${token.length}`);
+      expect(flat).toContain('mcp_servers.termhub_tab.bearer_token_env_var');
+      expect(flat).not.toContain(token);
+      expect(JSON.stringify(out)).not.toContain(token);
     }, 30_000);
   });
 

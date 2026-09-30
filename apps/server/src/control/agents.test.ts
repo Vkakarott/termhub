@@ -249,15 +249,22 @@ describe('startAgent', () => {
       expect(JSON.stringify([log.info.mock.calls, log.warn.mock.calls, r])).not.toContain(token);
     });
 
-    it('starts codex with the plain line and mints nothing while its MCP is unverified (TER-356)', async () => {
-      expect(CODEX_TAB_MCP_ENABLED).toBe(false);
+    it('mints a tab token for codex, installs it as the bare token file and types the line with the -c overrides (TER-356)', async () => {
+      expect(CODEX_TAB_MCP_ENABLED).toBe(true);
       const { c, repos, log } = ctx();
       const r = await startAgent(c, { project_id: 'p1', account_id: 'a2', prompt: 'fix it' });
-      expect(repos.apiTokens.create).not.toHaveBeenCalled();
-      expect(installTabMcp).not.toHaveBeenCalled();
-      expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), 'termhub-p1-abc', launchLine('chatgpt', null, withLessonsReminder('fix it')), true);
-      expect(r.note).toBe(`${NOTE} A aba abriu sem o MCP de memória: o MCP no Codex ainda não foi verificado.`);
-      expect(log.info).toHaveBeenCalledWith({ tabId: 'abc', machineId: 'm1', installed: false, reason: 'codex_unverified' }, expect.any(String));
+      expect(repos.apiTokens.create).toHaveBeenCalledWith('u1', expect.objectContaining({ tabId: 'abc', gated: false, scopes: ['read', 'memory'] }), expect.any(String));
+      expect(installTabMcp).toHaveBeenCalledTimes(1);
+      const [m, tabId, file, body] = installTabMcp.mock.calls[0];
+      expect([m.id, tabId, file]).toEqual(['m1', 'abc', 'token']);
+      expect(body).toMatch(/^thb_pat_/);
+      const line = sendTextToSession.mock.calls[0][2] as string;
+      expect(line).toBe(launchLine('chatgpt', null, withLessonsReminder('fix it'), { tabId: 'abc', url: MCP_URL }));
+      expect(line).toContain('mcp_servers.termhub_tab.bearer_token_env_var');
+      expect(line).not.toContain(body);
+      expect(r.note).toBe(`${NOTE} A aba tem o MCP termhub_tab (search_memory) para consultar a memória do projeto.`);
+      expect(log.info).toHaveBeenCalledWith({ tabId: 'abc', machineId: 'm1', installed: true, reason: null }, expect.any(String));
+      expect(JSON.stringify([log.info.mock.calls, log.warn.mock.calls, r])).not.toContain(body);
     });
 
     it('revokes the token and types the plain line when the install fails', async () => {

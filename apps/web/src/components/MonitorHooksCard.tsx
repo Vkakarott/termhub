@@ -28,8 +28,9 @@ type HookResult = 'installed' | 'skipped';
 export function hooksInstallNote(r: { claude: HookResult; claude_dirs?: string[]; codex: HookResult; cursor?: HookResult | 'agent_outdated' }): string {
   const found = (s: HookResult | undefined) => (s === 'installed' ? 'ok' : 'não encontrado');
   const claude = r.claude === 'installed' ? `ok (${(r.claude_dirs ?? ['~/.claude']).join(', ')})` : 'não encontrado';
+  const codex = r.codex === 'installed' ? 'ok (abra o Codex uma vez e confie nos hooks)' : 'não encontrado';
   const cursor = r.cursor === 'agent_outdated' ? 'atualize o agente (0.4.3 ou mais novo)' : found(r.cursor);
-  return `Claude Code: ${claude} · Codex: ${found(r.codex)} · Cursor CLI: ${cursor}. Vale para sessões abertas a partir de agora.`;
+  return `Claude Code: ${claude} · Codex: ${codex} · Cursor CLI: ${cursor}. Vale para sessões abertas a partir de agora.`;
 }
 
 /** Machine form: install / remove the monitor hooks (what feeds "Precisando de você"). */
