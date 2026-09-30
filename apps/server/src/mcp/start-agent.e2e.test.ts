@@ -271,8 +271,8 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
       const token = readFileSync(join(dir, 'token'), 'utf8').trim();
       expect(token).toMatch(/^thb_pat_/);
 
-      const flat = await screenWith(app, out.tab_id, 'fake-cli toklen=');
-      expect(flat).toContain(`fake-cli toklen=${token.length}`);
+      // the pane still shows the earlier tests' runs, each ending in its own `fake-cli toklen=`: wait for this one's
+      const flat = await screenWith(app, out.tab_id, `fake-cli toklen=${token.length}`);
       expect(flat).toContain('mcp_servers.termhub_tab.bearer_token_env_var');
       expect(flat).not.toContain(token);
       expect(JSON.stringify(out)).not.toContain(token);
