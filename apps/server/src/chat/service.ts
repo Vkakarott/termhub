@@ -19,13 +19,14 @@ import { defaultEmbedder } from './embeddings.js';
 import { hostFailure, resolveHost, type HostAgents, type HostChoice } from './host.js';
 import { GRANTABLE_TOOL, STANDING_GRANT_BUDGETS, TAB_TERMINAL_GRANT, type StandingGrantKind } from './gate.js';
 import { LiveRun, type LiveTurn } from './live-run.js';
-import { projectSystemPrompt } from './project-prompt.js';
+import { accountSystemPrompt, projectSystemPrompt } from './project-prompt.js';
 import { RESUME_WINDOW_MS, STALE_MS, resumeNote } from './resume.js';
 import { codeForReason, parseFrame, type ChatErrorCode, type ChatFailureReason } from './stream.js';
 import { toSubagentView, type SubagentView } from './subagent-view.js';
 import { tabQuestionContext } from './tab-question-context.js';
 import { mintConciergeToken } from './token.js';
 import { indexMessage } from '../memory/index-items.js';
+import { groupsOf, type GroupView } from '../control/groups.js';
 
 export type { ChatErrorCode } from './stream.js';
 
@@ -828,6 +829,24 @@ export class ChatService {
     return this.startIn(user, conversation, text);
   }
 
+  /** The person's sidebar groups, for a prompt (spec 2026-09-30). The user's own scope, never "view
+   *  as". A failure costs the groups, never the message: logged by its label, no name in it. */
+  private async groupsFor(user: User, opts?: Parameters<typeof groupsOf>[1]): Promise<GroupView[]> {
+    try {
+      return (await groupsOf({ repos: this.deps.repos, scope: { user, viewAs: { kind: 'self' }, ownerId: user.id, createAs: user.id } }, opts)).groups;
+    } catch (err) {
+      console.error('chat: the project groups could not be read', { user_id: user.id, error: failureLabel(err) });
+      return [];
+    }
+  }
+
+  /** The index of the account-wide chat, for a streamed run only: the one-shot path sends the
+   *  account-wide chat no prompt at all. Null for a project chat, whose prompt is `promptFor`'s. */
+  private async accountIndexFor(user: User, conversation: ChatConversation, machineId: string): Promise<string | null> {
+    if (conversation.project_id !== null || !this.streams(machineId)) return null;
+    return accountSystemPrompt((await this.groupsFor(user)).map((g) => ({ name: g.name, projects: g.projects.map((p) => p.name) })));
+  }
+
   /** The project's focus text for this run, or null for the account-wide chat. Owner-scoped reads, so a
    * machine link to a machine this user no longer owns names nothing. Read per run, never stored: a
    * rename or a new machine link reaches the very next message. */
@@ -843,7 +862,12 @@ export class ChatService {
     // TER-386: told once per run, like the machine list — a fresh grant or a revoke reaches the very
     // next message, never a stale prompt from an earlier run.
     const standing = (await this.deps.repos.chatStandingGrants.listActive(user.id, project.id)).map((g) => g.kind);
-    return projectSystemPrompt(project, links.filter((l) => nameOf.has(l.machine_id)).map((l) => ({ machine: nameOf.get(l.machine_id)!, cwd: l.cwd })), standing);
+    // The project's own groups, with the siblings that are not archived. Archived members are read so
+    // that an archived project's own chat still finds its groups; they are dropped from the siblings.
+    const groups = (await this.groupsFor(user, { archived: true }))
+      .filter((g) => g.projects.some((m) => m.id === project.id))
+      .map((g) => ({ name: g.name, siblings: g.projects.filter((m) => m.id !== project.id && m.status !== 'archived').map((m) => m.name) }));
+    return projectSystemPrompt(project, links.filter((l) => nameOf.has(l.machine_id)).map((l) => ({ machine: nameOf.get(l.machine_id)!, cwd: l.cwd })), standing, groups);
   }
 
   /** The tabs' answered questions this conversation's model was not told yet, as the lines to prepend,
@@ -1015,6 +1039,7 @@ export class ChatService {
     // Read with the host, before the lock and before any row: a read that fails here is a message never
     // sent, not an empty assistant bubble left behind by an error thrown mid-run.
     const appendSystemPrompt = await this.promptFor(user, conversation);
+    const accountIndex = await this.accountIndexFor(user, conversation, host.machine.id);
     if (this.running.has(conversation.id)) return this.startWhileBusy(user, conversation, text, opts);
     const runner = this.deps.runnerFor(host.machine.id);
     this.running.add(conversation.id);
@@ -1062,7 +1087,7 @@ export class ChatService {
       if (streamed) {
         const d = deferred();
         const turn: LiveTurn = { uuid: randomUUID(), text: runText, question, answer, settle: d.settle };
-        void this.runLive(user, conversation, runner, host.configDir, streamedSystemPrompt(appendSystemPrompt), [...(carried?.turns ?? []), turn], { note: carried?.note });
+        void this.runLive(user, conversation, runner, host.configDir, streamedSystemPrompt(appendSystemPrompt ?? accountIndex), [...(carried?.turns ?? []), turn], { note: carried?.note });
         handedOff = true;
         return { ...started, done: d.promise };
       }
@@ -1519,8 +1544,9 @@ export class ChatService {
         return;
       }
       const appendSystemPrompt = await this.promptFor(user, conversation);
+      const accountIndex = await this.accountIndexFor(user, conversation, host.machine.id);
       const runner = this.deps.runnerFor(host.machine.id);
-      void this.runLive(user, conversation, runner, host.configDir, streamedSystemPrompt(appendSystemPrompt), turns, { note });
+      void this.runLive(user, conversation, runner, host.configDir, streamedSystemPrompt(appendSystemPrompt ?? accountIndex), turns, { note });
       handedOff = true;
     } catch (err) {
       if (!expired) await this.handBack(row);
@@ -1625,6 +1651,7 @@ export class ChatService {
         return;
       }
       const appendSystemPrompt = await this.promptFor(user, conversation);
+      const accountIndex = await this.accountIndexFor(user, conversation, host.machine.id);
       if (this.running.has(conversationId)) return; // someone else took the lock; their release drains
       const runner = this.deps.runnerFor(host.machine.id);
       this.running.add(conversationId);
@@ -1642,7 +1669,7 @@ export class ChatService {
       taken = [];
       const prior = carried;
       carried = null;
-      if (streamed) void this.runLive(user, conversation, runner, host.configDir, streamedSystemPrompt(appendSystemPrompt), [...(prior?.turns ?? []), ...turns], { note: prior?.note });
+      if (streamed) void this.runLive(user, conversation, runner, host.configDir, streamedSystemPrompt(appendSystemPrompt ?? accountIndex), [...(prior?.turns ?? []), ...turns], { note: prior?.note });
       else this.finishRun(user, conversation, turns[0].text, oneShot.question, turns[0].answer, runner, host.configDir, appendSystemPrompt).then(turns[0].settle.resolve, turns[0].settle.reject);
     } catch (err) {
       console.error('chat: queued messages could not be started', { conversation_id: conversationId, error: failureLabel(err) });

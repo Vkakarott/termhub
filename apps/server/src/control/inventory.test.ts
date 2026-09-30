@@ -210,6 +210,17 @@ describe('listProjects and the groups', () => {
     vi.mocked(c.repos.projectGroups.read).mockRejectedValueOnce(new Error('down'));
     await expect(listProjects(c, { group: 'g1' })).rejects.toMatchObject({ code: 'GROUPS_UNAVAILABLE', message: 'Não foi possível ler os grupos' });
   });
+
+  it('logs the failed read behind a GROUPS_UNAVAILABLE refusal, by its label and no name', async () => {
+    const c = ctx();
+    const log = { info: vi.fn(), warn: vi.fn() };
+    c.log = log;
+    vi.mocked(c.repos.projectGroups.read).mockRejectedValueOnce(Object.assign(new Error('Comunidade is down'), { code: 'P1001' }));
+    await expect(listProjects(c, { group: 'Comunidade' })).rejects.toMatchObject({ code: 'GROUPS_UNAVAILABLE' });
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    expect(log.warn).toHaveBeenCalledWith({ user_id: 'u1', code: 'P1001' }, 'list_projects: project groups unavailable');
+    expect(JSON.stringify(log.warn.mock.calls)).not.toContain('Comunidade');
+  });
 });
 
 describe('listTabs', () => {

@@ -5,13 +5,14 @@ import type { ChatAction } from '../db/repositories/chat-actions.js';
 import type { ChatSubagent } from '../db/repositories/chat-subagents.js';
 import type { TabQuestion } from '../db/repositories/tab-questions.js';
 import type { AttachmentRow } from '../db/repositories/chat-attachments.js';
+import type { ProjectGroup } from '../db/repositories/project-groups.js';
 import type { ChatLiveRun, SaveLiveRunInput, StoredTurn } from '../db/repositories/chat-live-runs.js';
 import { chatBus, type ChatEvent } from './bus.js';
 import { HttpError } from '../lib/errors.js';
 import type { SubagentStatus } from './stream.js';
 import { ChatService, CANCEL_TIMEOUT_MS, purgeExpiredActions, type RunnerClient, type RunnerInput } from './service.js';
 import { RESUME_WINDOW_MS, STALE_MS } from './resume.js';
-import { ORCHESTRATOR_PROMPT } from './concierge-prompt.js';
+import { ORCHESTRATOR_PROMPT, streamedSystemPrompt } from './concierge-prompt.js';
 
 const user = { id: 'u1', email: 'p@test', role_id: 'role_authenticated' } as unknown as User;
 
@@ -37,7 +38,7 @@ const action = (overrides: Partial<ChatAction> = {}): ChatAction => ({
   ...overrides,
 });
 
-function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActions?: ChatAction[]; tabQuestions?: TabQuestion[]; attachments?: AttachmentRow[]; subagents?: ChatSubagent[]; streaming?: boolean; host?: { machines?: unknown[]; capabilities?: string[] | null; account?: { id: string; provider: string; machine_id: string; config_dir: string | null } } } = {}) {
+function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActions?: ChatAction[]; tabQuestions?: TabQuestion[]; attachments?: AttachmentRow[]; subagents?: ChatSubagent[]; streaming?: boolean; groups?: ProjectGroup[]; projects?: { id: string; key: string; name: string; status: string; owner_id: string }[]; host?: { machines?: unknown[]; capabilities?: string[] | null; account?: { id: string; provider: string; machine_id: string; config_dir: string | null } } } = {}) {
   // The host pair every case but the host-specific ones takes for granted: one agent machine of this
   // user's own, online, with an agent that knows how to run a chat (see host.test.ts for the choice
   // itself). `configDirs` is gone — the account travels as the chosen `ai_account`'s config dir.
@@ -253,16 +254,22 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
       if (liveRunsStore.get(conversationId)?.instance_id === instanceId) liveRunsStore.delete(conversationId);
     }),
   };
+  /** The person's sidebar groups (read for the user only, like the repository) and every project,
+   *  listed per owner like `projects.list` — no owner lists them all. */
+  const groupRows: ProjectGroup[] = opts.groups ?? [];
+  const projectRows = opts.projects ?? [project];
+  const projectGroups = { read: vi.fn(async (userId: string): Promise<ProjectGroup[]> => (userId === user.id ? groupRows : [])) };
   const repos = {
     chat,
     chatLiveRuns,
+    projectGroups,
     users: { findById: vi.fn(async (id: string) => (id === user.id ? user : undefined)) },
     apiTokens: { listByUser: vi.fn(async () => []), create: vi.fn(async () => ({})), revoke: vi.fn(async () => undefined), revokeForConversation: vi.fn(async () => 0) },
     chatActions,
     tabQuestions,
     tabs: { findByIdsForOwner: ownedBy(tab) },
     tasks: { findByIdsForOwner: vi.fn(async () => []) },
-    projects: { findByIdsForOwner: ownedBy(project) },
+    projects: { findByIdsForOwner: ownedBy(project), list: vi.fn(async (f: { owner?: string | null } = {}) => projectRows.filter((r) => !f.owner || r.owner_id === f.owner)) },
     projectMachines: { listByProject: vi.fn(async (): Promise<{ machine_id: string; cwd: string }[]> => [{ machine_id: 'm1', cwd: '/srv/app' }]) },
     machines: { findByIdsForOwner: ownedBy(machine), list: vi.fn(async (owner: string | null) => (owner === user.id ? (opts.host?.machines ?? [host]) : [])) },
     aiAccounts: { findById: vi.fn(async () => opts.host?.account) },
@@ -294,7 +301,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
   const service = new ChatService({ repos, agents, runnerFor: (machineId) => (hosted.push(machineId), runner), indexMessage });
   /** Every `RunnerInput` the service handed a runner, in order. */
   const inputs = () => vi.mocked(runner.run).mock.calls.map((c) => c[0]);
-  return { service, chat, chatActions, tabQuestions, chatAttachments, chatSubagents, subagentsStore, actionsStore, chatLiveRuns, liveRunsStore, runner, hosted, messages, conversation, projectConversation, repos, host, inputs, agents, indexMessage };
+  return { service, chat, chatActions, projectGroups, tabQuestions, chatAttachments, chatSubagents, subagentsStore, actionsStore, chatLiveRuns, liveRunsStore, runner, hosted, messages, conversation, projectConversation, repos, host, inputs, agents, indexMessage };
 }
 
 const delta = (text: string) => JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
@@ -3298,5 +3305,211 @@ describe('openAnswerIds (spec 2026-09-29 §4)', () => {
     error.mockRestore();
     release();
     await started.done;
+  });
+});
+
+describe('the project groups in the prompts (spec 2026-09-30)', () => {
+  const projects = [
+    { id: 'p1', key: 'APP', name: 'app', status: 'active', owner_id: 'u1' },
+    { id: 'p2', key: 'PAI', name: 'painel', status: 'active', owner_id: 'u1' },
+    { id: 'px', key: 'SEG', name: 'segredo', status: 'active', owner_id: 'u2' },
+  ];
+  const group = (name: string, ids: string[], id = 'g1'): ProjectGroup => ({ id, name, kind: 'custom', position: 0, project_ids: ids });
+  const triunfo = [group('Triunfo', ['p1', 'p2'])];
+  const faculdade = [group('Faculdade', ['p1', 'p2'], 'g2')];
+  const LINE = 'Its sidebar groups, with the related projects in each: ';
+
+  /** A streamed host whose processes are driven by hand. */
+  function streamed(opts: Parameters<typeof build>[1] = {}) {
+    const built = build([], { streaming: true, projects, ...opts });
+    const lr = liveRunner();
+    vi.mocked(built.runner.run).mockImplementation(lr.run);
+    return { ...built, lr };
+  }
+  /** Answers the first turn of a process and lets it close its input and end. */
+  async function finish(lr: ReturnType<typeof liveRunner>, i: number, started: { done: Promise<unknown> }) {
+    const run = lr.runs[i];
+    run.push(replayOf(run.input.text.trim()));
+    run.push(done());
+    await started.done;
+    run.end();
+    await settled();
+  }
+
+  it('a project chat is told its group and the sibling projects', async () => {
+    const { service, inputs } = build([delta('ok'), done()], { groups: triunfo, projects });
+    await service.send(user, 'oi', { projectId: 'p1' });
+    expect(inputs()[0].append_system_prompt).toContain(`${LINE}"Triunfo" (with "painel").`);
+  });
+
+  it('moving the project to another group changes the next run on a one-shot host', async () => {
+    const { service, inputs, projectGroups } = build([delta('ok'), done()], { groups: triunfo, projects });
+    await service.send(user, 'um', { projectId: 'p1' });
+    projectGroups.read.mockResolvedValue(faculdade);
+    await service.send(user, 'dois', { projectId: 'p1' });
+    expect(inputs()[0].append_system_prompt).toContain('"Triunfo"');
+    expect(inputs()[1].append_system_prompt).toContain(`${LINE}"Faculdade" (with "painel").`);
+    expect(inputs()[1].append_system_prompt).not.toContain('Triunfo');
+  });
+
+  it('on a streamed host a move reaches the next process, and a message that joins the live process keeps its prompt', async () => {
+    const { service, lr, projectGroups } = streamed({ groups: triunfo });
+    const first = await service.start(user, 'dispara', { projectId: 'p1' });
+    const run = await runAt(lr, 0);
+    run.push(replayOf(run.input.text.trim()));
+    run.push(backgroundTasks(['t1']));
+    run.push(delta('Disparei.'));
+    run.push(done());
+    await first.done;
+
+    projectGroups.read.mockResolvedValue(faculdade);
+    const second = await service.start(user, 'e agora?', { projectId: 'p1' });
+    expect(lr.runs).toHaveLength(1); // joined the live process: no new run, no new prompt
+    expect(lr.run).toHaveBeenCalledTimes(1);
+    expect(lr.runs[0].input.append_system_prompt).toContain('"Triunfo" (with "painel")');
+    const injected = run.written.at(-1)!;
+    run.push(replayOf(injected));
+    run.push(delta('segue'));
+    run.push(done());
+    await second.done;
+    run.push(backgroundTasks([]));
+    run.push(delta('O subagente terminou.'));
+    run.push(done());
+    await settled();
+    expect(run.written.at(-1)).toBe('{"type":"termhub_end_input"}');
+    run.end();
+    await settled();
+
+    const third = await service.start(user, 'e o outro grupo?', { projectId: 'p1' });
+    const next = await runAt(lr, 1);
+    expect(next.input.append_system_prompt).toContain(`${LINE}"Faculdade" (with "painel").`);
+    expect(next.input.append_system_prompt).not.toContain('Triunfo');
+    await finish(lr, 1, third);
+  });
+
+  it('the account-wide chat gets the index on a streamed host', async () => {
+    const { service, lr } = streamed({ groups: triunfo });
+    const started = await service.start(user, 'oi');
+    const run = await runAt(lr, 0);
+    const prompt = run.input.append_system_prompt!;
+    expect(prompt.startsWith(ORCHESTRATOR_PROMPT)).toBe(true);
+    expect(prompt).toContain('\n- "Triunfo": "app", "painel"\n');
+    expect(prompt.endsWith('Use list_project_groups for ids and status, and list_projects with group to work on one group.')).toBe(true);
+    await finish(lr, 0, started);
+  });
+
+  it('the account-wide chat gets no prompt on a one-shot host, groups or not', async () => {
+    const { service, inputs, projectGroups } = build([delta('ok'), done()], { groups: triunfo, projects });
+    await service.send(user, 'oi');
+    expect(inputs()[0].append_system_prompt ?? null).toBeNull();
+    // Nothing is even read for it.
+    expect(projectGroups.read).not.toHaveBeenCalled();
+  });
+
+  it('a failed read of the groups costs the groups, not the message', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const oneShot = build([delta('ok'), done()], { groups: triunfo, projects });
+      oneShot.projectGroups.read.mockRejectedValue(new Error('down'));
+      expect((await oneShot.service.send(user, 'oi', { projectId: 'p1' })).text).toBe('ok');
+      expect(oneShot.inputs()[0].append_system_prompt).toContain('"app" (key');
+      expect(oneShot.inputs()[0].append_system_prompt).not.toContain('Its sidebar groups');
+
+      const live = streamed({ groups: triunfo });
+      live.projectGroups.read.mockRejectedValue(new Error('down'));
+      const started = await live.service.start(user, 'oi');
+      const run = await runAt(live.lr, 0);
+      expect(run.input.append_system_prompt).toBe(ORCHESTRATOR_PROMPT);
+      await finish(live.lr, 0, started);
+
+      expect(errors).toHaveBeenCalledWith('chat: the project groups could not be read', { user_id: 'u1', error: 'Error' });
+      const logged = JSON.stringify(errors.mock.calls);
+      for (const name of ['Triunfo', 'painel', '"app"', 'segredo']) expect(logged).not.toContain(name);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it('a project of another owner in the person\'s group is never named', async () => {
+    const mine = [group('Triunfo', ['p1', 'p2', 'px'])];
+    const oneShot = build([delta('ok'), done()], { groups: mine, projects });
+    await oneShot.service.send(user, 'oi', { projectId: 'p1' });
+    expect(oneShot.inputs()[0].append_system_prompt).toContain(`${LINE}"Triunfo" (with "painel").`);
+    expect(oneShot.inputs()[0].append_system_prompt).not.toContain('segredo');
+
+    const live = streamed({ groups: mine });
+    const started = await live.service.start(user, 'oi');
+    const run = await runAt(live.lr, 0);
+    expect(run.input.append_system_prompt).toContain('\n- "Triunfo": "app", "painel"\n');
+    expect(run.input.append_system_prompt).not.toContain('segredo');
+    await finish(live.lr, 0, started);
+  });
+
+  it('another user\'s groups never appear', async () => {
+    const oneShot = build([delta('ok'), done()], { projects });
+    oneShot.projectGroups.read.mockImplementation(async (id: string) => (id === 'u2' ? triunfo : []));
+    await oneShot.service.send(user, 'oi', { projectId: 'p1' });
+    expect(oneShot.inputs()[0].append_system_prompt).not.toContain('Its sidebar groups');
+
+    const live = streamed();
+    live.projectGroups.read.mockImplementation(async (id: string) => (id === 'u2' ? triunfo : []));
+    const started = await live.service.start(user, 'oi');
+    const run = await runAt(live.lr, 0);
+    expect(run.input.append_system_prompt).toBe(streamedSystemPrompt(null));
+    await finish(live.lr, 0, started);
+  });
+
+  it('the chat of an archived project is told its group, without its archived siblings', async () => {
+    const withArchived = [
+      { id: 'p1', key: 'APP', name: 'app', status: 'archived', owner_id: 'u1' },
+      { id: 'p2', key: 'PAI', name: 'painel', status: 'active', owner_id: 'u1' },
+      { id: 'p3', key: 'VEL', name: 'velho', status: 'archived', owner_id: 'u1' },
+    ];
+    const { service, inputs } = build([delta('ok'), done()], { groups: [group('Triunfo', ['p1', 'p2', 'p3'])], projects: withArchived });
+    await service.send(user, 'oi', { projectId: 'p1' });
+    expect(inputs()[0].append_system_prompt).toContain(`${LINE}"Triunfo" (with "painel").`);
+    expect(inputs()[0].append_system_prompt).not.toContain('velho');
+  });
+
+  it('a queued message and a resumed run carry the index too', async () => {
+    // Queued behind a process that ended its input: started by launchQueued.
+    const { service, lr } = streamed({ groups: triunfo });
+    const first = await service.start(user, 'um');
+    const run = await runAt(lr, 0);
+    run.push(replayOf(run.input.text.trim()));
+    run.push(delta('ok'));
+    run.push(done());
+    await first.done;
+    await settled();
+    expect(run.written.at(-1)).toBe('{"type":"termhub_end_input"}');
+    const late = await service.start(user, 'dois');
+    expect(lr.runs).toHaveLength(1);
+    run.end();
+    const next = await runAt(lr, 1);
+    expect(next.input.append_system_prompt).toContain('\n- "Triunfo": "app", "painel"\n');
+    next.push(replayOf(next.input.text.trim()));
+    next.push(done());
+    await late.done;
+    next.end();
+    await settled();
+
+    // A row another instance released: started by resumeSweep.
+    const resumed = streamed({ groups: triunfo });
+    resumed.conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+    resumed.messages.push({ id: 'q1', role: 'user', text: 'primeira', error_code: null }, { id: 'a1', role: 'assistant', text: '', error_code: null });
+    const now = new Date().toISOString();
+    resumed.liveRunsStore.set('c1', { conversation_id: 'c1', user_id: 'u1', instance_id: 'old-instance', heartbeat_at: now, released_at: now, turns: [{ question_id: 'q1', answer_id: 'a1', text: 'primeira' }], created_at: now });
+    await resumed.service.resumeSweep();
+    const again = await runAt(resumed.lr, 0);
+    expect(again.input.append_system_prompt!.startsWith(ORCHESTRATOR_PROMPT)).toBe(true);
+    expect(again.input.append_system_prompt).toContain('\n- "Triunfo": "app", "painel"\n');
+    const lines = again.input.text.trim().split('\n');
+    again.push(replayOf(lines[0]));
+    again.push(replayOf(lines[1]));
+    again.push(delta('r1'));
+    again.push(done());
+    await vi.waitFor(() => expect(resumed.messages.find((m) => m.id === 'a1')?.text).toBe('r1'));
+    again.end();
+    await vi.waitFor(() => expect(resumed.liveRunsStore.has('c1')).toBe(false));
   });
 });

@@ -129,18 +129,27 @@ Fronts 2, 3, 4 and 5 have no dependency, and neither has what is left of front 1
 ### Front 5: Concierge: project groups
 
 **Cards:** TER-419 (#170)
-**Files:** `apps/server/src/control/inventory.ts`, `apps/server/src/mcp/tools.ts`, `apps/server/src/chat/gate.ts`, `apps/server/src/chat/project-prompt.ts`, `apps/server/src/chat/concierge-prompt.ts`, `apps/server/src/chat/service.ts`, `apps/server/src/db/repositories/project-groups.ts`, `README.md`, and their tests
+**Files:** `apps/server/src/control/groups.ts`, `apps/server/src/control/inventory.ts`, `apps/server/src/mcp/tools.ts`, `apps/server/src/chat/gate.ts`, `apps/server/src/chat/project-prompt.ts`, `apps/server/src/chat/service.ts`, `apps/server/src/db/repositories/project-groups.ts`, `README.md`, and their tests
+**Spec:** `docs/superpowers/specs/2026-09-30-concierge-project-groups-design.md`
+**Plan:** `docs/superpowers/plans/2026-09-30-concierge-project-groups.md`
 
-- [ ] Repository: a read that does not create the Favoritos row
-- [ ] `list_projects` returns `groups` and `favorite`, and takes `group` (id or name)
-- [ ] `list_project_groups`, registered in `TOOLS`, in `readTools` and in the exact list of `mcp/route.test.ts:108`
-- [ ] `find` takes kind `group`
-- [ ] The project prompt names the group and its sibling projects, counted in the 4000-character budget
-- [ ] The general chat gets the groups index on the streamed path only; the three tests that pin a `null` prompt on the one-shot path stay green
-- [ ] README: the tool list
+- [x] Repository: a read that does not create the Favoritos row
+- [x] `list_projects` returns `groups` and `favorite`, and takes `group` (id or name)
+- [x] `list_project_groups`, registered in `TOOLS`, in `readTools` and in the exact list of `mcp/route.test.ts:108`
+- [x] `find` takes kind `group`
+- [x] The project prompt names the group and its sibling projects, counted in the 4000-character budget
+- [x] The general chat gets the groups index on the streamed path only; the three tests that pin a `null` prompt on the one-shot path stay green
+- [x] README: the tool list
 - [ ] Pull request, merge on green, deploy followed to the health check
 
 **Done when:** the six acceptance criteria of the card hold, and no group of another user or project out of scope appears in a tool result or a prompt.
+
+**What changed against this roadmap:**
+
+- `concierge-prompt.ts` was not touched: the index is its own text (`accountSystemPrompt` in `project-prompt.ts`), passed to `streamedSystemPrompt` where the project prompt goes.
+- A move between groups reaches the next process. On a streamed host a message that joins a live process keeps the prompt that process started with.
+- Left out on purpose: the sidebar's wording (the card asks the UI to say that a move changes what the chat is told; a copy decision for a card of its own), and the index on the one-shot path (it sends the account-wide chat no prompt, and three tests pin that).
+- A cut keeps whole names: in the index a line too long to fit is dropped and the lines after it still get their turn, so one huge group does not empty the index.
 
 ### Front 6: Concierge: read the last answer
 
