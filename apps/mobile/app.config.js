@@ -12,6 +12,8 @@ const OTA_CHANNEL = 'production';
 
 module.exports = ({ config }) => ({
   ...config,
+  // No web build: without this, `expo export` (which `eoas publish` runs) also bundles for web.
+  platforms: ['ios', 'android'],
   runtimeVersion: { policy: 'appVersion' },
   updates: {
     enabled: true,
