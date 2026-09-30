@@ -72,6 +72,8 @@ export interface StartedRun {
  *  buffers lines written before the channel is open. A one-shot runner does not have it. */
 export interface RunStream extends AsyncIterable<string> {
   write?(line: string): boolean;
+  /** Ends a streamed run now: the channel closes, which kills the CLI and what it started. */
+  close?(): void;
 }
 export interface RunnerClient {
   run(input: RunnerInput): RunStream;
@@ -394,16 +396,19 @@ export class ChatService {
    * revoked first: nobody will answer a card in a thread that is no longer on screen, and a token minted
    * for a conversation that is over must not reach the gate on its behalf.
    *
-   * A streamed process whose turns have all ended but that still waits on subagents in the background
-   * holds the lock for as long as it lives, yet answers nothing: it does not stop a reset. Its input is
-   * ended so nothing more reaches the archived thread, and it keeps the lock until it exits.
+   * A streamed process that answers nobody holds the lock for as long as it lives, yet does not stop
+   * a reset: one whose turns have all ended and that waits on subagents in the background, or one
+   * whose input has ended (no turn of the person's is open in it, and none can be written to it; the
+   * CLI holds its `result`s back while a subagent runs, so its own turn may look open for as long as
+   * that lasts). The process is ended, and its subagents with it — their thread is over and their
+   * token revoked — and it keeps the lock until it exits.
    */
   async reset(user: User, projectId: string | null): Promise<ChatConversation> {
     const current = await this.conversationFor(user, projectId);
     const live = this.live.get(current.id);
-    const detached = this.running.has(current.id) && live !== undefined && !live.busy;
+    const detached = this.running.has(current.id) && live !== undefined && (!live.busy || !live.accepting);
     if (this.running.has(current.id) && !detached) throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
-    if (detached) live.endInput();
+    if (detached) live.stop();
     else this.running.add(current.id);
     this.resetting.add(current.id);
     try {
@@ -571,9 +576,10 @@ export class ChatService {
    * chat action's own lookup: a foreign or missing id is the same 404, never a hint that a subagent
    * of someone else's conversation exists. A row already at rest (`SUBAGENT_NOT_RUNNING`) or one whose
    * process is no longer around to ask (`SUBAGENT_GONE`, marked `interrupted` here) both throw a 409:
-   * the click did not fail, there is simply nothing left to cancel. A process live on another instance
-   * (a fresh, unreleased `chat_live_runs` row of theirs) is `SUBAGENT_GONE` too, but its row is left
-   * untouched: that instance still runs it and will report its real end.
+   * the click did not fail, there is simply nothing left to cancel. A process that is still there but
+   * takes no input is ended, so that `interrupted` is what happened to its subagent. A process live on
+   * another instance (a fresh, unreleased `chat_live_runs` row of theirs) is `SUBAGENT_GONE` too, but
+   * its row is left untouched: that instance still runs it and will report its real end.
    */
   async cancelSubagent(user: User, subagentId: string): Promise<SubagentView> {
     const row = await this.deps.repos.chatSubagents.findByIdForUser(subagentId, user.id);
@@ -593,7 +599,11 @@ export class ChatService {
     const stopping = await this.deps.repos.chatSubagents.setStatus(row.id, 'stopping', { from: ['running'] });
     if (!stopping) throw new HttpError(409, 'Este subagente não está rodando', 'SUBAGENT_NOT_RUNNING');
     chatBus.publish({ type: 'subagent', user_id: user.id, conversation_id: row.conversation_id, subagent: toSubagentView(stopping) });
-    if (!live.stopTask(row.task_id, row.id)) return this.subagentGone(user, row.id, row.conversation_id);
+    if (!live.stopTask(row.task_id, row.id)) {
+      // A process that takes no input cannot be asked: ending it is the only way to stop what it runs.
+      if (!live.accepting) live.stop();
+      return this.subagentGone(user, row.id, row.conversation_id);
+    }
     setTimeout(() => void live.rollbackStop(row.id).catch(() => {}), CANCEL_TIMEOUT_MS).unref?.();
     return toSubagentView(stopping);
   }
@@ -927,12 +937,18 @@ export class ChatService {
    * so it is answered at once, even with subagents at work. Otherwise it is queued, shown right away,
    * and answered by the next process. A decision (`beforeRun`) is never queued here: it keeps its own
    * durable path (409 → queued note → `drainNextDecision`).
+   *
+   * Either way, a process that takes no input is asked to give way: one that only a subagent keeps
+   * alive is ended, so what waits behind it runs now and not when the subagent is done.
    */
   private async startWhileBusy(user: User, conversation: ChatConversation, text: string, opts?: StartOptions): Promise<StartedRun> {
     // "Nova conversa" is archiving this thread: nothing typed now belongs in it.
     if (this.resetting.has(conversation.id)) throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
     const live = this.live.get(conversation.id);
-    if (!live?.accepting && opts?.beforeRun) throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
+    if (!live?.accepting && opts?.beforeRun) {
+      live?.giveWay();
+      throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
+    }
     // The attachments this message names, checked with reads only (spec 2026-09-26 §5.5), as in
     // `startIn`: a bad id is a message never sent — 409, nothing stored, no decision marked, no tab
     // context stamped — whether the message is injected or queued.
@@ -953,6 +969,7 @@ export class ChatService {
     this.enqueue(conversation.id, { userId: user.id, text, runText, attachments: attachable.rows, question, answer, settle: d.settle });
     // Announced here, before the queue may run: `launchQueued` can close this turn at once.
     chatBus.publish({ type: 'run_started', user_id: user.id, conversation_id: conversation.id, message_id: answer.id });
+    this.live.get(conversation.id)?.giveWay();
     // The process may already be gone, with the lock released during the awaits above.
     if (!this.running.has(conversation.id)) void this.launchQueued(user, conversation.id);
     return started;
@@ -1330,7 +1347,7 @@ export class ChatService {
         // effect already is the mediation the gate exists to add.
         token = await mintConciergeToken(this.deps.repos, user.id, conversation.id, ['read', 'tasks', 'terminals', 'memory'], { accountWide: conversation.project_id === null });
       } catch {
-        if (this.suspending) live.rejectOpen(serverRestarting());
+        if (this.suspending) await live.rejectOpen(serverRestarting());
         else await live.failOpen('TOKEN_FAILED');
         return;
       }
@@ -1360,7 +1377,7 @@ export class ChatService {
         // A graceful shutdown killed the process: its turns stay open, for the instance that resumes
         // them, and whoever waits on one is answered now instead of never.
         if (this.suspending) {
-          live.rejectOpen(serverRestarting());
+          await live.rejectOpen(serverRestarting());
           return;
         }
         if (resume && outcome.missingSession && live.endedTurns === 0 && attempt === 0) {
@@ -1374,7 +1391,7 @@ export class ChatService {
       // A database failure mid-run must not leave `done` hanging for ever, nor escape as an unhandled
       // rejection: the open turns are failed as a runner failure, and only the label is logged.
       console.error('chat: live run failed', { conversation_id: conversation.id, error: failureLabel(err) });
-      if (this.suspending) live.rejectOpen(serverRestarting());
+      if (this.suspending) await live.rejectOpen(serverRestarting());
       else await live.failOpen('RUNNER_FAILED').catch(() => {});
     } finally {
       this.live.delete(conversation.id);

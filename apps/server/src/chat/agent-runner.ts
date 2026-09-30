@@ -63,12 +63,16 @@ function endOfRun(end: ChannelEnd): string | null {
   return failureLine('run_failed', end.code);
 }
 
-/** What `write` and the run share: the open channel, the lines written before it opened, and
- *  whether the run is over. */
+/** What `write`, `close` and the run share: the open channel, the lines written before it opened,
+ *  whether the run is over, and whether the caller asked for it to end. */
 interface InputLink {
   channel: AgentChannel | null;
   pending: string[];
   ended: boolean;
+  /** Set by `close`: the run ends at its next step, and that is not a failure. */
+  closing: boolean;
+  /** Wakes the run when it is waiting for the agent's next line. */
+  wake: (() => void) | null;
 }
 
 /**
@@ -89,7 +93,7 @@ export function agentRunner(machineId: string, opts: { host?: ClaudeChannelHost;
       // container path answers, thrown from `run()` for the same reason it is thrown there.
       const mcpUrl = config.mcpUrl;
       if (!mcpUrl) throw new HttpError(503, 'O chat não está configurado neste servidor', 'CONCIERGE_DISABLED');
-      const link: InputLink = { channel: null, pending: [], ended: false };
+      const link: InputLink = { channel: null, pending: [], ended: false, closing: false, wake: null };
       const deadline = opts.deadlineMs ?? (input.stream_input ? STREAM_RUN_DEADLINE_MS : RUN_DEADLINE_MS);
       const lines = runOnAgent(machineId, host, input, mcpUrl, deadline, link);
       return Object.assign(lines, {
@@ -99,6 +103,12 @@ export function agentRunner(machineId: string, opts: { host?: ClaudeChannelHost;
           if (link.channel) link.channel.write(Buffer.from(data, 'utf8'));
           else link.pending.push(data);
           return true;
+        },
+        // The run's own `finally` closes the channel, which is what kills the CLI on the machine.
+        close: (): void => {
+          link.closing = true;
+          link.ended = true;
+          link.wake?.();
         },
       });
     },
@@ -146,6 +156,7 @@ async function* runOnAgent(
       stream.wake = null;
       wake?.();
     };
+    link.wake = notify;
     const handlers: ChannelHandlers = {
       onData: (data) => {
         stream.tail += data.toString('utf8');
@@ -219,12 +230,13 @@ async function* runOnAgent(
 
       for (;;) {
         while (stream.lines.length > 0) yield stream.lines.shift() as string;
-        if (stream.end || stream.expired) break;
+        if (stream.end || stream.expired || link.closing) break;
         await new Promise<void>((resolve) => (stream.wake = resolve));
       }
       // A last line the agent framed without its newline; the container's reader keeps it too.
       if (stream.tail.trim()) yield stream.tail;
-      const last = stream.end ? endOfRun(stream.end) : failureLine('run_failed', null);
+      // A run the caller closed did not fail: it ends with nothing said about it.
+      const last = stream.end ? endOfRun(stream.end) : link.closing ? null : failureLine('run_failed', null);
       if (last) yield last;
     } finally {
       // Every way out passes here — the deadline, an exception, a write that failed, and above all
@@ -240,5 +252,6 @@ async function* runOnAgent(
   } finally {
     link.ended = true;
     link.channel = null;
+    link.wake = null;
   }
 }
