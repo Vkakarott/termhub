@@ -28,11 +28,15 @@ it('goes first, with the project prompt after it, and fits the protocol cap with
   expect(streamedSystemPrompt('x'.repeat(4000)).length).toBeLessThanOrEqual(8000);
 });
 
-it('tells the concierge to follow tabs with wait_for_state and read_last_answer, never a watcher subagent', () => {
+it('tells the concierge to follow a tab with one background subagent that ends at the first stop', () => {
   expect(ORCHESTRATOR_PROMPT).not.toContain('waiting on an agent');
+  expect(ORCHESTRATOR_PROMPT).not.toContain('a few times at most');
   expect(ORCHESTRATOR_PROMPT).toMatch(/Claude Code, Codex or Cursor report their state through hooks/);
   expect(ORCHESTRATOR_PROMPT).toMatch(/cards in this chat/);
-  expect(ORCHESTRATOR_PROMPT).toMatch(/Never launch a subagent to watch or poll a tab/);
-  expect(ORCHESTRATOR_PROMPT).toContain('wait_for_state');
+  expect(ORCHESTRATOR_PROMPT).toMatch(/at most ONE background subagent per request/);
+  expect(ORCHESTRATOR_PROMPT).toMatch(/waits only with wait_for_state.*never with read_screen loops or sleep/);
+  expect(ORCHESTRATOR_PROMPT).toMatch(/ends at the first stop/);
   expect(ORCHESTRATOR_PROMPT).toContain('read_last_answer');
+  expect(ORCHESTRATOR_PROMPT).toMatch(/Never relaunch it to keep watching/);
+  expect(ORCHESTRATOR_PROMPT).toMatch(/quick status check \(one wait_for_state or read_last_answer call\) can be done in your own turn/);
 });

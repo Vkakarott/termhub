@@ -256,11 +256,12 @@ describe('integration and repository setup tools', () => {
   });
 });
 
-it('start_agent and wait_for_state say to follow a tab with wait_for_state / read_last_answer, not a polling subagent', () => {
+it('start_agent and wait_for_state say to follow a tab with one waiting subagent and read_last_answer, without polling', () => {
   const start = TOOLS.find((t) => t.name === 'start_agent')!.description;
-  expect(start).toContain('wait_for_state and read_last_answer');
-  expect(start).toMatch(/never a subagent polling it/);
+  expect(start).toContain('wait with wait_for_state (in one background subagent that ends at the first stop), then read_last_answer');
+  expect(start).not.toContain('instead of a subagent polling it');
   const wait = TOOLS.find((t) => t.name === 'wait_for_state')!.description;
-  expect(wait).toMatch(/instead of a subagent polling it/);
+  expect(wait).toMatch(/no read_screen loops or sleep/);
   expect(wait).toContain('read_last_answer');
+  expect(wait).not.toContain('a few times at most');
 });
