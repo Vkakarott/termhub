@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 import type { TTabQuestionAnswerBody } from '@/services/api/contract';
 import { AppText, Button } from '@/ui';
-import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerDescription, choiceAnswerLabel, formatCountdown, permissionTitle, statusLabel, suggestionLine, suggestionSourceSentence, tabLabel } from '../model/tab-question-text';
+import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerDescription, choiceAnswerLabel, choiceTitle, formatCountdown, permissionTitle, statusLabel, suggestionLine, suggestionSourceSentence } from '../model/tab-question-text';
 import type { TabQuestion, TabQuestionSuggestionItem } from '../model/types';
 
 type Props = {
@@ -101,7 +101,7 @@ function ChoiceBody({ question, busy, onAnswer, onForget, onCancelAutoAnswer }: 
     // edits (toggling an option, forgetting a suggestion) must not be overwritten by this effect again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auto?.status]);
-  const title = <AppText variant="label">{`${tabLabel(question)} perguntou`}</AppText>;
+  const title = <AppText variant="label">{choiceTitle(question)}</AppText>;
   if (question.status !== 'open') {
     // The countdown is over, but a `failed` one is never shown on a closed card (controller ruling): it
     // only ever explains why *this still-open card* has not answered itself; a `sent` one is the
@@ -267,6 +267,7 @@ function ChoiceBody({ question, busy, onAnswer, onForget, onCancelAutoAnswer }: 
 
 function PermissionBody({ question, busy, onAnswer, loadScreen }: Props & { question: Permission }) {
   const open = question.status === 'open';
+  const codex = question.payload.agent === 'codex';
   const [excerpt, setExcerpt] = useState<string | null>(null);
   // Expanded by default: the tool name alone does not say what is about to run.
   const [showing, setShowing] = useState(true);
@@ -285,6 +286,12 @@ function PermissionBody({ question, busy, onAnswer, loadScreen }: Props & { ques
   return (
     <View className="gap-2">
       <AppText>{permissionTitle(question)}</AppText>
+      {codex ? (
+        <View className="gap-1">
+          {question.payload.question ? <AppText>{question.payload.question}</AppText> : null}
+          <AppText variant="muted">{`«${question.payload.tool_name}»`}</AppText>
+        </View>
+      ) : null}
       {open && excerpt !== null ? <Button label="Tela da aba" variant="ghost" onPress={() => setShowing((v) => !v)} /> : null}
       {open && showing && excerpt !== null ? <AppText className="font-mono text-xs">{excerpt}</AppText> : null}
       {open ? (

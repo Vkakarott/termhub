@@ -252,7 +252,7 @@ export async function startAgent(
     command: binary,
     task_id: task?.id ?? null,
     previous_tab_id: task?.tab_id ?? null,
-    note: `O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou perguntar algo, e read_screen para ver a tela. ${mcp.note}`,
+    note: `O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou parar (num único subagente em segundo plano, que termina na primeira parada), e read_last_answer para a resposta dele (read_screen só para o que está na tela). Perguntas e permissões chegam como cards no chat. ${mcp.note}`,
   };
 }
 

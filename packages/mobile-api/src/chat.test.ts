@@ -244,8 +244,14 @@ describe('tabQuestionSchema: auto answer (spec 2026-09-26 concierge memory §6)'
 
 describe('chatMemoryResponse (spec D8/D12)', () => {
   it('parses the switch, autodecide, availability, decisions count and notes count', () => {
-    const r = chatMemoryResponse.safeParse({ enabled: true, autodecide: false, available: true, count: 3, notes: 1 });
+    const r = chatMemoryResponse.safeParse({ enabled: true, autodecide: false, codex_replies: true, available: true, count: 3, notes: 1 });
     expect(r.success, JSON.stringify(!r.success && r.error.issues)).toBe(true);
+    expect(r.success && r.data.codex_replies).toBe(true);
+  });
+
+  it('reads a server that predates codex_replies as off', () => {
+    const r = chatMemoryResponse.safeParse({ enabled: true, autodecide: false, available: true, count: 3, notes: 1 });
+    expect(r.success && r.data.codex_replies).toBe(false);
   });
 });
 
@@ -254,6 +260,7 @@ describe('chatMemoryPatchBody (spec D8/§8)', () => {
     expect(chatMemoryPatchBody.safeParse({ enabled: false }).success).toBe(true);
     expect(chatMemoryPatchBody.safeParse({ autodecide: true }).success).toBe(true);
     expect(chatMemoryPatchBody.safeParse({ enabled: true, autodecide: true }).success).toBe(true);
+    expect(chatMemoryPatchBody.safeParse({ codex_replies: true }).success).toBe(true);
   });
 
   it('refuses an empty body: at least one of the two switches', () => {

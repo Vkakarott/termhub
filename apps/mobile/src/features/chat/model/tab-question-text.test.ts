@@ -1,5 +1,5 @@
 import type { TabQuestion } from './types';
-import { answerSummary, choiceAnswerDescription, statusLabel, tabLabel } from './tab-question-text';
+import { answerSummary, choiceAnswerDescription, choiceTitle, permissionTitle, statusLabel, tabLabel } from './tab-question-text';
 
 const base = { id: 'q1', tab_id: 't1', tab_name: 'api', error_code: null, created_at: '', answered_at: null, closed_at: null };
 const choice = (over: Partial<TabQuestion> = {}) =>
@@ -40,4 +40,17 @@ it('reads the chosen options\' descriptions for the countdown line, each cut at 
   expect(choiceAnswerDescription(payload, { answers: [{ selected: [1] }] })).toBeNull();
   expect(choiceAnswerDescription(payload, { answers: [{ selected: [], text: 'livre' }] })).toBeNull();
   expect(choiceAnswerDescription(payload, { answers: [{ selected: [0] }, { selected: [0, 1] }] })).toBe(`faz merge e push para main / ${'x'.repeat(80)}… / b`);
+});
+
+type ChoiceQ = Extract<TabQuestion, { kind: 'choice' }>;
+type PermissionQ = Extract<TabQuestion, { kind: 'permission' }>;
+describe('Codex titles', () => {
+  const q = (kind: 'choice' | 'permission', agent?: 'codex') => ({ id: 'q', tab_id: 't', tab_name: 'api', kind, status: 'open', answer: null, error_code: null, created_at: '', answered_at: null, closed_at: null, payload: kind === 'choice' ? { questions: [], agent } : { tool_name: 'Bash', agent } }) as TabQuestion;
+  it('names the Codex on a choice and a permission card, and only then', () => {
+    expect(choiceTitle(q('choice', 'codex') as ChoiceQ)).toBe('A aba «api» perguntou (o Codex)');
+    expect(choiceTitle(q('choice') as ChoiceQ)).toBe('A aba «api» perguntou');
+    expect(permissionTitle(q('permission', 'codex') as PermissionQ)).toBe('A aba «api» pede permissão (o Codex)');
+    expect(permissionTitle({ ...q('permission', 'codex'), tab_name: null } as PermissionQ)).toBe('Uma aba pede permissão (o Codex)');
+    expect(permissionTitle(q('permission') as PermissionQ)).toBe('A aba «api» pede permissão para usar «Bash»');
+  });
 });

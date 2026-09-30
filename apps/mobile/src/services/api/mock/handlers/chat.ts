@@ -626,7 +626,7 @@ function matchesLessonQuery(l: MockLesson, q: string): boolean {
 function chatMemoryView(state: MockState): TChatMemory {
   // `available` has no fixture for "false" (no server config to mirror in the mock) — every mock
   // run behaves as if embeddings were configured, like a dev server normally would be.
-  return { enabled: state.chatMemoryEnabled, autodecide: state.chatAutodecideEnabled, available: true, count: state.decisions.length, notes: state.notes.length };
+  return { enabled: state.chatMemoryEnabled, autodecide: state.chatAutodecideEnabled, codex_replies: state.chatCodexRepliesEnabled, available: true, count: state.decisions.length, notes: state.notes.length };
 }
 
 // --- routes ---------------------------------------------------------------------------------
@@ -1165,6 +1165,7 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     const body = chatMemoryPatchBody.parse(ctx.body);
     if (body.enabled !== undefined) state.chatMemoryEnabled = body.enabled;
     if (body.autodecide !== undefined) state.chatAutodecideEnabled = body.autodecide;
+    if (body.codex_replies !== undefined) state.chatCodexRepliesEnabled = body.codex_replies;
     return { status: 200, body: chatMemoryView(state) };
   });
 

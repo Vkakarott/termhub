@@ -59,10 +59,43 @@ export function lastNonBlankLines(text: string, n = SCREEN_EXCERPT_LINES): strin
     .join('\n');
 }
 
+/** Codex's approval menu ends on this line; its question dialog ends on "… enter to submit answer/all …". */
+const CODEX_APPROVAL_FOOTER = 'press enter to confirm or esc to cancel';
+const CODEX_QUESTION_FOOTER = 'enter to submit';
+
+/**
+ * `promptVisible` for a Codex row (Codex 0.159.2): the same two-part rule with Codex's footers. The last
+ * non-blank line is the menu's own footer (a tab back at its composer never passes), and the block holds
+ * the dialog's marker: "Would you like to" / "Do you want to" for an approval, the first question's text
+ * for a question.
+ */
+function codexPromptVisible(block: string, row: Pick<TabQuestion, 'kind' | 'payload'>): boolean {
+  const last = block.slice(block.lastIndexOf('\n') + 1).toLowerCase();
+  const shown = squashLower(block);
+  if (row.kind === 'choice') {
+    if (!last.includes(CODEX_QUESTION_FOOTER)) return false;
+    const marker = squash((row.payload as ChoicePayload).questions[0]?.question ?? '').slice(0, 80);
+    return marker !== '' && squash(block).includes(marker);
+  }
+  if (!last.includes(CODEX_APPROVAL_FOOTER)) return false;
+  return shown.includes(squashLower('would you like to')) || shown.includes(squashLower('do you want to'));
+}
+
 /** Whether the last non-blank line of a capture is a dialog's footer: the tab is showing a dialog now. */
 export function dialogFooterVisible(screen: string): boolean {
   const block = lastNonBlankLines(screen, 1);
   return block.includes(DIALOG_FOOTER);
+}
+
+/**
+ * Whether the tab shows some dialog of the row's own agent now, recognised or not: Codex's two footers
+ * for a Codex row (`payload.agent === 'codex'`), Claude Code's `DIALOG_FOOTER` otherwise. A Codex card
+ * on a Claude screen (or the reverse) is stale, not "not seen".
+ */
+export function rowDialogFooterVisible(screen: string, row: Pick<TabQuestion, 'payload'>): boolean {
+  if ((row.payload as { agent?: string }).agent !== 'codex') return dialogFooterVisible(screen);
+  const last = lastNonBlankLines(screen, 1).toLowerCase();
+  return last.includes(CODEX_APPROVAL_FOOTER) || last.includes(CODEX_QUESTION_FOOTER);
 }
 
 /**
@@ -76,9 +109,11 @@ export function dialogFooterVisible(screen: string): boolean {
  * every option label of that question, within the whole capture. Both sides are reduced to letters and
  * digits (`squash`) before comparing. A permission is also refused when the known title under the lowest
  * box rule belongs to another tool (spec 2026-09-30 tab questions per subagent §5). That check fails open
- * on purpose: an unknown or renamed title makes it a no-op, not a refusal of every card.
+ * on purpose: an unknown or renamed title makes it a no-op, not a refusal of every card. A Codex row
+ * (`payload.agent === 'codex'`) takes Codex's own rule instead (`codexPromptVisible`).
  */
 export function promptVisible(screen: string, row: Pick<TabQuestion, 'kind' | 'payload'>): boolean {
+  if ((row.payload as { agent?: string }).agent === 'codex') return codexPromptVisible(lastNonBlankLines(screen, PROMPT_MARKER_LINES), row);
   if (!dialogShown(screen, row)) return false;
   if (row.kind !== 'permission') return true;
   const tool = dialogTool(screen);

@@ -11,7 +11,9 @@ import { chatBus, type ChatEvent } from './bus.js';
 const sendInput = vi.fn(async (_ctx: unknown, input: { tab_id: string }) => ({ tab_id: input.tab_id, sent: true }));
 vi.mock('../control/terminals.js', async (orig) => ({ ...(await orig<typeof import('../control/terminals.js')>()), sendInput: (...a: unknown[]) => sendInput(a[0], a[1] as never) }));
 const captureStyledScreen = vi.fn();
-vi.mock('../agent/screen.js', async (orig) => ({ ...(await orig<typeof import('../agent/screen.js')>()), captureStyledScreen: (...a: unknown[]) => captureStyledScreen(...a) }));
+
+const captureScreen = vi.fn();
+vi.mock('../agent/screen.js', async (orig) => ({ ...(await orig<typeof import('../agent/screen.js')>()), captureStyledScreen: (...a: unknown[]) => captureStyledScreen(...a), captureScreen: (...a: unknown[]) => captureScreen(...a) }));
 
 const { dismissTabSuggestion, sendTabSuggestion } = await import('./tab-suggestion-send.js');
 
@@ -23,7 +25,7 @@ const row = (over: Partial<TabQuestion> = {}): TabQuestion => ({
   status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z', suggestion: null, ...over,
 });
 
-function ctxFor(current: TabQuestion | undefined, opts: { latest?: TabQuestion | undefined; claimLoses?: boolean; denied?: string[]; outOfScope?: boolean } = {}) {
+function ctxFor(current: TabQuestion | undefined, opts: { latest?: TabQuestion | undefined; claimLoses?: boolean; denied?: string[]; outOfScope?: boolean; tab?: Record<string, unknown> } = {}) {
   const tabQuestions = {
     findByIdForUser: vi.fn(async (_id: string, userId: string) => (userId === 'u1' ? current : undefined)),
     findOpenForTab: vi.fn(async () => ('latest' in opts ? opts.latest : current)),
@@ -36,7 +38,7 @@ function ctxFor(current: TabQuestion | undefined, opts: { latest?: TabQuestion |
   const scoped = {
     tab: vi.fn(async (id: string) => {
       if (opts.outOfScope) throw notFound('Tab não encontrada');
-      return { tab: { id, name: 'api', kind: 'terminal', tmux_session: 'th-t1', state: 'waiting_input' }, machine: { id: 'm1', type: 'agent' }, project: { id: 'p1' }, cwd: '/w' };
+      return { tab: { id, name: 'api', kind: 'terminal', tmux_session: 'th-t1', state: 'waiting_input', ...opts.tab }, machine: { id: 'm1', type: 'agent' }, project: { id: 'p1' }, cwd: '/w' };
     }),
   };
   const repos = { tabQuestions, tabs: { findByIdsForOwner: vi.fn(async () => [{ id: 't1', name: 'api' }]) } };
@@ -180,6 +182,49 @@ describe('sendTabSuggestion', () => {
     await rejects(sendTabSuggestion(ctx, 's1', { text: 'commit it' }, { log: log() }), 502, 'MACHINE_OFFLINE');
     expect(tabQuestions.markFailed).toHaveBeenCalledWith('s1', 'MACHINE_OFFLINE');
     expect(events).toEqual([expect.objectContaining({ type: 'tab_suggestion_closed', suggestion: expect.objectContaining({ status: 'failed', error_code: 'MACHINE_OFFLINE' }) })]);
+  });
+});
+
+describe('sendTabSuggestion — a Codex reply card', () => {
+  const codexRow = (over: Partial<TabQuestion> = {}) => row({ payload: { text: '', context: 'Rodo os testes?', agent: 'codex' }, ...over });
+  const composer = '  Rodo os testes?\n\n› Write tests for @filename\n\n  gpt-5 · ~/w\n';
+
+  beforeEach(() => captureScreen.mockResolvedValue(composer));
+
+  it('types the text literally and Enter, without comparing a dimmed suggestion', async () => {
+    const { ctx, tabQuestions } = ctxFor(codexRow(), {});
+    const view = await sendTabSuggestion(ctx, 's1', { text: 'sim, rode' }, { log: log() });
+    expect(captureStyledScreen).not.toHaveBeenCalled();
+    expect(captureScreen).toHaveBeenCalledWith({ id: 'm1', type: 'agent' }, 'th-t1', 15);
+    expect(tabQuestions.claimSuggestion).toHaveBeenCalledWith('s1', 'u1', { text: 'sim, rode' });
+    expect(sendInput).toHaveBeenCalledWith(ctx, { tab_id: 't1', text: 'sim, rode', enter: true });
+    expect(view).toMatchObject({ id: 's1', status: 'answered', answer: { text: 'sim, rode' } });
+  });
+
+  it('409 and the card closes when the tab moved on after the card (state changed)', async () => {
+    const { ctx, tabQuestions } = ctxFor(codexRow(), { tab: { state: 'working' } });
+    await rejects(sendTabSuggestion(ctx, 's1', { text: 'sim' }, { log: log() }), 409, 'TAB_PROMPT_CHANGED');
+    expect(tabQuestions.closeOne).toHaveBeenCalledWith('s1', 'answered_in_tab');
+    expect(tabQuestions.claimSuggestion).not.toHaveBeenCalled();
+    expect(sendInput).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['an approval menu', readFileSync(new URL('./fixtures/permission-dialogs/codex-reason.txt', import.meta.url), 'utf8')],
+    ['a question dialog', '  Qual cor: azul ou verde?\n› 1. Azul\n  tab to add notes | enter to submit answer | esc to interrupt\n'],
+  ])('409 and closes while the screen shows %s', async (_l, screen) => {
+    captureScreen.mockResolvedValue(screen);
+    const { ctx, tabQuestions } = ctxFor(codexRow(), {});
+    await rejects(sendTabSuggestion(ctx, 's1', { text: 'sim' }, { log: log() }), 409, 'TAB_PROMPT_CHANGED');
+    expect(tabQuestions.closeOne).toHaveBeenCalledWith('s1', 'answered_in_tab');
+    expect(sendInput).not.toHaveBeenCalled();
+  });
+
+  it('400 (zod) for blank text, before any screen read or claim', async () => {
+    const { ctx, tabQuestions } = ctxFor(codexRow());
+    await expect(sendTabSuggestion(ctx, 's1', { text: '   ' }, { log: log() })).rejects.toBeInstanceOf(ZodError);
+    expect(captureScreen).not.toHaveBeenCalled();
+    expect(tabQuestions.claimSuggestion).not.toHaveBeenCalled();
   });
 });
 

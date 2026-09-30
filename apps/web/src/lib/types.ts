@@ -1108,8 +1108,8 @@ interface TabQuestionBase {
   /** `'auto'` when the countdown sent the answer; absent from an older server. */
   answered_via?: 'card' | 'auto' | null;
 }
-export type TabQuestionChoice = TabQuestionBase & { kind: 'choice'; payload: { questions: TabQuestionItem[] }; answer: ChoiceAnswer | null };
-export type TabQuestionPermission = TabQuestionBase & { kind: 'permission'; payload: { tool_name: string }; answer: PermissionAnswer | null };
+export type TabQuestionChoice = TabQuestionBase & { kind: 'choice'; payload: { questions: TabQuestionItem[]; agent?: 'codex' }; answer: ChoiceAnswer | null };
+export type TabQuestionPermission = TabQuestionBase & { kind: 'permission'; payload: { tool_name: string; agent?: 'codex'; question?: string }; answer: PermissionAnswer | null };
 /**
  * A question an agent in a tab asked (spec 2026-09-25): shown as a card in the project's chat and
  * answered from there. Plain text only — never render any of it as HTML: it is what an agent wrote.
@@ -1146,6 +1146,8 @@ export interface ChatDecision {
 export interface ChatMemory {
   enabled: boolean;
   autodecide: boolean;
+  /** "Responder perguntas do Codex pelo chat": off by default; independent of embeddings. */
+  codex_replies: boolean;
   available: boolean;
   count: number;
   notes: number;
@@ -1196,7 +1198,7 @@ export interface TabSuggestion {
   tab_name: string | null;
   kind: 'suggestion';
   /** `context`: the agent's message the suggestion answers (TER-96); null or absent when there is none. */
-  payload: { text: string; context?: string | null };
+  payload: { text: string; context?: string | null; agent?: 'codex' };
   status: TabSuggestionStatus;
   answer: { text: string } | null;
   error_code: string | null;

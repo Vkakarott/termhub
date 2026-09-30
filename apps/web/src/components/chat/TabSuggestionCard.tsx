@@ -1,6 +1,6 @@
 import { memo, useState } from 'react';
 import type { TabSuggestion } from '../../lib/types';
-import { CONTEXT_PREVIEW_MAX, SUGGESTION_HINT, lastParagraph, suggestionStatusLabel, suggestionTitle } from './tab-suggestion-text';
+import { CODEX_REPLY_PLACEHOLDER, CONTEXT_PREVIEW_MAX, lastParagraph, suggestionHint, suggestionStatusLabel, suggestionTitle } from './tab-suggestion-text';
 
 export interface TabSuggestionCardProps {
   suggestion: TabSuggestion;
@@ -22,17 +22,23 @@ export const TabSuggestionCard = memo(function TabSuggestionCard({ suggestion, b
   const open = suggestion.status === 'open';
   const trimmed = text.trim();
   const context = suggestion.payload.context?.trim() || null;
+  // A Codex reply card holds no suggested text: it asks the person a question, so it takes an answer, not an edit.
+  const codex = suggestion.payload.agent === 'codex';
   return (
     <li className="rounded-xl border border-line bg-bg-2 px-4 py-3 text-sm">
       <p className="font-medium text-fg">{suggestionTitle(suggestion)}</p>
-      {open && <p className="text-xs text-fg-dim">{SUGGESTION_HINT}</p>}
+      {open && <p className="text-xs text-fg-dim">{suggestionHint(suggestion)}</p>}
       {context && <SuggestionContext text={context} />}
       {open ? (
         <>
-          <label className="mt-2 block text-xs text-fg-dim">
-            Sugestão do Claude Code (opcional — edite ou dispense)
-            <input type="text" className="input mt-1" maxLength={2000} value={text} disabled={busy} onChange={(e) => setText(e.target.value)} />
-          </label>
+          {codex ? (
+            <input type="text" aria-label={CODEX_REPLY_PLACEHOLDER} placeholder={CODEX_REPLY_PLACEHOLDER} className="input mt-2" maxLength={2000} value={text} disabled={busy} onChange={(e) => setText(e.target.value)} />
+          ) : (
+            <label className="mt-2 block text-xs text-fg-dim">
+              Sugestão do Claude Code (opcional — edite ou dispense)
+              <input type="text" className="input mt-1" maxLength={2000} value={text} disabled={busy} onChange={(e) => setText(e.target.value)} />
+            </label>
+          )}
           <div className="mt-2 flex gap-2">
             <button type="button" className="btn-primary" disabled={busy || !trimmed} onClick={() => onSend(trimmed)}>
               Enviar

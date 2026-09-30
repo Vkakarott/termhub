@@ -89,3 +89,24 @@ it('a closed card keeps the message, collapsed, under its old title', () => {
   expect(screen.getByText('Quer que eu faça o commit?')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Ver mensagem inteira' })).toBeInTheDocument();
 });
+
+it('a Codex reply card asks for an answer: empty input, Enviar disabled while blank, then sends it', () => {
+  const onSend = vi.fn();
+  const codex = open({ payload: { text: '', context: 'Fiz o merge.\n\nQuer que eu faça o deploy?', agent: 'codex' } });
+  render(<TabSuggestionCard suggestion={codex} busy={false} onSend={onSend} onDismiss={vi.fn()} />);
+  expect(screen.getByText('«api» terminou — o Codex perguntou:')).toBeInTheDocument();
+  expect(screen.getByText('Responda aqui ou na aba.')).toBeInTheDocument();
+  expect(screen.getByText('Quer que eu faça o deploy?')).toBeInTheDocument();
+  const field = screen.getByPlaceholderText('Sua resposta');
+  expect(field).toHaveValue('');
+  expect(screen.getByRole('button', { name: 'Enviar' })).toBeDisabled();
+  fireEvent.change(field, { target: { value: ' sim ' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+  expect(onSend).toHaveBeenCalledWith('sim');
+});
+
+it('a closed Codex reply card says the tab asked and the person answered', () => {
+  render(<TabSuggestionCard suggestion={open({ status: 'answered', answer: { text: 'sim' }, payload: { text: '', agent: 'codex' } })} busy={false} onSend={vi.fn()} onDismiss={vi.fn()} />);
+  expect(screen.getByText('«api» perguntou; você respondeu:')).toBeInTheDocument();
+  expect(screen.getByText('sim')).toBeInTheDocument();
+});

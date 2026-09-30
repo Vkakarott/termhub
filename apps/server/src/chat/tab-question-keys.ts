@@ -1,5 +1,5 @@
 import type { TmuxKey } from '@termhub/agent-protocol';
-import type { ChoiceAnswer, ChoicePayload, PermissionAnswer } from './tab-question-payload.js';
+import type { ChoiceAnswer, ChoicePayload, PermissionAnswer, PermissionPayload } from './tab-question-payload.js';
 
 /** One thing to do in the tab: press a key from `TMUX_KEYS`, or type text literally (no Enter). */
 export type KeyStep = { key: TmuxKey } | { text: string };
@@ -50,4 +50,39 @@ export function choiceKeyPlan(payload: ChoicePayload, answer: ChoiceAnswer): Key
 export function permissionKeyPlan(answer: PermissionAnswer): KeyStep[] {
   if (answer.allow) return [{ key: '1' }];
   return answer.text === undefined ? [{ key: 'Escape' }] : [{ key: 'Escape' }, { text: answer.text }, { key: 'Enter' }];
+}
+
+/**
+ * The keys that answer Codex's `request_user_input` card (Codex 0.159.2, verified by hand): a digit picks
+ * an option, answers the question and moves on — on the last one it submits everything, so there is no
+ * final key. Free text goes through the last row, "None of the above": Down past the options, Tab opens
+ * its notes row (its own digit does not), then the text and Enter. There is no multi-select.
+ */
+export function codexChoiceKeyPlan(payload: ChoicePayload, answer: ChoiceAnswer): KeyStep[] {
+  const steps: KeyStep[] = [];
+  payload.questions.forEach((q, i) => {
+    const a = answer.answers[i]!;
+    if (a.text !== undefined) {
+      for (let n = 0; n < q.options.length; n++) steps.push({ key: 'Down' });
+      steps.push({ key: 'Tab' }, { text: a.text }, { key: 'Enter' });
+      return;
+    }
+    steps.push({ key: digit(a.selected[0]! + 1) });
+  });
+  return steps;
+}
+
+/** Codex's approval menu: "y" approves; Escape cancels and leaves Codex at its prompt for the text, if any. */
+export function codexPermissionKeyPlan(answer: PermissionAnswer): KeyStep[] {
+  if (answer.allow) return [{ key: 'y' }];
+  return answer.text === undefined ? [{ key: 'Escape' }] : [{ key: 'Escape' }, { text: answer.text }, { key: 'Enter' }];
+}
+
+/** The plan for a card's answer, by the agent whose dialog the card mirrors (`payload.agent`). */
+export function answerKeyPlan(kind: 'choice', payload: ChoicePayload, answer: ChoiceAnswer): KeyStep[];
+export function answerKeyPlan(kind: 'permission', payload: PermissionPayload, answer: PermissionAnswer): KeyStep[];
+export function answerKeyPlan(kind: 'choice' | 'permission', payload: ChoicePayload | PermissionPayload, answer: ChoiceAnswer | PermissionAnswer): KeyStep[] {
+  const codex = payload.agent === 'codex';
+  if (kind === 'choice') return (codex ? codexChoiceKeyPlan : choiceKeyPlan)(payload as ChoicePayload, answer as ChoiceAnswer);
+  return (codex ? codexPermissionKeyPlan : permissionKeyPlan)(answer as PermissionAnswer);
 }

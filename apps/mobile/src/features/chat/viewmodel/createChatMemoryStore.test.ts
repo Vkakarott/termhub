@@ -226,7 +226,7 @@ it("toggling, then a search that completes before the PATCH does, still shows th
   expect(store.getState().memory?.enabled).toBe(true); // unchanged: the toggle has not resolved yet
 
   // Only now does the toggle's own PATCH resolve; the switch must reflect it, not the search's read.
-  resolveToggle({ enabled: false, autodecide: false, available: true, count: 2, notes: 0 });
+  resolveToggle({ enabled: false, autodecide: false, codex_replies: false, available: true, count: 2, notes: 0 });
   await togglePromise;
   expect(store.getState().memory?.enabled).toBe(false);
 });
@@ -247,7 +247,7 @@ it('a search that started before a toggle completed never flips the switch back 
   expect(store.getState().memory?.enabled).toBe(false);
 
   // Only now does the search's stale read arrive: its list applies, its switch value must not.
-  resolveStaleMemory({ enabled: true, autodecide: false, available: true, count: 2, notes: 0 });
+  resolveStaleMemory({ enabled: true, autodecide: false, codex_replies: false, available: true, count: 2, notes: 0 });
   await tick();
   expect(store.getState().memory?.enabled).toBe(false);
   expect(store.getState().decisions).not.toBeNull();
@@ -288,7 +288,7 @@ describe('setAutodecide (concierge memory spec 2026-09-26 §6, D8)', () => {
     expect(store.getState().memory?.autodecide).toBe(true); // optimistic, before the PATCH resolves
     expect(spy).toHaveBeenCalledWith(expect.anything(), { autodecide: true });
 
-    resolveSet({ enabled: true, autodecide: true, available: true, count: 2, notes: 0 });
+    resolveSet({ enabled: true, autodecide: true, codex_replies: false, available: true, count: 2, notes: 0 });
     await p;
     expect(store.getState().memory?.autodecide).toBe(true);
     expect(store.getState().error).toBeNull();

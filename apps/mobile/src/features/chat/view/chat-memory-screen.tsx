@@ -118,6 +118,7 @@ export function ChatMemoryScreen() {
   const loadMore = useChatMemoryStore((s) => s.loadMore);
   const toggle = useChatMemoryStore((s) => s.toggle);
   const setAutodecide = useChatMemoryStore((s) => s.setAutodecide);
+  const setCodexReplies = useChatMemoryStore((s) => s.setCodexReplies);
   const forget = useChatMemoryStore((s) => s.forget);
   const cancel = useChatMemoryStore((s) => s.cancel);
   const notes = useChatMemoryStore((s) => s.notes);
@@ -212,6 +213,18 @@ export function ChatMemoryScreen() {
               </AppText>
             </View>
           </>
+        ) : null}
+        {/* Not tied to embeddings (`available`): the Codex reply card needs no precedent search. */}
+        {memory ? (
+          <View className="gap-1 rounded-xl border border-app-border bg-app-surface2 p-3">
+            <View className="flex-row items-center justify-between gap-3">
+              <AppText className="flex-1">Responder perguntas do Codex pelo chat</AppText>
+              <Switch accessibilityLabel="Responder perguntas do Codex pelo chat" value={memory.codex_replies} onValueChange={(v) => void setCodexReplies(v)} />
+            </View>
+            <AppText variant="muted" className="text-xs">
+              Quando o Codex termina o turno com uma pergunta, abre um card no chat para você responder sem ir até a aba.
+            </AppText>
+          </View>
         ) : null}
         <Field label="Buscar" value={q} onChangeText={search} placeholder="pergunta, resposta ou projeto" testID="chat-memory-search" />
         {error ? <Banner tone="danger" text={error} /> : null}

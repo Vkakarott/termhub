@@ -163,7 +163,7 @@ describe('Memória do chat', () => {
   it('the switch calls setChatMemory(false)', async () => {
     // `mockResolvedValue`, not a call-through spy: a real PATCH would flip the shared mock
     // backend's switch for every test that runs after this one in the file.
-    const spy = jest.spyOn(stores.api, 'setChatMemory').mockResolvedValue({ enabled: false, autodecide: false, available: true, count: 2, notes: 0 });
+    const spy = jest.spyOn(stores.api, 'setChatMemory').mockResolvedValue({ enabled: false, autodecide: false, codex_replies: false, available: true, count: 2, notes: 0 });
     await render(<ChatMemoryScreen />);
     const toggle = await screen.findByRole('switch', { name: 'Sugerir respostas com base nas minhas decisões' }, LOAD);
     await act(async () => fireEvent(toggle, 'valueChange', false));
@@ -175,11 +175,23 @@ describe('Memória do chat', () => {
     await screen.findByText('Usar worktree para essa tarefa?', undefined, LOAD);
     await act(async () => useChatMemoryStore.setState((s) => ({ memory: s.memory ? { ...s.memory, available: false } : s.memory })));
     expect(screen.getByText('Sugestões indisponíveis neste servidor')).toBeTruthy();
-    expect(screen.queryByRole('switch')).toBeNull();
+    expect(screen.queryByRole('switch', { name: 'Sugerir respostas com base nas minhas decisões' })).toBeNull();
+    // The Codex reply card needs no embeddings, so its switch stays.
+    expect(screen.getByRole('switch', { name: 'Responder perguntas do Codex pelo chat' })).toBeTruthy();
+  });
+
+  it('the Codex reply switch is off by default and calls setChatMemory({ codex_replies })', async () => {
+    const spy = jest.spyOn(stores.api, 'setChatMemory').mockResolvedValue({ enabled: true, autodecide: false, codex_replies: true, available: true, count: 2, notes: 0 });
+    await render(<ChatMemoryScreen />);
+    const sw = await screen.findByRole('switch', { name: 'Responder perguntas do Codex pelo chat' }, LOAD);
+    expect(sw.props.value).toBe(false);
+    expect(screen.getByText('Quando o Codex termina o turno com uma pergunta, abre um card no chat para você responder sem ir até a aba.')).toBeTruthy();
+    await act(async () => fireEvent(sw, 'valueChange', true));
+    expect(spy).toHaveBeenCalledWith(expect.anything(), { codex_replies: true });
   });
 
   it('the "Responder sozinho" switch reflects autodecide and calls setAutodecide(true)', async () => {
-    const spy = jest.spyOn(stores.api, 'setChatMemory').mockResolvedValue({ enabled: true, autodecide: true, available: true, count: 2, notes: 0 });
+    const spy = jest.spyOn(stores.api, 'setChatMemory').mockResolvedValue({ enabled: true, autodecide: true, codex_replies: false, available: true, count: 2, notes: 0 });
     await render(<ChatMemoryScreen />);
     const sw = await screen.findByRole('switch', { name: 'Responder sozinho quando houver precedente' }, LOAD);
     expect(sw.props.value).toBe(false);

@@ -41,6 +41,7 @@ export function ChatMemoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
   const [autodeciding, setAutodeciding] = useState(false);
+  const [codexSwitching, setCodexSwitching] = useState(false);
   const [forgettingId, setForgettingId] = useState<string | null>(null);
   // "Anotações do concierge" (spec D12/§8): its own list, independent of the search box above (which
   // only ever filters decisions) — fetched once, not re-read on every keystroke of `q`.
@@ -191,6 +192,24 @@ export function ChatMemoryPage() {
       setError(e instanceof ApiError ? e.message : 'Não foi possível alterar a resposta automática');
     } finally {
       if (mountedRef.current) setAutodeciding(false);
+    }
+  };
+
+  /** "Responder perguntas do Codex pelo chat": its own busy flag, like the autodecide switch. */
+  const toggleCodexReplies = async () => {
+    if (!memory) return;
+    setCodexSwitching(true);
+    setError(null);
+    try {
+      const next = await api.setChatMemory({ codex_replies: !memory.codex_replies });
+      togglesRef.current += 1;
+      if (!mountedRef.current) return;
+      setMemory(next);
+    } catch (e) {
+      if (!mountedRef.current) return;
+      setError(e instanceof ApiError ? e.message : 'Não foi possível alterar as respostas do Codex');
+    } finally {
+      if (mountedRef.current) setCodexSwitching(false);
     }
   };
 
@@ -368,6 +387,27 @@ export function ChatMemoryPage() {
             </div>
           </>
         )
+      )}
+
+      {/* Not tied to embeddings (`available`): the Codex reply card needs no precedent search. */}
+      {memory && (
+        <div className="mt-3 rounded-lg border border-line bg-bg-2 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-fg">Responder perguntas do Codex pelo chat</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={memory.codex_replies}
+              aria-label="Responder perguntas do Codex pelo chat"
+              disabled={codexSwitching}
+              onClick={() => void toggleCodexReplies()}
+              className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${memory.codex_replies ? 'bg-accent' : 'bg-fg-dim/40'}`}
+            >
+              <span className={`absolute left-0 top-0.5 h-4 w-4 rounded-full transition-transform ${memory.codex_replies ? 'translate-x-[18px] bg-white' : 'translate-x-0.5 bg-fg-muted'}`} />
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-fg-dim">Quando o Codex termina o turno com uma pergunta, abre um card no chat para você responder sem ir até a aba.</p>
+        </div>
       )}
 
       <div className="mt-4">

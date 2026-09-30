@@ -202,13 +202,14 @@ export const tabQuestionSchema = z.discriminatedUnion('kind', [
   z.object({
     ...tabQuestionCommon,
     kind: z.literal('choice'),
-    payload: z.object({ questions: z.array(tabQuestionItem) }),
+    // `agent`: 'codex' when the question came from Codex; a plain string so a value a newer server adds parses.
+    payload: z.object({ questions: z.array(tabQuestionItem), agent: z.string().optional() }),
     answer: z.object({ answers: z.array(z.object({ selected: z.array(z.number().int()), text: z.string().optional() })) }).nullable(),
   }),
   z.object({
     ...tabQuestionCommon,
     kind: z.literal('permission'),
-    payload: z.object({ tool_name: z.string() }),
+    payload: z.object({ tool_name: z.string(), agent: z.string().optional(), question: z.string().optional() }),
     answer: z.object({ allow: z.boolean(), text: z.string().optional() }).nullable(),
   }),
 ]);
@@ -224,7 +225,7 @@ export const tabSuggestionSchema = z.object({
   kind: z.literal('suggestion'),
   // `context`: the agent's message the suggestion answers (spec 2026-09-26 §6.3). Optional: a server before
   // TER-96 sends none; an app before it strips it (a plain z.object).
-  payload: z.object({ text: z.string(), context: z.string().nullable().optional() }),
+  payload: z.object({ text: z.string(), context: z.string().nullable().optional(), agent: z.string().optional() }),
   status: tabSuggestionStatus,
   answer: z.object({ text: z.string() }).nullable(),
   error_code: z.string().nullable(),
