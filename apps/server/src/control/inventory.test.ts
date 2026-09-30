@@ -11,6 +11,7 @@ vi.mock('../config.js', () => ({ config: { publicUrl: 'https://app.test' } }));
 
 import { agents } from '../agent/registry.js';
 import type { Repositories } from '../db/repositories/index.js';
+import type { ProjectGroup } from '../db/repositories/project-groups.js';
 import type { AiAccount, Machine, Project, Tab } from '../db/repositories/types.js';
 import { listTmuxSessions } from '../terminal/machine-exec.js';
 import { Scoped } from '../auth/scope.js';
@@ -43,6 +44,12 @@ const projects = [
 ];
 const links = [l('p1', 'm1'), l('p2', 'm2'), l('p3', 'm1'), l('px', 'mx')];
 const tabs = [tab({ id: 't1', project_id: 'p1', state: 'waiting_input', state_text: 'Posso seguir?', state_at: '2026-09-19T10:00:00.000Z' }), tab({ id: 't2', project_id: 'p1' }), tab({ id: 'ts', project_id: 'p1', kind: 'simulator', tmux_session: null })];
+const groups: ProjectGroup[] = [
+  { id: 'gf', name: 'Favoritos', kind: 'favorites', position: 0, project_ids: ['p2'] },
+  { id: 'g1', name: 'Comunidade', kind: 'custom', position: 1, project_ids: ['p1', 'p3', 'px'] },
+  { id: 'g2', name: 'Pessoal', kind: 'custom', position: 2, project_ids: ['p2'] },
+  { id: 'g3', name: 'pessoal', kind: 'custom', position: 3, project_ids: ['p1'] },
+];
 const accounts = [account({ id: 'a1', label: 'pedrogoiania', machine_id: 'm1' }), account({ id: 'ax', label: 'pedrogoiania', machine_id: 'mx' })];
 
 function ctx(grants: string[] = ['machines:read', 'projects:read', 'terminals:read', 'ai_accounts:read']): ControlContext {
@@ -68,6 +75,7 @@ function ctx(grants: string[] = ['machines:read', 'projects:read', 'terminals:re
       listByProjectsOnMachine: vi.fn(async (pids: string[], mid: string) => tabs.filter((t) => pids.includes(t.project_id) && t.machine_id === mid)),
       findById: vi.fn(async (id: string) => tabs.find((t) => t.id === id)),
     },
+    projectGroups: { read: vi.fn(async (userId: string) => (userId === 'u1' ? groups : [])) },
     aiAccounts: { list: vi.fn(async (owner: string | null) => accounts.filter((a) => owner === null || machines.find((m) => m.id === a.machine_id)!.owner_id === owner)) },
     tasks: {
       listByProject: vi.fn(async (pid: string) => (pid === 'p1' ? [{ id: 'k1', title: 'XPTO', status: 'doing', tab_id: 't1', subtasks: [] }] : [])),
@@ -152,6 +160,55 @@ describe('listProjects', () => {
   it('filters by a machine of the owner and refuses a foreign one', async () => {
     expect((await listProjects(ctx(), { machine_id: 'm1' })).projects.map((p) => p.id)).toEqual(['p1']);
     await expect(listProjects(ctx(), { machine_id: 'mx' })).rejects.toThrow('Máquina não encontrada');
+  });
+});
+
+describe('listProjects and the groups', () => {
+  it('carries the groups of each project and whether it is a favourite', async () => {
+    const { projects } = await listProjects(ctx(), {});
+    const byId = Object.fromEntries(projects.map((p) => [p.id, p]));
+    expect(byId.p1.groups).toEqual([{ id: 'g1', name: 'Comunidade' }, { id: 'g3', name: 'pessoal' }]);
+    expect(byId.p1.favorite).toBe(false);
+    expect(byId.p2.groups).toEqual([{ id: 'g2', name: 'Pessoal' }]);
+    expect(byId.p2.favorite).toBe(true);
+  });
+
+  it('an archived project keeps its groups when it is asked for', async () => {
+    const { projects } = await listProjects(ctx(), { include_archived: true });
+    expect(projects.find((p) => p.id === 'p3')!.groups).toEqual([{ id: 'g1', name: 'Comunidade' }]);
+  });
+
+  it('keeps only the projects of a group, by id', async () => {
+    expect((await listProjects(ctx(), { group: 'g1' })).projects.map((p) => p.id)).toEqual(['p1']);
+  });
+
+  it('matches a group by name without case or accents, and two groups of one name both count', async () => {
+    expect((await listProjects(ctx(), { group: 'COMUNIDADE' })).projects.map((p) => p.id)).toEqual(['p1']);
+    expect((await listProjects(ctx(), { group: 'pessoal' })).projects.map((p) => p.id).sort()).toEqual(['p1', 'p2']);
+  });
+
+  it('refuses a group that does not exist, Favoritos included', async () => {
+    await expect(listProjects(ctx(), { group: 'Triunfo' })).rejects.toMatchObject({ code: 'GROUP_NOT_FOUND', message: 'Grupo não encontrado' });
+    await expect(listProjects(ctx(), { group: 'Favoritos' })).rejects.toMatchObject({ code: 'GROUP_NOT_FOUND' });
+    await expect(listProjects(ctx(), { group: 'gf' })).rejects.toMatchObject({ code: 'GROUP_NOT_FOUND' });
+  });
+
+  it('answers the projects without groups when the groups cannot be read, and logs no name', async () => {
+    const c = ctx();
+    const log = { info: vi.fn(), warn: vi.fn() };
+    c.log = log;
+    vi.mocked(c.repos.projectGroups.read).mockRejectedValueOnce(Object.assign(new Error('Comunidade is down'), { code: 'P1001' }));
+    const { projects } = await listProjects(c, {});
+    expect(projects.map((p) => [p.id, p.groups, p.favorite])).toEqual([['p1', [], false], ['p2', [], false]]);
+    expect(log.warn).toHaveBeenCalledWith({ user_id: 'u1', code: 'P1001' }, 'list_projects: project groups unavailable');
+    expect(JSON.stringify(log.warn.mock.calls)).not.toContain('Comunidade');
+  });
+
+  it('refuses a group filter when the groups cannot be read, never as GROUP_NOT_FOUND', async () => {
+    const c = ctx();
+    c.log = { info: vi.fn(), warn: vi.fn() };
+    vi.mocked(c.repos.projectGroups.read).mockRejectedValueOnce(new Error('down'));
+    await expect(listProjects(c, { group: 'g1' })).rejects.toMatchObject({ code: 'GROUPS_UNAVAILABLE', message: 'Não foi possível ler os grupos' });
   });
 });
 
@@ -244,5 +301,49 @@ describe('find', () => {
     ]);
     // no tickets:read grant: no ticket match, even asking for it explicitly
     expect((await find(ctx(), { query: 'EI-5', kinds: ['ticket'] })).matches).toEqual([]);
+  });
+});
+
+describe('find and the groups', () => {
+  it('resolves a group by name, among the default kinds', async () => {
+    const { matches } = await find(ctx(), { query: 'comunidade' });
+    expect(matches).toContainEqual({ kind: 'group', id: 'g1', name: 'Comunidade', machine_id: null, machine_name: null, score: 3 });
+  });
+
+  it('only groups when asked for groups, and never Favoritos', async () => {
+    expect((await find(ctx(), { query: 'pessoal', kinds: ['group'] })).matches.map((m) => m.id).sort()).toEqual(['g2', 'g3']);
+    expect((await find(ctx(), { query: 'favoritos', kinds: ['group'] })).matches).toEqual([]);
+  });
+
+  it('needs the grant to read projects, and reads no project without it', async () => {
+    const c = ctx(['machines:read']);
+    expect((await find(c, { query: 'comunidade' })).matches.filter((m) => m.kind === 'group')).toEqual([]);
+    expect(c.repos.projects.list).not.toHaveBeenCalled();
+    expect(c.repos.projectGroups.read).not.toHaveBeenCalled();
+  });
+
+  it('still answers the rest when the groups cannot be read, and logs no name', async () => {
+    const c = ctx();
+    const log = { info: vi.fn(), warn: vi.fn() };
+    c.log = log;
+    const err = Object.assign(new Error('Comunidade is down'), { code: 'P1001' });
+    vi.mocked(c.repos.projectGroups.read).mockRejectedValueOnce(err);
+    const { matches } = await find(c, { query: 'macbook' });
+    expect(matches.map((m) => m.kind)).toContain('machine');
+    expect(log.warn).toHaveBeenCalledWith({ user_id: 'u1', code: 'P1001' }, 'find: project groups unavailable');
+    expect(JSON.stringify(log.warn.mock.calls)).not.toContain('Comunidade');
+  });
+
+  it('logs to the console, by the error class, when the context has no logger', async () => {
+    const c = ctx();
+    vi.mocked(c.repos.projectGroups.read).mockRejectedValueOnce(new TypeError('Comunidade'));
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect((await find(c, { query: 'macbook' })).matches.map((m) => m.kind)).toContain('machine');
+      expect(spy).toHaveBeenCalledWith({ user_id: 'u1', code: 'TypeError' }, 'find: project groups unavailable');
+      expect(JSON.stringify(spy.mock.calls)).not.toContain('Comunidade');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

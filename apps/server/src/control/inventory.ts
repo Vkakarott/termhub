@@ -1,9 +1,11 @@
+import type { FastifyBaseLogger } from 'fastify';
 import { agents } from '../agent/registry.js';
 import type { Machine, MachineType, Tab, TabKind, TabState } from '../db/repositories/types.js';
 import { listTmuxSessions } from '../terminal/machine-exec.js';
 import { parseRef } from '../db/repositories/task-rules.js';
 import { HttpError } from '../lib/errors.js';
 import { ControlError, type ControlContext } from './context.js';
+import { groupsOf, type GroupView } from './groups.js';
 import { cardsOf, resolveTickets } from './tickets.js';
 
 export interface MachineSummary {
@@ -37,19 +39,61 @@ async function machineNames(ctx: ControlContext): Promise<Map<string, string>> {
   return new Map((await ctx.repos.machines.list(ctx.scope.ownerId)).map((m) => [m.id, m.name]));
 }
 
-export async function listProjects(ctx: ControlContext, input: { machine_id?: string; include_archived?: boolean }) {
+/** The label a failure is logged by: its code when it has one, else its class. Never its message, which
+ *  may carry the person's content (the same rule as `failureLabel` of the chat service, not imported here
+ *  so that the control layer does not pull the chat service in). */
+const failureCode = (err: unknown): string => {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (typeof code === 'string' && code.length > 0) return code;
+  return err instanceof Error ? err.name : typeof err;
+};
+
+/** Logs a failed read of the groups by its label, never by a name. `console` only for a context built
+ *  without the request's logger (a script, a test). */
+function groupsUnavailable(ctx: ControlContext, where: string, err: unknown): void {
+  const log: Pick<FastifyBaseLogger, 'warn'> = ctx.log ?? console;
+  log.warn({ user_id: ctx.scope.user.id, code: failureCode(err) }, `${where}: project groups unavailable`);
+}
+
+/** The groups `wanted` names: by id first, then by name without case or accents (two groups of one
+ *  name both count). None is a refusal: an empty list would read as "the group has no projects". */
+function groupsNamed(groups: GroupView[], wanted: string): GroupView[] {
+  const byId = groups.filter((g) => g.id === wanted);
+  if (byId.length) return byId;
+  const name = normalizeName(wanted);
+  const byName = groups.filter((g) => normalizeName(g.name) === name);
+  if (!byName.length) throw new ControlError('GROUP_NOT_FOUND', 'Grupo não encontrado');
+  return byName;
+}
+
+export async function listProjects(ctx: ControlContext, input: { machine_id?: string; include_archived?: boolean; group?: string }) {
   if (input.machine_id) await ctx.scoped.machine(input.machine_id);
   const [projects, names] = await Promise.all([ctx.repos.projects.list({ machine_id: input.machine_id, owner: ctx.scope.ownerId }), machineNames(ctx)]);
+  // Over the projects just listed, archived ones too: `include_archived` decides below, as for every
+  // other project, and a member outside this list is not shown anyway. A failed read costs the groups,
+  // not the list; but a group filter cannot be answered without them, and "no such group" would be a lie.
+  let groups: GroupView[] = [];
+  let favorites = new Set<string>();
+  try {
+    ({ groups, favorites } = await groupsOf(ctx, { archived: true, projects }));
+  } catch (err) {
+    if (input.group !== undefined) throw new ControlError('GROUPS_UNAVAILABLE', 'Não foi possível ler os grupos');
+    groupsUnavailable(ctx, 'list_projects', err);
+  }
+  const only = input.group === undefined ? null : new Set(groupsNamed(groups, input.group).flatMap((g) => g.projects.map((p) => p.id)));
   const links = await ctx.repos.projectMachines.listByProjects(projects.map((p) => p.id));
   return {
     projects: projects
-      .filter((p) => input.include_archived || p.status !== 'archived')
+      .filter((p) => (input.include_archived || p.status !== 'archived') && (only === null || only.has(p.id)))
       .map((p) => ({
         id: p.id,
         key: p.key,
         name: p.name,
         status: p.status,
         description: p.description,
+        // The person's own sidebar groups (spec 2026-09-30); Favoritos is a pin, not a group.
+        groups: groups.filter((g) => g.projects.some((m) => m.id === p.id)).map((g) => ({ id: g.id, name: g.name })),
+        favorite: favorites.has(p.id),
         machines: links.filter((l) => l.project_id === p.id).map((l) => ({ machine_id: l.machine_id, machine_name: names.get(l.machine_id) ?? null, cwd: l.cwd })),
       })),
   };
@@ -129,7 +173,7 @@ function score(name: string, query: string): number {
   return words.every((w) => n.includes(w)) ? 1 : 0;
 }
 
-export type FindKind = 'machine' | 'project' | 'ai_account' | 'task' | 'ticket';
+export type FindKind = 'machine' | 'project' | 'ai_account' | 'task' | 'ticket' | 'group';
 export interface FindMatch {
   kind: FindKind;
   id: string;
@@ -145,12 +189,13 @@ export interface FindMatch {
 
 const FIND_LIMIT = 10;
 
-/** Resolves names ("MacBook Pro M4", "Hub Community", "pedrogoiania") and card refs ("TER-12") to ids in one call, within the owner's data. */
+/** Resolves names ("MacBook Pro M4", "Hub Community", "pedrogoiania") and card refs ("TER-12") to ids in one call, within the owner's data,
+ *  and the person's own project groups ("Triunfo"). */
 export async function find(ctx: ControlContext, input: { query: string; kinds?: FindKind[] }): Promise<{ matches: FindMatch[] }> {
   const query = normalizeName(input.query);
   if (!query) throw new ControlError('BAD_REQUEST', 'Informe o que procurar');
   // tickets are opt-in: a machine named like a key must not drown in tickets
-  const kinds = new Set<FindKind>(input.kinds?.length ? input.kinds : ['machine', 'project', 'ai_account', 'task']);
+  const kinds = new Set<FindKind>(input.kinds?.length ? input.kinds : ['machine', 'project', 'ai_account', 'task', 'group']);
   const [canMachines, canProjects, canAccounts, canTasks, canTickets] = await Promise.all([
     ctx.can('machines', 'read'),
     ctx.can('projects', 'read'),
@@ -166,7 +211,18 @@ export async function find(ctx: ControlContext, input: { query: string; kinds?: 
     if (s > 0) matches.push({ kind, id, name, machine_id: machineId, machine_name: machineId ? (names.get(machineId) ?? null) : null, score: s });
   };
   if (kinds.has('machine') && canMachines) for (const m of machines) add('machine', m.id, m.name, null);
-  if (kinds.has('project') && canProjects) for (const p of await ctx.repos.projects.list({ owner: ctx.scope.ownerId })) add('project', p.id, p.name, null, p.key);
+  // Read once, only with the grant: the projects and the groups both need it.
+  const projects = canProjects && (kinds.has('project') || kinds.has('group')) ? await ctx.repos.projects.list({ owner: ctx.scope.ownerId }) : [];
+  if (kinds.has('project') && canProjects) for (const p of projects) add('project', p.id, p.name, null, p.key);
+  // The person's own sidebar groups, by name. A failed read costs the groups, never the lookup: a
+  // machine asked for by name must still resolve. Logged by its label, never by a name.
+  if (kinds.has('group') && canProjects) {
+    try {
+      for (const g of (await groupsOf(ctx, { projects })).groups) add('group', g.id, g.name, null);
+    } catch (err) {
+      groupsUnavailable(ctx, 'find', err);
+    }
+  }
   if (kinds.has('ai_account') && canAccounts) for (const a of await ctx.repos.aiAccounts.list(ctx.scope.ownerId)) add('ai_account', a.id, a.label, a.machine_id);
   // A card only by its exact ref ("TER-12"): titles are not names. Another owner's card is simply no match.
   if (kinds.has('task') && canTasks && parseRef(input.query)) {

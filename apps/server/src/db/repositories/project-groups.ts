@@ -45,10 +45,16 @@ export class ProjectGroupsRepository {
     }
   }
 
-  async list(userId: string): Promise<ProjectGroup[]> {
-    await this.ensureFavorites(userId);
+  /** The user's groups in sidebar order, Favoritos included when its row exists. Never writes: what a
+   *  tool call or a prompt reads (`list` creates Favoritos on first use, which the sidebar wants). */
+  async read(userId: string): Promise<ProjectGroup[]> {
     const rows = await this.db.projectGroup.findMany({ where: { userId }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], include: INCLUDE });
     return rows.map(view);
+  }
+
+  async list(userId: string): Promise<ProjectGroup[]> {
+    await this.ensureFavorites(userId);
+    return this.read(userId);
   }
 
   private async own(userId: string, groupId: string, db: Pick<PrismaClient, 'projectGroup'> = this.db): Promise<Row> {
