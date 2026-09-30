@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api, ApiError } from '../lib/api';
 import { useData } from '../lib/data';
 import { machineLabel } from '../lib/machine-labels';
+import { ProjectAiCard } from './ProjectAiCard';
 import {
   APPROVAL_LABEL,
   PROVIDER_LABEL,
@@ -290,15 +291,12 @@ export function SetupForm({ project }: Props) {
         </Check>
       </Card>
 
+      <ProjectAiCard project={project} />
+
       <Card title="Agente" hint="Como o Claude Code é iniciado na tab da run.">
-        <div className="grid grid-cols-2 gap-3">
-          <Row label="Comando">
-            <input className="input font-mono" value={data.agent.command} onChange={(e) => patch('agent', { ...data.agent, command: e.target.value })} />
-          </Row>
-          <Row label="Modelo" hint="vazio = padrão">
-            <input className="input font-mono" value={data.agent.model ?? ''} onChange={(e) => patch('agent', { ...data.agent, model: e.target.value || null })} placeholder="opus" />
-          </Row>
-        </div>
+        <Row label="Comando">
+          <input className="input font-mono" value={data.agent.command} onChange={(e) => patch('agent', { ...data.agent, command: e.target.value })} />
+        </Row>
         <Row label="Plugins/skills exigidos" hint="separados por vírgula">
           <input
             className="input font-mono"
