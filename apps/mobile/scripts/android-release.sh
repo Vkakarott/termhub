@@ -39,7 +39,8 @@ mkdir -p "$OUT_DIR"
 npm run build:contract
 npx expo prebuild --platform android --clean
 
-(cd android && ./gradlew assembleRelease --console=plain)
+# The template's daemon limits (2 GB heap, 512 MB metaspace) run out during the release lint.
+(cd android && ./gradlew assembleRelease --console=plain -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g")
 cp android/app/build/outputs/apk/release/app-release.apk "$APK"
 echo "Built $APK"
 
