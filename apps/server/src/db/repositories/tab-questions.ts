@@ -252,6 +252,8 @@ export class TabQuestionsRepository {
         const marked = await tx.tabQuestion.findMany({ where: { tabId, errorCode: PERMISSION_QUEUED }, select: { id: true, queueAgents: true } });
         for (const row of marked) {
           const left = row.queueAgents.filter((a) => a !== queueKey(scope.agent));
+          // Not a member: nothing to write (a mark of the previous release, with no list, still ends here).
+          if (row.queueAgents.length > 0 && left.length === row.queueAgents.length) continue;
           await tx.tabQuestion.update({ where: { id: row.id }, data: left.length === 0 ? { errorCode: null, queueAgents: [] } : { queueAgents: left } });
         }
       }
