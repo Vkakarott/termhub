@@ -2133,6 +2133,8 @@ describe('a chat that never blocks', () => {
     off();
     expect(lr.runs).toHaveLength(1);
     expect(events.filter((e) => e.type === 'run_started')).toEqual([{ type: 'run_started', user_id: 'u1', conversation_id: 'c1', message_id: late.assistant_message_id }]);
+    // Announced after its own row's `message` (spec §4 order), never before.
+    expect(eventsOf(events, late.assistant_message_id).map((e) => e.type)).toEqual(['message', 'run_started']);
 
     run.end();
     const next = await runAt(lr, 1);

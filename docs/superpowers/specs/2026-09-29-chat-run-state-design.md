@@ -179,7 +179,10 @@ only the screen, or the phone's slot, of its `conversation_id` re-reads and show
 - `lib/chat-merge.ts`: `mergeThread(current, server, removed, arrived)` applies the four rules, where
   `arrived` is the set of ids whose `message` event reached the panel while the read was in flight.
   `ChatPanel.load` uses it when the conversation is the one on screen, replaces the list and clears the
-  fold otherwise, then seeds.
+  fold otherwise, then seeds. The first read keeps the fold, it is not cleared then: it holds only
+  what that same conversation streamed before the read, replayed from the held events.
+  A re-read of the same conversation also closes the rows the snapshot shows answered and lets go of
+  what streamed for them, as the phone's `pruneLive` does.
 - Events held before the panel knows its conversation are replayed through the same path as live
   ones, so a held final `message` or `message_removed` also reaches the thread, not only the fold.
 - `answering` is true while sending, or while any listed message is an assistant row with no text, no
@@ -247,6 +250,8 @@ shows as failed.
 |---|---|---|
 | The edge cuts a request at about 100 s | Problem 1. The change is right whatever the limit is. | Approve an action whose answer takes longer than two minutes, in production, and watch the card. |
 | A row this instance owns in `chat_live_runs` with no process in memory | Between a claim and `runLive`, a row in `orphans`, a row whose final delete failed. It is not listed. | The row shows as failed until the `run_started` that `add` publishes. An orphan waits for the next sweep (30 s). |
+| A released row whose host does not come back | Listed as open until `giveUp`, up to `RESUME_WINDOW_MS` (15 min): the web shows "pensando…" and disables "Nova conversa", although nothing is being written. | Correct by the rule "a released or stale row is listed". Rare: the agent has to fail to come back after a deploy. The server itself accepts a reset meanwhile. |
+| A one-shot run lost to a crash | `finishRun` announced the row, and a crash, an OOM or a drain that times out leaves it with no final text. One-shot rows are not resumed (section 7), and a re-read does not clear a started mark. A page that stays open shows "pensando…" for good, and, since `answering` reads every row, "Nova conversa" and "Compactar" stay disabled even after later turns are answered. | Only hosts whose agent lacks stream input, and only on a crash. A reload fixes it. No code change for now. |
 | A page loaded before the deploy | It keeps the old fold: after a retry it shows the row as failed until the next delta, and it ignores the new events. | Harmless, and gone on reload. |
 
 ## 9. What the review of the first version changed

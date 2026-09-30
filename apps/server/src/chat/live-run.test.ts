@@ -368,9 +368,15 @@ it('restart puts a merged turn back in order, with a new answer row', async () =
   s.push(JSON.stringify({ type: 'termhub_error', code: 1, reason: 'missing_session' }));
   s.end();
   expect((await consumed).missingSession).toBe(true);
+  const before = h.events.length;
   await h.live.restart();
   expect(h.live.initialText().trim().split('\n').map((l) => JSON.parse(l).uuid)).toEqual([U1, U2]);
   expect(h.rows.some((r) => r.id === a.t.answer.id)).toBe(true);
+  // The merged turn (`a`, folded into `b`'s answer) has a new row: its `message`, then the reset,
+  // then the announcement (spec §4 order).
+  const row = a.t.answer.id;
+  const ofRow = h.events.slice(before).filter((e) => (e.type === 'message' && e.message.id === row) || ((e.type === 'reset' || e.type === 'run_started') && e.message_id === row));
+  expect(ofRow.map((e) => e.type)).toEqual(['message', 'reset', 'run_started']);
 });
 
 it('abandon rejects a merged turn too', async () => {
@@ -896,6 +902,8 @@ it('a row restart could not remove strands nobody: the waiting turns wait again 
   expect(h.live.storedTurns().map((t) => t.answer_id)).toEqual([b.t.answer.id]);
   expect(h.events.slice(before).some((e) => e.type === 'message_removed')).toBe(false);
   expect(h.rows.some((r) => r.id === own.id)).toBe(true);
+  // The fresh session still goes in: a failed removal does not leave the dead session behind.
+  expect(h.chat.setCliSession).toHaveBeenCalledWith('c1', null);
 });
 
 it('lists the answers it still owes: the one being written, then the waiting ones', async () => {
