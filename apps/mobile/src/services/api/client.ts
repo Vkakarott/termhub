@@ -296,7 +296,7 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
     },
     forgetChatDecision: (a: Auth, id: string) => empty('DELETE', `/api/m/v1/chat/decisions/${encodeURIComponent(id)}`, { token: a.accessToken }),
     chatMemory: (a: Auth) => call('GET', '/api/m/v1/chat/memory', chatMemoryResponse, { token: a.accessToken }),
-    setChatMemory: (a: Auth, body: boolean | { enabled?: boolean; autodecide?: boolean }) =>
+    setChatMemory: (a: Auth, body: boolean | { enabled?: boolean; autodecide?: boolean; codex_replies?: boolean }) =>
       call('PATCH', '/api/m/v1/chat/memory', chatMemoryResponse, { token: a.accessToken, body: typeof body === 'boolean' ? { enabled: body } : body }),
     chatNotes: (a: Auth, cursor) => {
       const params = new URLSearchParams();

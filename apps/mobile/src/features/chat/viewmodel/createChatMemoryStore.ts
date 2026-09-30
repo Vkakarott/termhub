@@ -81,6 +81,8 @@ export interface ChatMemoryState {
    * the switch back and shows "Não foi possível alterar a configuração". Ignored while another call
    * to it is in flight (the memory it would roll back to would be the wrong one). */
   setAutodecide(next: boolean): Promise<void>;
+  /** "Responder perguntas do Codex pelo chat": the same optimistic flip and rollback as `setAutodecide`, its own in-flight guard. */
+  setCodexReplies(next: boolean): Promise<void>;
   /** "Esquecer": the same hard delete as a card's "Esquecer esta decisão". */
   forget(id: string): Promise<void>;
   /** "Anotações do concierge": the first page — call once when the screen mounts, alongside `load()`. */
@@ -166,6 +168,7 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
    * capture a `previous` memory to roll back to that is itself unconfirmed. Not reactive state — the
    * switch already shows the optimistic value the instant the first call sets it. */
   let settingAutodecide = false;
+  let settingCodexReplies = false;
   /** "Lições"'s own request-generation counter and debounce timer — kept apart from `gen`/`timer`
    * above (decisions' own), same reasoning as `ChatMemoryPage`'s `lessonsGenRef` next to `genRef`:
    * a slow, superseded lessons search must never clobber a newer one, and neither list's search
@@ -289,6 +292,23 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
           if (!session().handleApiError(e)) set({ error: isApiError(e) ? e.message : 'Não foi possível alterar a configuração' });
         } finally {
           settingAutodecide = false;
+        }
+      },
+
+      async setCodexReplies(next) {
+        const previous = get().memory;
+        if (!previous || settingCodexReplies) return;
+        settingCodexReplies = true;
+        set({ memory: { ...previous, codex_replies: next }, error: null }); // optimistic
+        try {
+          const updated = await api.setChatMemory(session().auth(), { codex_replies: next });
+          toggles++;
+          set({ memory: updated });
+        } catch (e) {
+          set({ memory: previous }); // rollback
+          if (!session().handleApiError(e)) set({ error: isApiError(e) ? e.message : 'Não foi possível alterar a configuração' });
+        } finally {
+          settingCodexReplies = false;
         }
       },
 

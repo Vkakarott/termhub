@@ -165,11 +165,12 @@ export const decisionsResponse = z.object({ decisions: z.array(decisionViewSchem
  * (spec D8), whether embeddings are configured on this server at all (`available: false` hides both
  * switches rather than offering ones that can never do anything), how many decisions are remembered,
  * and how many concierge notes (spec D12) are. */
-export const chatMemoryResponse = z.object({ enabled: z.boolean(), autodecide: z.boolean(), available: z.boolean(), count: z.number().int(), notes: z.number().int() });
-/** At least one of the two switches, never neither — an empty body is refused rather than a silent no-op. */
+export const chatMemoryResponse = z.object({ enabled: z.boolean(), autodecide: z.boolean(), codex_replies: z.boolean().default(false), available: z.boolean(), count: z.number().int(), notes: z.number().int() });
+/** At least one of the switches, never none — an empty body is refused rather than a silent no-op.
+ * `codex_replies` is "Responder perguntas do Codex pelo chat" (off by default). */
 export const chatMemoryPatchBody = z
-  .object({ enabled: z.boolean().optional(), autodecide: z.boolean().optional() })
-  .refine((b) => b.enabled !== undefined || b.autodecide !== undefined, { message: 'Informe enabled ou autodecide' });
+  .object({ enabled: z.boolean().optional(), autodecide: z.boolean().optional(), codex_replies: z.boolean().optional() })
+  .refine((b) => b.enabled !== undefined || b.autodecide !== undefined || b.codex_replies !== undefined, { message: 'Informe enabled, autodecide ou codex_replies' });
 
 /** "Anotações do concierge" (spec D12/§8): one `record_decision` note, as the list shows it —
  * `question` is the note's title; `decision`/`reason` are parsed back out of the stored text's
