@@ -206,6 +206,48 @@ describe('confirmation: subagent origin (spec 2026-09-26 §4)', () => {
   });
 });
 
+describe('pending cards at hand (spec 2026-09-30 TER-477)', () => {
+  const later = '2026-09-24T13:00:00.000Z';
+  const confirmation = (extra: Partial<Extract<ChatEvent, { type: 'confirmation' }>> = {}): ChatEvent => ({ type: 'confirmation', ...base, action_id: 'a1', tool: 't', args: {}, class: 'write', machine_id: null, project_id: null, tab_id: null, summary: 's', created_at: at, ...extra });
+
+  it('a fresh confirmation carries its surfaced_at to the card', () => {
+    expect(applyEvent(empty, confirmation({ surfaced_at: later })).actions[0]?.surfaced_at).toBe(later);
+  });
+
+  it('a confirmation for a card on screen brings it back: surfaced_at merged, status and subagent kept', () => {
+    const sub = { id: 'sub1', description: 'Buscar CI' };
+    const once = applyEvent(empty, confirmation({ subagent: sub }));
+    const back = applyEvent(once, confirmation({ surfaced_at: later, resurfaced: true }));
+    expect(back.actions).toEqual([{ ...action('a1'), subagent: sub, surfaced_at: later }]);
+    // The same surfaced_at again changes nothing.
+    expect(applyEvent(back, confirmation({ surfaced_at: later, resurfaced: true }))).toBe(back);
+  });
+
+  it('merges both a later subagent and a surfaced_at from one confirmation', () => {
+    const once = applyEvent(empty, confirmation());
+    const sub = { id: 'sub1', description: 'Buscar CI' };
+    expect(applyEvent(once, confirmation({ subagent: sub, surfaced_at: later })).actions).toEqual([{ ...action('a1'), subagent: sub, surfaced_at: later }]);
+  });
+
+  it('action_status moves the card to its status with the error code; an unknown id changes nothing', () => {
+    const slice: EventSlice = { ...empty, actions: [action('a1'), action('a2')] };
+    const failed = applyEvent(slice, { type: 'action_status', ...base, action_id: 'a1', status: 'failed', error_code: 'TAB_GONE' });
+    expect(failed.actions).toEqual([{ ...action('a1', 'failed'), error_code: 'TAB_GONE' }, action('a2')]);
+    expect(failed.actions[1]).toBe(slice.actions[1]);
+    const expired = applyEvent(slice, { type: 'action_status', ...base, action_id: 'a2', status: 'expired', error_code: null });
+    expect(expired.actions[1]).toEqual({ ...action('a2', 'expired'), error_code: null });
+    expect(applyEvent(slice, { type: 'action_status', ...base, action_id: 'zz', status: 'executed', error_code: null })).toBe(slice);
+    expect(applyEvent(failed, { type: 'action_status', ...base, action_id: 'a1', status: 'failed', error_code: 'TAB_GONE' })).toBe(failed);
+  });
+
+  it('a resurfaced tab question replaces the row, now with surfaced_at', () => {
+    const q = { id: 'q1', tab_id: 't1', tab_name: 'api', status: 'open', error_code: null, created_at: at, answered_at: null, closed_at: null, kind: 'permission', payload: { tool_name: 'Bash' }, answer: null } as TabQuestion;
+    const slice: EventSlice = { ...empty, tabQuestions: [q] };
+    const back = applyEvent(slice, { type: 'tab_question', ...base, question: { ...q, surfaced_at: later }, resurfaced: true });
+    expect(back.tabQuestions).toEqual([{ ...q, surfaced_at: later }]);
+  });
+});
+
 describe('subagents panel (spec 2026-09-26 panel §4/§5.4)', () => {
   it('a subagent event upserts the row by id', () => {
     const started = applyEvent(empty, { type: 'subagent', ...base, subagent: subagent({ id: 's1' }) });

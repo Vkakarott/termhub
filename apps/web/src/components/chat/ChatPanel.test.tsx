@@ -1477,3 +1477,64 @@ describe('which answers are being written (spec 2026-09-29 §5)', () => {
     expect(screen.queryByText(FAILED)).toBeNull();
   });
 });
+
+describe('pending cards at hand (TER-477)', () => {
+  const T = (m: number) => new Date(Date.parse('2026-09-30T00:00:00.000Z') + m * 60_000).toISOString();
+  let onEvent!: (e: unknown) => void;
+  beforeEach(() => {
+    streamMock.mockImplementation((_reload: unknown, cb: (e: unknown) => void) => {
+      onEvent = cb;
+      return { connected: true };
+    });
+  });
+  const mount = (actions: ChatAction[], messages: ChatMessage[] = []) => {
+    chatMock.mockResolvedValue({ conversation: { id: 'c1', ai_account_id: null }, messages, actions, host: READY });
+    return render(
+      <MemoryRouter>
+        <ChatPanel projectId={null} />
+      </MemoryRouter>,
+    );
+  };
+
+  it('an action_status event turns a pending card stale, live; an unknown id or another conversation changes nothing', async () => {
+    mount([action({ id: 'a1' })]);
+    await screen.findByRole('button', { name: 'Autorizar' });
+    act(() => onEvent({ type: 'action_status', conversation_id: 'c_other', user_id: 'u1', action_id: 'a1', status: 'failed', error_code: 'TAB_GONE' }));
+    act(() => onEvent({ type: 'action_status', conversation_id: 'c1', user_id: 'u1', action_id: 'a9', status: 'failed', error_code: 'TAB_GONE' }));
+    expect(screen.getByRole('button', { name: 'Autorizar' })).toBeInTheDocument();
+    act(() => onEvent({ type: 'action_status', conversation_id: 'c1', user_id: 'u1', action_id: 'a1', status: 'failed', error_code: 'TAB_GONE' }));
+    expect(await screen.findByText('Expirou: a aba foi fechada')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Autorizar' })).toBeNull();
+    // Nothing waits any more: the bar is gone.
+    expect(screen.queryByRole('button', { name: /pendente/ })).toBeNull();
+  });
+
+  it('a confirmation for a card already on screen brings it to the end of the thread', async () => {
+    mount([action({ id: 'a1', created_at: T(1) })], [msg({ id: 'm1', text: 'primeira', created_at: T(0) }), msg({ id: 'm2', text: 'segunda', created_at: T(2) })]);
+    await screen.findByRole('button', { name: 'Autorizar' });
+    const card = () => document.querySelector('[data-chat-card="a1"]')!;
+    const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(card(), screen.getByText('segunda'))).toBe(true);
+    act(() =>
+      onEvent({ type: 'confirmation', conversation_id: 'c1', action_id: 'a1', tool: 'send_input', args: {}, class: 'write', machine_id: null, project_id: null, tab_id: 't1', summary: action({ id: 'a1' }).summary, created_at: T(1), surfaced_at: T(3), resurfaced: true }),
+    );
+    await waitFor(() => expect(follows(screen.getByText('segunda'), card())).toBe(true));
+    // Moved, never duplicated.
+    expect(document.querySelectorAll('[data-chat-card="a1"]')).toHaveLength(1);
+  });
+
+  it('"Propor de novo" on an expired card asks the concierge in this conversation', async () => {
+    mount([action({ id: 'a1', status: 'expired' })]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Propor de novo' }));
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(`Proponha de novo: ${action({ id: 'a1' }).summary}`));
+  });
+
+  it('shows the pending bar and approves only the reversible cards through the batch call', async () => {
+    decideManyMock.mockResolvedValue({ actions: [{ id: 'a1', status: 'approved' }, { id: 'a3', status: 'approved' }], skipped: [], queued: false });
+    mount([action({ id: 'a1' }), action({ id: 'a2', class: 'irreversible', summary: 'fechar a aba X' }), action({ id: 'a3', summary: 'mover o card TER-1' })]);
+    expect(await screen.findByRole('button', { name: /3 pendentes/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Aprovar as reversíveis (2)' }));
+    await waitFor(() => expect(decideManyMock).toHaveBeenCalledWith([{ id: 'a1', decision: 'approve' }, { id: 'a3', decision: 'approve' }]));
+    expect(await screen.findByRole('button', { name: /1 pendente$/ })).toBeInTheDocument();
+  });
+});

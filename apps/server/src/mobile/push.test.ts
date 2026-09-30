@@ -263,6 +263,17 @@ describe('MobilePushService', () => {
     expect(t.sent).toHaveLength(1);
   });
 
+  it('a card brought back to the end of the chat (resurfaced) is not notified again (TER-477)', async () => {
+    const { service, sent, repos } = setup();
+    stop = service.start();
+    chatBus.publish({ ...confirmation, surfaced_at: '2026-09-30T06:00:00.000Z', resurfaced: true } as ChatEvent);
+    const question = { id: 'q1', tab_id: 't1', tab_name: 'api', kind: 'permission' as const, payload: { tool_name: 'Bash' }, status: 'open' as const, answer: null, error_code: null, created_at: '', answered_at: null, closed_at: null };
+    chatBus.publish({ type: 'tab_question', user_id: 'u1', conversation_id: 'cp', question, resurfaced: true } as ChatEvent);
+    await flush();
+    expect(repos.userNotifications.create).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(0);
+  });
+
   it('answered and closed tab questions push nothing', async () => {
     const { service, sent, repos } = setup();
     stop = service.start();

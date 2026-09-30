@@ -15,6 +15,7 @@ import { linkTabTask, PROMPT_MAX_CHARS, startAgent } from '../control/agents.js'
 import { answerTabQuestionTool, listTabQuestions, recordDecision, searchMemory, MEMORY_REF, type MemoryRefKind } from '../control/memory.js';
 import { createIntegration, getProjectSetup, listIntegrations, setProjectRepo } from '../control/integrations.js';
 import { recordLesson } from '../control/lessons.js';
+import { recapPendingCards } from '../control/pending.js';
 import { readAttachment } from '../chat/attachments/read-tool.js';
 import { MAX_SUBTASKS_PER_CALL } from '../db/repositories/tasks.js';
 import type { TaskStatus, TaskType } from '../db/repositories/types.js';
@@ -284,6 +285,16 @@ export const TOOLS: ToolDef[] = [
     action: 'read',
     input: { project_id: id.optional() },
     run: (ctx, a) => listTabQuestions(ctx, a as { project_id?: string }),
+  },
+  {
+    name: 'recap_pending_cards',
+    description:
+      'Bring every card waiting on the person in this chat — your pending confirmations and the tabs\' open questions and permission prompts — back to the end of the conversation, and list them. Use it when the person asks to see what is waiting on them ("manda aqui pra eu aprovar") instead of telling them to scroll up. Nothing is decided or sent. Only works in the termhub chat.',
+    scope: 'read',
+    resource: 'terminals',
+    action: 'read',
+    input: {},
+    run: (ctx) => recapPendingCards(ctx),
   },
   {
     name: 'answer_tab_question',

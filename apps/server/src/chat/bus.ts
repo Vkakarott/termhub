@@ -45,10 +45,18 @@ export type ChatEvent =
        * question, so the push service must not notify (or write a history row for) it again. Never
        * part of the mobile contract — its schema strips it. */
       origin_update?: true;
+      /** When the card was last brought back to the end of the chat (TER-477): screens order by it. */
+      surfaced_at?: string | null;
+      /** Set on the re-publish that brought a still-pending card back to the end of the chat (TER-477):
+       * screens move it, the push service stays quiet — the person was already told. */
+      resurfaced?: true;
     }
   /** The user answered a pending action. Every open tab gets this, not only the one that clicked —
    * the confirmation card in each of them must update the same way. */
   | { type: 'decision'; user_id: string; conversation_id: string; action_id: string; status: 'approved' | 'denied' }
+  /** A gated action ended — ran, failed (a stale approval: `TAB_GONE`, `WAITING_PERMISSION`…) or aged out
+   * (TER-477): every open screen updates the card at once instead of on the next reload. */
+  | { type: 'action_status'; user_id: string; conversation_id: string; action_id: string; status: 'executed' | 'failed' | 'expired'; error_code: string | null }
   /** "Permitir sempre nesta aba" was clicked: every open screen shows the strip. */
   | { type: 'grant'; user_id: string; conversation_id: string; grant: ChatGrantView }
   /** "Revogar": every open screen drops it. */
@@ -80,7 +88,7 @@ export type ChatEvent =
   | { type: 'granted_action'; user_id: string; conversation_id: string; action: ChatActionCard }
   /** A tab asked something (spec 2026-09-25 §5.2): the whole card. Pushed to the project's most
    * recently active conversation; its text is the question itself, never a screen. */
-  | { type: 'tab_question'; user_id: string; conversation_id: string; question: TabQuestionView }
+  | { type: 'tab_question'; user_id: string; conversation_id: string; question: TabQuestionView; resurfaced?: true }
   /** The chat answered it — or the answer could not be typed (`status: 'failed'`). */
   | { type: 'tab_question_answered'; user_id: string; conversation_id: string; question: TabQuestionView }
   /** It left the tab's screen: answered there, replaced, or the tab is gone. An answered card stays answered. */

@@ -170,3 +170,30 @@ describe('"Liberar sem prazo" (TER-386)', () => {
     expect(screen.getByText('Executado · aba confiada')).toBeInTheDocument();
   });
 });
+
+describe('an expired or stale card (TER-477)', () => {
+  it.each([
+    [{ status: 'expired' as const, error_code: null }, 'Expirou sem resposta'],
+    [{ status: 'failed' as const, error_code: 'TAB_GONE' }, 'Expirou: a aba foi fechada'],
+    [{ status: 'failed' as const, error_code: 'WAITING_PERMISSION' }, 'Expirou: a aba passou a pedir uma permissão'],
+    [{ status: 'failed' as const, error_code: 'PROMPT_CHANGED' }, 'Expirou: a aba está pedindo outra permissão'],
+  ])('%o reads %s and offers Propor de novo', (over, label) => {
+    const onRepropose = vi.fn();
+    render(<ChatActionCard action={card(over)} deciding={false} onDecide={vi.fn()} onRepropose={onRepropose} />);
+    expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.getByRole('listitem')).not.toHaveClass('border-attention/40');
+    fireEvent.click(screen.getByRole('button', { name: 'Propor de novo' }));
+    expect(onRepropose).toHaveBeenCalledWith(expect.objectContaining({ id: 'a1', summary: base.summary }));
+  });
+
+  it('any other failure keeps "Falhou" and offers nothing', () => {
+    render(<ChatActionCard action={card({ status: 'failed', error_code: 'MACHINE_OFFLINE' })} deciding={false} onDecide={vi.fn()} onRepropose={vi.fn()} />);
+    expect(screen.getByText('Falhou')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Propor de novo' })).toBeNull();
+  });
+
+  it('carries its id for the pending bar to find it', () => {
+    render(<ChatActionCard action={base} deciding={false} onDecide={vi.fn()} />);
+    expect(screen.getByRole('listitem')).toHaveAttribute('data-chat-card', 'a1');
+  });
+});
