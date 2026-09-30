@@ -45,3 +45,33 @@ describe('setup repo.deploy_workflow', () => {
     expect(data.repo?.deploy_workflow).toBe('deploy.yml');
   });
 });
+
+describe('setup ai block (TER-589)', () => {
+  it('defaults to no accounts and no models, also for a setup saved before the block existed', () => {
+    expect(normalizeSetup({}, 2).ai).toEqual({ accounts: [], models: { claude: null, chatgpt: null } });
+    expect(normalizeSetup({ agent: { command: 'claude' } }, 2).ai.accounts).toEqual([]);
+  });
+
+  it('keeps the account order and the models as typed', () => {
+    const d = setupInputSchema.parse({ ai: { accounts: ['b', 'a'], models: { claude: 'sonnet[1m]', chatgpt: 'gpt-5-codex' } } });
+    expect(d.ai).toEqual({ accounts: ['b', 'a'], models: { claude: 'sonnet[1m]', chatgpt: 'gpt-5-codex' } });
+    expect(setupInputSchema.parse({ ai: { accounts: [], models: { claude: 'claude-opus-5-5' } } }).ai.models).toEqual({ claude: 'claude-opus-5-5', chatgpt: null });
+  });
+
+  it('refuses the same account twice and more than 20 accounts', () => {
+    expect(setupInputSchema.safeParse({ ai: { accounts: ['a', 'a'] } }).success).toBe(false);
+    expect(setupInputSchema.safeParse({ ai: { accounts: Array.from({ length: 21 }, (_, i) => `a${i}`) } }).success).toBe(false);
+  });
+
+  it('refuses a model with anything the shell could read', () => {
+    for (const bad of ['opus; rm -rf ~', 'opus $(id)', "o'pus", 'a b', '']) {
+      expect(setupInputSchema.safeParse({ ai: { models: { claude: bad } } }).success, bad).toBe(false);
+    }
+  });
+
+  it('a corrupt ai block falls back to the default without losing the other blocks', () => {
+    const d = normalizeSetup({ ai: { accounts: 'x' }, runner: { worktree: false } }, 2);
+    expect(d.ai.accounts).toEqual([]);
+    expect(d.runner.worktree).toBe(false);
+  });
+});
