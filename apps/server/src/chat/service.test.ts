@@ -315,18 +315,21 @@ const errorFrame = (reason: 'missing_session' | 'run_failed') => JSON.stringify(
 const settled = () => new Promise((r) => setTimeout(r, 10));
 
 /** A streamed run driven by hand, like the agent's channel: `push` a CLI line, `end()` the process.
- *  `written` holds every line the service wrote after the first input (which is `input.text`). */
+ *  `written` holds every line the service wrote after the first input (which is `input.text`), and
+ *  `closed()` says whether the service closed the channel itself, which ends the process. */
 function liveRunner() {
-  const runs: { input: RunnerInput; written: string[]; push(l: string): void; end(): void }[] = [];
+  const runs: { input: RunnerInput; written: string[]; push(l: string): void; end(): void; closed(): boolean }[] = [];
   const run = vi.fn((input: RunnerInput) => {
     const queue: string[] = [];
     const written: string[] = [];
     let ended = false;
+    let closed = false;
     let wake: (() => void) | null = null;
     const poke = () => { const w = wake; wake = null; w?.(); };
-    runs.push({ input, written, push: (l) => (queue.push(l), poke()), end: () => ((ended = true), poke()) });
+    runs.push({ input, written, push: (l) => (queue.push(l), poke()), end: () => ((ended = true), poke()), closed: () => closed });
     return {
       write: (line: string) => (ended ? false : (written.push(line), true)),
+      close: () => ((closed = true), (ended = true), poke()),
       async *[Symbol.asyncIterator]() {
         for (;;) {
           while (queue.length) yield queue.shift()!;
@@ -1585,10 +1588,11 @@ describe('reset', () => {
     const fresh = await service.reset(user, 'p1');
     expect(repos.chat.archive).toHaveBeenCalledWith('c_p1');
     expect(fresh.id).not.toBe('c_p1');
-    // The old process takes no more input: nothing typed later can land in the archived thread.
-    expect(run.written.at(-1)).toBe('{"type":"termhub_end_input"}');
+    // The old process is ended, and its subagents with it: the thread they report to is over, and
+    // its tokens are revoked.
+    expect(run.closed()).toBe(true);
 
-    // The new conversation runs on its own, while the old process is still alive.
+    // The new conversation runs on its own.
     const next = await service.start(user, 'oi', { projectId: 'p1' });
     expect(next.conversation_id).toBe(fresh.id);
     const second = await runAt(lr, 1);
@@ -1596,8 +1600,37 @@ describe('reset', () => {
     second.push(delta('Oi!'));
     second.push(done());
     expect((await next.done).text).toBe('Oi!');
-    run.end();
     await settled();
+  });
+
+  it('goes through when the process takes no input and only a subagent keeps it alive, and ends that process (TER-498)', async () => {
+    const { service, runner, repos, messages } = build([], { streaming: true });
+    const lr = liveRunner();
+    vi.mocked(runner.run).mockImplementation(lr.run);
+
+    const first = await service.start(user, 'vigia a aba', { projectId: 'p1' });
+    const run = await runAt(lr, 0);
+    // The first monitor ends while the turn runs, so the input ends with the turn…
+    run.push(replayOf(run.input.text.trim()));
+    run.push(backgroundTasks(['t1']));
+    run.push(backgroundTasks([]));
+    run.push(delta('Disparei.'));
+    run.push(done());
+    await first.done;
+    await settled();
+    expect(run.written.at(-1)).toBe('{"type":"termhub_end_input"}');
+    // …and the turn that reports it starts another. With its input closed the CLI holds the
+    // `result` of that turn back: for the server the turn never ends.
+    run.push(delta('Relancei o monitor.'));
+    run.push(backgroundTasks(['t2']));
+    await settled();
+
+    const fresh = await service.reset(user, 'p1');
+    expect(repos.chat.archive).toHaveBeenCalledWith('c_p1');
+    expect(fresh.id).not.toBe('c_p1');
+    expect(run.closed()).toBe(true);
+    // What that turn had said is a message of the archived thread, not a failed or an empty answer.
+    await vi.waitFor(() => expect(messages.filter((m) => m.role === 'assistant').at(-1)).toMatchObject({ text: 'Relancei o monitor.', error_code: null }));
   });
 
   it('is still refused while a streamed turn is being answered, even with a subagent in the background', async () => {

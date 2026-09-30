@@ -82,6 +82,8 @@ export class LiveRun {
   private notes = new Map<string, string>();
   /** Subagents a `stop_task` was written for, until its answer or their final status. */
   private stopping = new Set<string>();
+  /** The process was ended on purpose (`stop`): a turn of its own that was cut is not a failed answer. */
+  private stopped = false;
 
   constructor(private deps: LiveRunDeps) {
     this.session = deps.sessionId;
@@ -338,7 +340,8 @@ export class LiveRun {
     let failure: { error: unknown } | null = null;
     for (const a of open) {
       try {
-        await this.finish(a, code);
+        // A turn of the CLI's own cut by `stop` keeps what it said as a plain message (or goes, empty).
+        await this.finish(a, a.turn === null && this.stopped ? null : code);
       } catch (e) {
         failure ??= { error: e };
       }
@@ -460,6 +463,14 @@ export class LiveRun {
     if (!this.inputOpen) return;
     this.inputOpen = false;
     this.stream?.write?.(STREAM_END_INPUT_LINE);
+  }
+
+  /** Ends the process itself, not only its input: for one that answers nobody and would otherwise hold
+   *  the conversation for as long as its subagents keep it alive. They end with it. */
+  stop(): void {
+    this.endInput();
+    this.stopped = true;
+    this.stream?.close?.();
   }
 
   /** Keeps a subagent row by task and by launching tool_use_id, and tells every open screen. */

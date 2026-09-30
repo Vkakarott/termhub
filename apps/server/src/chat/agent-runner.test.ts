@@ -353,3 +353,28 @@ it('refuses a write the instant the channel itself ends, before the generator ha
   await run.done;
   expect(h.seen.writes.map((b) => b.toString('utf8'))).not.toContain('{"b":2}\n');
 });
+
+it('close ends a streamed run on purpose: the channel is closed and the run ends with no failure line (TER-498)', async () => {
+  const h = fakeHost({ capabilities: ['pty', 'claude', 'claude.stream_input'] });
+  const stream = agentRunner('m1', { host: h.host }).run({ ...input, stream_input: true });
+  const run = collect(stream);
+  await h.opened;
+  h.send('{"a":1}\n');
+  stream.close?.();
+  await run.done;
+  // What had arrived is still read; nothing says the run failed, because it did not.
+  expect(run.lines).toEqual(['{"a":1}']);
+  // Closing the channel is what kills the CLI, and its subagents, on the machine.
+  expect(h.seen.closes).toBe(1);
+  expect(stream.write?.('{"b":2}')).toBe(false);
+});
+
+it('close while the channel is still being opened closes it as soon as it opens', async () => {
+  const h = fakeHost({ capabilities: ['pty', 'claude', 'claude.stream_input'] });
+  const stream = agentRunner('m1', { host: h.host }).run({ ...input, stream_input: true });
+  const run = collect(stream);
+  stream.close?.();
+  await run.done;
+  expect(run.lines).toEqual([]);
+  expect(h.seen.closes).toBe(h.seen.params.length);
+});

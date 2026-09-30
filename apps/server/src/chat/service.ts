@@ -72,6 +72,8 @@ export interface StartedRun {
  *  buffers lines written before the channel is open. A one-shot runner does not have it. */
 export interface RunStream extends AsyncIterable<string> {
   write?(line: string): boolean;
+  /** Ends a streamed run now: the channel closes, which kills the CLI and what it started. */
+  close?(): void;
 }
 export interface RunnerClient {
   run(input: RunnerInput): RunStream;
@@ -394,16 +396,19 @@ export class ChatService {
    * revoked first: nobody will answer a card in a thread that is no longer on screen, and a token minted
    * for a conversation that is over must not reach the gate on its behalf.
    *
-   * A streamed process whose turns have all ended but that still waits on subagents in the background
-   * holds the lock for as long as it lives, yet answers nothing: it does not stop a reset. Its input is
-   * ended so nothing more reaches the archived thread, and it keeps the lock until it exits.
+   * A streamed process that answers nobody holds the lock for as long as it lives, yet does not stop
+   * a reset: one whose turns have all ended and that waits on subagents in the background, or one
+   * whose input has ended (no turn of the person's is open in it, and none can be written to it; the
+   * CLI holds its `result`s back while a subagent runs, so its own turn may look open for as long as
+   * that lasts). The process is ended, and its subagents with it — their thread is over and their
+   * token revoked — and it keeps the lock until it exits.
    */
   async reset(user: User, projectId: string | null): Promise<ChatConversation> {
     const current = await this.conversationFor(user, projectId);
     const live = this.live.get(current.id);
-    const detached = this.running.has(current.id) && live !== undefined && !live.busy;
+    const detached = this.running.has(current.id) && live !== undefined && (!live.busy || !live.accepting);
     if (this.running.has(current.id) && !detached) throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
-    if (detached) live.endInput();
+    if (detached) live.stop();
     else this.running.add(current.id);
     this.resetting.add(current.id);
     try {

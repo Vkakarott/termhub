@@ -81,14 +81,17 @@ function harness(sessionId: string | null = null) {
   return { live, chat, rows, events, off, turn, subagents, chatActions, describeLate, onTurnsChanged };
 }
 
-/** A hand-driven stream: `push` a CLI line, `end()` the process; `written` is what the driver wrote. */
+/** A hand-driven stream: `push` a CLI line, `end()` the process; `written` is what the driver wrote,
+ *  and `closed()` whether the driver closed it (which ends the process, as closing the channel does). */
 function manualStream() {
   const queue: string[] = [];
   let ended = false;
+  let closed = false;
   let wake: (() => void) | null = null;
   const written: string[] = [];
   const stream: RunStream = {
     write: (line) => (ended ? false : (written.push(line), true)),
+    close: () => ((closed = true), (ended = true), poke()),
     async *[Symbol.asyncIterator]() {
       for (;;) {
         while (queue.length) yield queue.shift()!;
@@ -97,8 +100,8 @@ function manualStream() {
       }
     },
   };
-  const poke = () => { const w = wake; wake = null; w?.(); };
-  return { stream, written, push: (l: string) => (queue.push(l), poke()), end: () => ((ended = true), poke()) };
+  function poke() { const w = wake; wake = null; w?.(); }
+  return { stream, written, closed: () => closed, push: (l: string) => (queue.push(l), poke()), end: () => ((ended = true), poke()) };
 }
 
 const replay = (uuid: string) => JSON.stringify({ type: 'user', isReplay: true, uuid, message: { role: 'user', content: 'x' } });
@@ -196,6 +199,34 @@ it('keeps the input open when the turn that reports the last subagent starts ano
   expect(h.live.add((await h.turn(U2, 'e agora?')).t)).toBe(true);
   s.end();
   await consumed;
+});
+
+/** A process left with its input closed and a subagent in the background: the first subagent ended
+ *  while the person's turn ran, the input ended with that turn, and the turn that reports the
+ *  subagent started another. The CLI holds that turn's `result` back until nothing is left running. */
+async function stranded() {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1)); s.push(background(1)); s.push(background(0)); s.push(delta('disparei')); s.push(result());
+  await settle();
+  s.push(toolCall()); s.push(background(1)); s.push(delta('relancei'));
+  await settle();
+  return { s, consumed };
+}
+
+it('stop ends a process that takes no input, and what its own turn had said is stored as a message (TER-498)', async () => {
+  const { s, consumed } = await stranded();
+  expect(h.live.accepting).toBe(false);
+  expect(h.live.busy).toBe(true);
+  h.live.stop();
+  expect(s.closed()).toBe(true);
+  await consumed;
+  // What the service does once the stream is over: a turn cut by a stop is not a failed answer.
+  await h.live.failOpen('RUNNER_FAILED');
+  expect(h.rows.filter((r) => r.role === 'assistant').at(-1)).toMatchObject({ text: 'relancei', error_code: null });
+  expect(h.live.busy).toBe(false);
 });
 
 it('a stream that ends with turns open fails each one', async () => {
