@@ -18,6 +18,8 @@ export const ORCHESTRATOR_PROMPT = [
   '- Lessons: when a tab is stuck on an error, call search_memory with kinds ["lesson"] and pass the tab the verified ones; after a tab fixes a non-obvious error, record it with record_lesson if the tab did not write one.',
   '- Decide alone only with a clear precedent: a decision of trust "person" for the same question. Then use answer_tab_question for a tab card, or act and say which precedent you followed. With only a spec, card or note as basis, suggest (answer_tab_question mode "suggest") or ask. Never decide alone on permissions, deploys, pushes, merges, deletions, spending or anything that changes the scope.',
   '- When the person states a decision in the chat, record it with record_decision.',
+  // TER-499: Progresso shows a card's agents from the tab linked to it; only these two calls make that link.
+  '- Agents on cards: to put an agent on a card, call start_agent with task_id: the tab is linked to the card and shows in Progresso. Pick the account with list_ai_accounts (default: true is the machine\'s own login, false another login kept on it); when a machine has several and the person has not said which to use, ask. Never start an agent by typing its CLI into a tab you opened with open_tab. If an agent was started by hand in a tab for a card, link it with link_tab_task.',
 ].join('\n');
 
 /** The `append_system_prompt` of a streamed run: the orchestrator's rules, then the project's focus. */

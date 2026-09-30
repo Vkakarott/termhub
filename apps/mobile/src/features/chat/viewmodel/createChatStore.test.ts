@@ -948,7 +948,7 @@ it('refresh(projectId) re-reads that slot without switching activeProject, touch
   expect(slot(chat, null).host).toMatchObject({ kind: 'ready', machine: { name: 'jarvis' } });
 });
 
-it('answerTabQuestion answers over the mock and the card turns answered; a second answer reads "A pergunta mudou na aba"', async () => {
+it('answerTabQuestion answers over the mock and the card turns answered; a second answer says nothing was sent', async () => {
   const { chat } = await setup();
   await openAndConnect(chat, 'p-termhub');
   await chat.getState().send('tem alguma pergunta?');
@@ -964,7 +964,7 @@ it('answerTabQuestion answers over the mock and the card turns answered; a secon
 
   await chat.getState().answerTabQuestion(q.id, { answers: [{ selected: [0] }] });
   // A stale card says so in the card, not in the screen's banner (spec 2026-09-26 §4.13).
-  expect(chat.getState().questionErrors[q.id]).toBe('A pergunta mudou na aba');
+  expect(chat.getState().questionErrors[q.id]).toBe('A aba já não mostra esta pergunta: nada foi enviado.');
   expect(chat.getState().error).toBeNull();
 });
 
@@ -1066,7 +1066,7 @@ it('a failed answer is that card\'s error, never the banner; trying again clears
   await chat.getState().answerTabQuestion('q1', { allow: true });
   call.mockRejectedValueOnce(new ApiError(502, 'MACHINE_OFFLINE', 'Não foi possível responder na aba'));
   await chat.getState().answerTabQuestion('q2', { allow: true });
-  expect(chat.getState().questionErrors).toEqual({ q1: 'A pergunta mudou na aba', q2: 'Não foi possível responder na aba' });
+  expect(chat.getState().questionErrors).toEqual({ q1: 'A aba já não mostra esta pergunta: nada foi enviado.', q2: 'Não foi possível responder na aba' });
   expect(chat.getState().error).toBeNull();
   call.mockResolvedValueOnce(undefined);
   await chat.getState().answerTabQuestion('q1', { allow: true });

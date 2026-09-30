@@ -1,0 +1,25 @@
+
+│ chegar para quem não pediu?
+
+❯ 1. Aprovação/pergunta padrão; resposta opt-in (Recommended)
+     Cards de aprovação e de pergunta com opções (request_user_input) ficam 
+     ligados para todos, como os do Claude hoje — é paridade, e só chegam a quem
+     confiou nos hooks do Codex. O card de resposta para pergunta em texto 
+     (item 2) vira uma opção por usuário em Configurações, desligada por padrão.
+     Custo: uma coluna nova no usuário (migration compatível) e um toggle.
+  2. Tudo padrão, sem opção
+     Mantém como está implementado: os três tipos de card ligados para todos com
+     hooks do Codex confiados. Não segue a regra nova à risca para o item 2.
+  3. Tudo opt-in por usuário
+     Um toggle em Configurações liga todos os cards do Codex (aprovação, 
+     pergunta e resposta), desligado por padrão. Quem não ativar continua como 
+     hoje.
+  4. Tirar o item 2 do PR
+     Aprovação e pergunta com opções ficam padrão (paridade com o Claude); o 
+     card de resposta para pergunta em texto sai deste PR e vira card separado 
+     para discutir.
+  5. Type something.
+────────────────────────────────────────────────────────────────────────────────
+  6. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
