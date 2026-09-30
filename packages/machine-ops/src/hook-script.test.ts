@@ -593,6 +593,55 @@ describe('hook script — Codex', () => {
     expect(eventOf(body)).toEqual({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion' });
   });
 
+  describe('request_user_input', () => {
+    const question = { questions: [{ header: 'Nome', id: 'nome_arquivo', question: 'Azul ou verde?', options: [{ label: 'azul.txt', description: 'Usar azul.' }, { label: 'verde.txt', description: 'Usar verde.' }] }] };
+    const ask = { ...pre, tool_name: 'request_user_input', tool_input: question, tool_use_id: 'call-1' };
+
+    it('forwards the Codex question whole, and prints nothing', async () => {
+      expect(runAs('codex', ask)).toBe('');
+      const [body] = await bodies(1);
+      expect(JSON.parse(body)).toEqual({ tool: 'codex', session: 'th-abc', event: ask });
+    });
+
+    it('neither reads nor writes the marker, so two questions in a row are two questions', async () => {
+      runAs('codex', ask);
+      runAs('codex', ask);
+      await bodies(2);
+      runAs('codex', pre);
+      await bodies(3);
+      expect(logged().map((b) => eventOf(b).tool_name)).toEqual(['request_user_input', 'request_user_input', 'Bash']);
+    });
+
+    it('posts the reduced body when the question is too big for the server (256 KB limit)', async () => {
+      const huge = { ...ask, tool_input: { questions: [{ question: 'x'.repeat(210000), options: [] }] } };
+      runAs('codex', huge);
+      const [body] = await bodies(1);
+      expect(JSON.parse(body)).toEqual({ tool: 'codex', session: 'th-abc', event: { hook_event_name: 'PreToolUse', tool_name: 'request_user_input' } });
+    });
+
+    it('reduces Claude\'s tool of that name like any other', async () => {
+      runAs('claude', { hook_event_name: 'PreToolUse', tool_name: 'request_user_input', tool_input: { questions: [{ question: 'secret?' }] } });
+      const [body] = await bodies(1);
+      expect(eventOf(body)).toEqual({ hook_event_name: 'PreToolUse', tool_name: 'request_user_input' });
+      expect(body).not.toContain('secret');
+    });
+
+    it('never forwards the input when tool_input is serialised before the real tool_name', async () => {
+      runAs('codex', { hook_event_name: 'PreToolUse', tool_input: { tool_name: 'request_user_input', questions: [{ question: 'secret?' }] }, tool_name: 'Bash' });
+      const [body] = await bodies(1);
+      expect(body).not.toContain('secret');
+    });
+
+    it('still sends the PostToolUse that follows the answer', async () => {
+      runAs('codex', ask);
+      await bodies(1);
+      runAs('codex', { ...post, tool_name: 'request_user_input', tool_response: 'azul.txt' });
+      const sent = await bodies(2);
+      expect(eventOf(sent[1])).toEqual({ hook_event_name: 'PostToolUse', tool_name: 'request_user_input' });
+      expect(sent[1]).not.toContain('azul');
+    });
+  });
+
   it('drops a Codex PermissionRequest whose tool name is odd or missing', async () => {
     runAs('codex', { ...base, hook_event_name: 'PermissionRequest', tool_name: 'Ev"il' });
     runAs('codex', { ...base, hook_event_name: 'PermissionRequest' });

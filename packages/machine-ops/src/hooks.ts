@@ -100,7 +100,7 @@ if [ "$TOOL" = codex ] && [ -n "$2" ]; then EVENT="$2"; else EVENT=$(cat 2>/dev/
 # screen, and only when the pair changed since the last one for this session — twenty edits in a row
 # are one request as long as the verb stays the same (a new verb mid-run is a new request). The marker is per tmux
 # session, under TMPDIR, with the session name reduced to filename-safe characters.
-# AskUserQuestion is the one exception (below).
+# AskUserQuestion (Claude) and request_user_input (Codex) are the exceptions (below).
 MARK="\${TMPDIR:-/tmp}/termhub-hook-$(printf '%s' "$SESSION" | tr -c 'A-Za-z0-9_-' '_')"
 # The branch below is picked on the event's OWN hook_event_name — the FIRST "hook_event_name" key of
 # the payload (Claude Code serialises it before tool_input, same reasoning as tool_name below) —
@@ -147,12 +147,21 @@ case "$KIND" in
     # tool_name) and NAME does not name the real tool — fall back to the ordinary name-only path below
     # (which, worst case, mislabels that one event; it never forwards the input).
     ASK=false
-    # Claude only: Codex has no such tool, and a Codex tool of that name is reduced like any other.
-    if [ "$TOOL" = claude ] && [ "$KIND" = PreToolUse ] && [ "$NAME" = AskUserQuestion ]; then
-      case "$REST" in
-        *'"tool_name"'*) ;;
-        *) ASK=true ;;
-      esac
+    # Claude's AskUserQuestion, and Codex's request_user_input (its equivalent, shown in Plan mode; the
+    # payload is Claude-shaped). Each name counts for its own agent only: the other agent's tool of that
+    # name is reduced like any other.
+    if [ "$KIND" = PreToolUse ]; then
+      if { [ "$TOOL" = claude ] && [ "$NAME" = AskUserQuestion ]; } || { [ "$TOOL" = codex ] && [ "$NAME" = request_user_input ]; }; then
+        case "$REST" in
+          *'"tool_name"'*) ;;
+          *) ASK=true ;;
+        esac
+      fi
+    fi
+    # The server rejects a body over 256 KB (HOOK_BODY_LIMIT): past 200000 characters a Codex question
+    # goes reduced, without touching the marker (so its PostToolUse still gets through).
+    if [ "$ASK" = true ] && [ "$TOOL" = codex ] && [ "\${#EVENT}" -gt 200000 ]; then
+      EVENT=$(printf '{"hook_event_name":"PreToolUse","tool_name":"%s"%s}' "$NAME" "$SUB")
     fi
     if [ "$ASK" != true ]; then
       # Claude Code's spinner verb ("✻ Moonwalking… (12s · esc to interrupt)"): the visible pane is
