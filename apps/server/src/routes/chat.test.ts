@@ -993,6 +993,14 @@ it('POST /messages passes attachment_ids to the service and allows an empty text
   expect((await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi', attachment_ids: ['1', '2', '3', '4', '5', '6'] } })).statusCode).toBe(400);
 });
 
+it('POST /messages passes reply_to_id to the service (TER-447)', async () => {
+  const { app, start } = build();
+  const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'faz de novo', reply_to_id: 'm7' } });
+  expect(res.statusCode).toBe(202);
+  expect(start).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'faz de novo', { projectId: null, replyToId: 'm7' });
+  expect((await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi', reply_to_id: '' } })).statusCode).toBe(400);
+});
+
 it('POST /messages answers 409 ATTACHMENT_UNAVAILABLE as the service throws it', async () => {
   const { app } = build({ start: vi.fn(async () => { throw new HttpError(409, 'Um dos anexos não está disponível: envie de novo', 'ATTACHMENT_UNAVAILABLE'); }) });
   const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi', attachment_ids: ['gone'] } });

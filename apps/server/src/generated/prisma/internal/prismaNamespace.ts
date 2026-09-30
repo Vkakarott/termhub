@@ -4329,6 +4329,9 @@ export const ChatMessageScalarFieldEnum = {
   text: 'text',
   usage: 'usage',
   errorCode: 'errorCode',
+  replyToId: 'replyToId',
+  replyToRole: 'replyToRole',
+  replyToExcerpt: 'replyToExcerpt',
   createdAt: 'createdAt'
 } as const
 
