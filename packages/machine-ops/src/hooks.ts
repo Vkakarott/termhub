@@ -40,12 +40,14 @@ export function expandHome(dir: string, home: string): string {
  * reads as "no decision" — our hook never allows or denies (hook-script.test.ts keeps stdout empty).
  * `StopFailure` fires when an API error — a usage limit, an auth failure — ends the turn instead of
  * a normal `Stop` (spec 2026-09-26 account swap).
+ * `SubagentStop` is taken for the subagent's id only (spec 2026-09-30 tab questions per subagent): it is
+ * what closes the card of a subagent that ends after its dialog.
  * Minimum Claude Code: **2.0.45**, the first release with the `PermissionRequest` hook. An older one may
  * reject this hooks block, and before 2.1.122 a malformed hooks entry invalidated the whole settings.json.
  * Deliberately not gated on the version (spec 2026-09-26 §4.6): Claude Code updates itself by default, and
  * asking every machine and config dir for `claude --version` costs a remote call per install for a case
  * not seen in the field. */
-export const CLAUDE_HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'Notification', 'Stop', 'StopFailure', 'SessionEnd'] as const;
+export const CLAUDE_HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'Notification', 'Stop', 'StopFailure', 'SessionEnd', 'SubagentStop'] as const;
 
 /** Events Claude Code runs per tool: their entry needs a matcher ('*' = every tool). */
 const CLAUDE_TOOL_EVENTS: ReadonlySet<string> = new Set(['PreToolUse', 'PermissionRequest']);
@@ -99,7 +101,8 @@ if [ "$TOOL" = codex ] && [ -n "$2" ]; then EVENT="$2"; else EVENT=$(cat 2>/dev/
 # Tool calls (Claude's PreToolUse, Codex's PreToolUse and PostToolUse): only the tool's name travels (never its input), with the spinner's verb when one is on
 # screen, and only when the pair changed since the last one for this session — twenty edits in a row
 # are one request as long as the verb stays the same (a new verb mid-run is a new request). The marker is per tmux
-# session, under TMPDIR, with the session name reduced to filename-safe characters.
+# session, under TMPDIR, with the session name reduced to filename-safe characters. A Claude subagent's
+# key starts with its id (AGENT, below), so one agent's tool call never swallows another's.
 # AskUserQuestion (Claude) and request_user_input (Codex) are the exceptions (below).
 MARK="\${TMPDIR:-/tmp}/termhub-hook-$(printf '%s' "$SESSION" | tr -c 'A-Za-z0-9_-' '_')"
 # The branch below is picked on the event's OWN hook_event_name — the FIRST "hook_event_name" key of
@@ -117,11 +120,26 @@ fi
 # the order is session_id, transcript_path, cwd, prompt_id, permission_mode, agent_id, agent_type,
 # hook_event_name, … — and the main thread's never does. Only that prefix is searched, and only for the
 # key form: a value holding the text "agent_id": would have its quotes escaped. The reduced bodies below
-# carry the flag; the server never lets a subagent's event close a card (spec 2026-09-26 §4.5). The
-# dedupe marker ignores it.
+# carry the flag (spec 2026-09-26 §4.5) and, for Claude, the subagent's id, which is what lets the
+# server tell one subagent's card from another's.
 BEFORE_KIND=\${EVENT%%'"hook_event_name"'*}
 SUB=
 case "$BEFORE_KIND" in *'"agent_id":'*) SUB=',"subagent":true' ;; esac
+# The subagent's id, as a value (spec 2026-09-30 tab questions per subagent §2): what lets the server
+# close one subagent's card and not another's. Claude only. The id is the first "agent_id" of that
+# same prefix; only 1 to 64 characters of A-Za-z0-9_- travel — anything else is dropped and the flag
+# alone remains, which the server reads as it always did.
+AGENT=
+if [ "$TOOL" = claude ] && [ -n "$SUB" ]; then
+  AGENT=\${BEFORE_KIND#*'"agent_id":"'}
+  [ "$AGENT" != "$BEFORE_KIND" ] || AGENT=
+  AGENT=\${AGENT%%'"'*}
+  # Spelled out, not A-Za-z0-9: sh matches a range by the locale's collation, and under a UTF-8 locale
+  # (macOS /bin/sh is bash) "é" sits inside a-z.
+  case "$AGENT" in *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-]*) AGENT= ;; esac
+  [ "\${#AGENT}" -le 64 ] || AGENT=
+  [ -z "$AGENT" ] || SUB="$SUB,\\"agent_id\\":\\"$AGENT\\""
+fi
 case "$KIND" in
   PreToolUse | PostToolUse)
     # The event's own tool name is the FIRST "tool_name" of the payload (Claude Code serialises it
@@ -191,7 +209,7 @@ case "$KIND" in
       fi
       case "$VERB" in *[!A-Za-z]*) VERB= ;; esac
       [ "\${#VERB}" -le 24 ] || VERB=
-      KEY="$NAME\${VERB:+ $VERB}"
+      KEY="\${AGENT:+$AGENT:}$NAME\${VERB:+ $VERB}"
       [ "$(cat "$MARK" 2>/dev/null)" = "$KEY" ] && exit 0
       printf '%s' "$KEY" 2>/dev/null > "$MARK"
       if [ -n "$VERB" ]; then
@@ -224,8 +242,18 @@ case "$KIND" in
         EVENT=$(printf '{"hook_event_name":"PermissionRequest","tool_name":"%s"%s}' "$NAME" "$SUB")
       fi
     else
+      # The tool call after an answered dialog is what closes its card: it must never be deduped
+      # against the call before the dialog (same tool, and no spinner verb while the dialog is up).
+      rm -f "$MARK"
       EVENT=$(printf '{"hook_event_name":"PermissionRequest","tool_name":"%s"%s}' "$NAME" "$SUB")
     fi
+    ;;
+  SubagentStop)
+    # Claude only. A subagent ended: only its id travels (its payload carries the subagent's last
+    # message), and only when there is one — the server uses it to close that subagent's card and
+    # nothing else (spec 2026-09-30 tab questions per subagent §2).
+    [ -n "$AGENT" ] || exit 0
+    EVENT=$(printf '{"hook_event_name":"SubagentStop"%s}' "$SUB")
     ;;
   # A new turn starts fresh, and so does an answered notification: a permission prompt takes the tab
   # out of working, and the tool the person approves is the same one that set the marker, so without

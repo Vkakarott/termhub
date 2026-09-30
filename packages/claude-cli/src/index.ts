@@ -64,6 +64,20 @@ export const CONCIERGE_SETTINGS = JSON.stringify({
   hooks: { PreToolUse: [{ matcher: 'Agent|Task', hooks: [{ type: 'command', command: BACKGROUND_AGENT_HOOK }] }] },
 });
 
+/**
+ * The config dir as the CLI must receive it in `CLAUDE_CONFIG_DIR`. The chat spawns the CLI without
+ * a shell, so nothing expands `~` or `$HOME` there: the CLI reads `~/.claude_x` as relative to its cwd
+ * and creates a literal `~` directory with no login in it (TER-613). A tab's command line goes
+ * through the shell (`configDirPrefix`), so this expands the same forms, against the run's HOME.
+ * `~user` and other variables are left alone: there is no way to resolve them here.
+ */
+export function resolveConfigDir(dir: string, home: string): string {
+  const raw = dir.trim();
+  const base = home.endsWith('/') ? home.slice(0, -1) : home;
+  const match = /^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/.exec(raw);
+  return match ? base + raw.slice(match[0].length) : raw;
+}
+
 /** Every flag the concierge must run with, in a fixed order. */
 export function buildClaudeArgs(spec: ClaudeRunSpec): string[] {
   return [

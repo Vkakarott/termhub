@@ -29,6 +29,7 @@ const action = (over: Partial<ChatAction>): ChatAction => ({
   tool_use_id: null,
   subagent_id: null,
   created_at: '2026-09-21T00:00:00.000Z',
+  surfaced_at: null,
   ...over,
 });
 
@@ -102,6 +103,14 @@ it('reads like a sentence about the real world: the command, the tab, the projec
 // A card cannot be placed in a chronological thread without its own timestamp. Asserting the exact
 // value the row was given (not just "a string") catches a card built from `new Date()`, which would
 // pass a shape check yet silently reorder the thread.
+it('carries error_code and surfaced_at for the card to say why it ended and where it sits (TER-477)', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ status: 'failed', error_code: 'TAB_GONE', surfaced_at: '2026-09-30T06:00:00.000Z' })], OWNER);
+  expect(card).toMatchObject({ error_code: 'TAB_GONE', surfaced_at: '2026-09-30T06:00:00.000Z' });
+  const [plain] = await describeActions(repos, [action({})], OWNER);
+  expect(plain).toMatchObject({ error_code: null, surfaced_at: null });
+});
+
 it('carries the row\'s created_at unchanged', async () => {
   const repos = fakeRepos();
   const [card] = await describeActions(repos, [action({ created_at: '2020-01-02T03:04:05.000Z' })], OWNER);
@@ -279,6 +288,20 @@ it('names every other task tool by the task\'s title too', async () => {
 
   const [moveTask] = await describeActions(repos, [action({ tool: 'move_task', args: { task_id: 'tk1', status: 'done' } })], OWNER);
   expect(moveTask.summary).toBe('mover a tarefa REA-7 "Corrigir o build" no projeto reactivando');
+});
+
+// TER-499: link_tab_task carries a tab_id (copied onto the row) and a task_id (read from args): the card
+// names both, since what the user approves is "this card shows that tab".
+it('names the card and the tab of a link_tab_task, and says so when either is gone', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ tool: 'link_tab_task', args: { tab_id: 't1', task_id: 'tk1' }, tab_id: 't1' })], OWNER);
+  expect(card.summary).toBe('ligar a tarefa REA-7 "Corrigir o build" na aba Terminal 2 do projeto reactivando, no macbook m3');
+
+  const [noTask] = await describeActions(repos, [action({ tool: 'link_tab_task', args: { tab_id: 't1', task_id: 'gone' }, tab_id: 't1' })], OWNER);
+  expect(noTask.summary).toBe('ligar uma tarefa que não existe mais na aba Terminal 2 do projeto reactivando, no macbook m3');
+
+  const [noTab] = await describeActions(repos, [action({ tool: 'link_tab_task', args: { tab_id: 'gone', task_id: 'tk1' }, tab_id: 'gone' })], OWNER);
+  expect(noTab.summary).toBe('ligar a tarefa REA-7 "Corrigir o build" numa aba que não existe mais');
 });
 
 it('sync_tickets reads as fetching every source, no task or location involved', async () => {

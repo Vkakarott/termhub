@@ -63,6 +63,29 @@ export class ProjectGroupsRepository {
     return g;
   }
 
+  /** Pins or unpins one project in Favoritos. States the end result, so a repeat is a no-op; a new
+   *  pin goes last, as the sidebar's pin does. The phone's write (TER-541): it changes one member
+   *  without sending the whole list, which a phone holding a stale list would overwrite. */
+  async setFavorite(userId: string, projectId: string, favorite: boolean): Promise<void> {
+    await this.ensureFavorites(userId);
+    try {
+      await this.db.$transaction(async (tx) => {
+        const fav = await tx.projectGroup.findUniqueOrThrow({ where: { userId_systemKey: { userId, systemKey: FAVORITES_KEY } }, select: { id: true } });
+        if (!favorite) {
+          await tx.projectGroupItem.deleteMany({ where: { groupId: fav.id, projectId } });
+          return;
+        }
+        if (await tx.projectGroupItem.findUnique({ where: { groupId_projectId: { groupId: fav.id, projectId } } })) return;
+        const agg = await tx.projectGroupItem.aggregate({ where: { groupId: fav.id }, _max: { position: true }, _count: true });
+        if (agg._count >= MAX_ITEMS) throw new ProjectGroupRuleError('LIMIT', `Limite de ${MAX_ITEMS} projetos por grupo`);
+        await tx.projectGroupItem.create({ data: { groupId: fav.id, projectId, position: (agg._max.position ?? -1) + 1 } });
+      });
+    } catch (e) {
+      // the other racer pinned it first: it is pinned, which is all we wanted
+      if ((e as { code?: string }).code !== 'P2002') throw e;
+    }
+  }
+
   async create(userId: string, name: string): Promise<ProjectGroup> {
     await this.ensureFavorites(userId);
     const count = await this.db.projectGroup.count({ where: { userId } });

@@ -826,6 +826,8 @@ model ChatAction {
   /// The subagent (`chat_subagents`) whose turn proposed this action, when it ran inside one.
   subagentId     String?          @map("subagent_id")
   createdAt      DateTime         @default(now()) @map("created_at")
+  /// When the card was last brought back to the end of the chat (TER-477); the thread orders by it, else `createdAt`.
+  surfacedAt     DateTime?        @map("surfaced_at")
 
   @@index([conversationId, createdAt])
   @@index([conversationId, toolUseId])
@@ -966,6 +968,12 @@ model TabQuestion {
   status         String
   answer         Json?
   errorCode      String?          @map("error_code")
+  /// The subagent whose dialog this is (spec 2026-09-30 tab questions per subagent); null for the main
+  /// thread, for Codex and Cursor, and for a hook script that predates the id.
+  agentId        String?          @map("agent_id")
+  /// On a row marked `QUEUED`: the agents in that permission queue ('' is the main thread). The queue
+  /// ends when the list is empty. A mark of the previous release has none and ends on the first close.
+  queueAgents    String[]         @default([]) @map("queue_agents")
   answeredBy     String?          @map("answered_by")
   answeredAt     DateTime?        @map("answered_at")
   /// When the question left the tab's screen (the next hook event, or the tab removed).
@@ -984,6 +992,8 @@ model TabQuestion {
   /// Set once, before a wake turn starts (conditional update `WHERE woken_at IS NULL`), so one card
   /// never wakes the concierge twice (spec §3.2, §7).
   wokenAt        DateTime?        @map("woken_at")
+  /// When the card was last brought back to the end of the chat (TER-477); the thread orders by it, else `createdAt`.
+  surfacedAt     DateTime?        @map("surfaced_at")
 
   @@index([tabId, status])
   @@index([conversationId, createdAt])

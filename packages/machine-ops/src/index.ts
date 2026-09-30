@@ -11,3 +11,4 @@ export * from './hooks.js';
 export * from './claude-session.js';
 export * from './discover.js';
 export * from './simulator.js';
+export * from './scroll-script.js';

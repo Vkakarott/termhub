@@ -96,7 +96,7 @@ export async function checkTabSuggestion(repos: Repositories, log: Log, tabId: s
     const text = await readSuggestion(machine, tab.tmux_session);
     // Claude Code also suggests slash commands ("/compact"); sending refuses a leading / or !, so no card.
     if (text === null || /^[/!]/.test(text) || !still()) return;
-    const { question, closed } = await repos.tabQuestions.open({ tab_id: tab.id, project_id: tab.project_id, conversation_id: conversation.id, kind: 'suggestion', payload: { text, context }, tool_use_id: null });
+    const { question, closed } = await repos.tabQuestions.open({ tab_id: tab.id, project_id: tab.project_id, conversation_id: conversation.id, kind: 'suggestion', payload: { text, context }, tool_use_id: null, agent_id: null });
     await publishTabQuestions(repos, 'tab_question_closed', closed);
     if (question) {
       await publishTabQuestions(repos, 'tab_question', [question]);
@@ -125,7 +125,7 @@ export async function openCodexReply(repos: Repositories, log: Log, tabId: strin
     const owner = (await repos.projects.findById(tab.project_id))?.owner_id;
     const conversation = owner ? await repos.chat.findLatestActiveForProject(tab.project_id, owner) : undefined;
     if (!conversation) return;
-    const { question, closed } = await repos.tabQuestions.open({ tab_id: tab.id, project_id: tab.project_id, conversation_id: conversation.id, kind: 'suggestion', payload: { text: '', context, agent: 'codex' }, tool_use_id: null });
+    const { question, closed } = await repos.tabQuestions.open({ tab_id: tab.id, project_id: tab.project_id, conversation_id: conversation.id, kind: 'suggestion', payload: { text: '', context, agent: 'codex' }, tool_use_id: null, agent_id: null });
     await publishTabQuestions(repos, 'tab_question_closed', closed);
     if (question) {
       await publishTabQuestions(repos, 'tab_question', [question]);

@@ -11,7 +11,9 @@ export type ActionClass = 'read' | 'self_mediated' | 'write' | 'irreversible';
 // forget on the Memória screen; answer_tab_question only schedules a countdown the person can cancel,
 // or leaves a suggestion. record_lesson writes an unverified, visible block the person can forget —
 // spec TER-205 D11. Never add a tool here that acts on a machine directly.
-const selfMediatedTools = new Set(['record_decision', 'answer_tab_question', 'record_lesson']);
+// recap_pending_cards only moves the person's own cards to the end of their chat (TER-477): nothing is
+// decided, sent or changed on a machine, and a confirmation card for it would be one more card to answer.
+const selfMediatedTools = new Set(['record_decision', 'answer_tab_question', 'record_lesson', 'recap_pending_cards']);
 
 // Tools classified by reversibility
 const readTools = new Set([
@@ -42,6 +44,7 @@ const writeTools = new Set([
   'add_subtasks',
   'update_task',
   'move_task',
+  'link_tab_task',
   'link_project_machine',
   'set_project_machine_cwd',
   'sync_tickets',

@@ -29,6 +29,10 @@ export interface ChatActionCard {
    * none at all. Null for an action the top-level run proposed directly. */
   subagent: { id: string; description: string } | null;
   created_at: string;
+  /** Why a `failed` row ended (`TAB_GONE`, `WAITING_PERMISSION`…): the card says it (TER-477). Null otherwise. */
+  error_code: string | null;
+  /** When the card was last brought back to the end of the chat (TER-477): screens order by it, else `created_at`. */
+  surfaced_at: string | null;
 }
 
 const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -119,6 +123,8 @@ function verbPhrase(action: ChatAction, task: Task | undefined, ticketById: Map<
       return task ? `mover a tarefa ${named(task)}` : 'mover uma tarefa que não existe mais';
     case 'delete_task':
       return task ? `apagar a tarefa ${named(task)}` : 'apagar uma tarefa que não existe mais';
+    case 'link_tab_task':
+      return task ? `ligar a tarefa ${named(task)}` : 'ligar uma tarefa que não existe mais';
     case 'sync_tickets':
       return 'sincronizar os tickets de todas as fontes';
     case 'import_tickets': {
@@ -214,6 +220,8 @@ const toCard = (action: ChatAction, summary: string, subagent: { id: string; des
   summary,
   subagent,
   created_at: action.created_at,
+  error_code: action.error_code,
+  surfaced_at: action.surfaced_at ?? null,
 });
 
 /**
@@ -304,7 +312,9 @@ export async function describeActions(repos: Repositories, actions: ChatAction[]
 
     // Exactly one of these is ever populated for a real gated call (see the tool schemas): a tab_id
     // for terminal tools, a task_id for the four task tools, a project_id for open_tab/create_task/
-    // start_agent (and, for the three MACHINE_LINK_TOOLS below, alongside a machine_id too). Each is
+    // start_agent (and, for the three MACHINE_LINK_TOOLS below, alongside a machine_id too). The one
+    // exception is link_tab_task, which names a tab and a task: the tab is its "where" and the verb
+    // already names the task. Each is
     // the *primary* reference this specific action names, and its own resolution decides the whole
     // "where" — a project derived from a resolved tab or task (and a machine, only from a resolved
     // tab — a project has no single machine any more) is a secondary, best-effort addition, never

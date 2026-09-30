@@ -101,8 +101,14 @@ export const chatProjectItem = z.object({
   busy: z.boolean(),
   pending_confirmations: z.number().int(),
   last_message_at: z.string().nullable(),
+  /** 0-based place in the person's Favoritos (the web sidebar's group), or null when the project is
+   * not pinned. Defaults to null so an app newer than its server shows no pins instead of failing. */
+  favorite_position: z.number().int().nullable().default(null),
 });
 export const chatProjectsResponse = z.object({ projects: z.array(chatProjectItem) });
+/** `PUT chat/projects/:id/favorite`: the wanted end state, so a repeat is harmless. */
+export const projectFavoriteBody = z.object({ favorite: z.boolean() });
+export type TProjectFavoriteBody = z.infer<typeof projectFavoriteBody>;
 export const hostOptionsResponse = z.object({
   machines: z.array(
     z.object({

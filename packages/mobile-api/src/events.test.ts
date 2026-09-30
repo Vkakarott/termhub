@@ -217,3 +217,45 @@ describe('chatEventSchema: subagents', () => {
     expect(chatEventSchema.safeParse({ type: 'subagent_cancel_failed', ...base }).success).toBe(false);
   });
 });
+
+// Pending cards at hand (spec 2026-09-30, TER-477): `surfaced_at` brings a card to the end of the
+// thread, `error_code` says why a confirmation went stale, and `action_status` moves a card live. All
+// optional + nullable, and a new event type rather than a new enum value, so an installed app keeps parsing.
+describe('pending cards at hand (TER-477)', () => {
+  const q = { id: 'q1', tab_id: 't1', tab_name: 'api', status: 'open', error_code: null, created_at: '2026-09-30T12:00:00.000Z', answered_at: null, closed_at: null, kind: 'permission', payload: { tool_name: 'Bash' }, answer: null };
+  const s = { id: 's1', tab_id: 't1', tab_name: 'api', kind: 'suggestion', payload: { text: 'commit it' }, status: 'open', answer: null, error_code: null, created_at: '2026-09-30T12:00:00.000Z', answered_at: null, closed_at: null };
+  const confirmation = { type: 'confirmation', ...base, action_id: 'a1', tool: 'run_command', args: { command: 'ls' }, class: 'write', machine_id: null, project_id: null, tab_id: null, summary: 'Rodar ls', created_at: '2026-09-30T12:00:00.000Z' };
+
+  it('an action of an older server (no error_code, no surfaced_at) still parses', () => {
+    const r = chatActionSchema.parse(card);
+    expect(r.error_code).toBeUndefined();
+    expect(r.surfaced_at).toBeUndefined();
+  });
+  it('an action carries error_code and surfaced_at', () => {
+    const r = chatActionSchema.parse({ ...card, status: 'failed', error_code: 'TAB_GONE', surfaced_at: '2026-09-30T13:00:00.000Z' });
+    expect(r).toMatchObject({ error_code: 'TAB_GONE', surfaced_at: '2026-09-30T13:00:00.000Z' });
+    expect(chatActionSchema.safeParse({ ...card, error_code: null, surfaced_at: null }).success).toBe(true);
+  });
+  it('a tab question and a suggestion carry surfaced_at, or none (an older server)', () => {
+    expect(tabQuestionSchema.parse({ ...q, surfaced_at: '2026-09-30T13:00:00.000Z' }).surfaced_at).toBe('2026-09-30T13:00:00.000Z');
+    expect(tabQuestionSchema.safeParse({ ...q, surfaced_at: null }).success).toBe(true);
+    expect(tabQuestionSchema.safeParse(q).success).toBe(true);
+    expect(tabSuggestionSchema.parse({ ...s, surfaced_at: '2026-09-30T13:00:00.000Z' }).surfaced_at).toBe('2026-09-30T13:00:00.000Z');
+    expect(tabSuggestionSchema.safeParse(s).success).toBe(true);
+  });
+  it('a resurfaced confirmation and tab_question parse with surfaced_at and resurfaced', () => {
+    const c = chatEventSchema.parse({ ...confirmation, surfaced_at: '2026-09-30T13:00:00.000Z', resurfaced: true });
+    expect(c.type === 'confirmation' && [c.surfaced_at, c.resurfaced]).toEqual(['2026-09-30T13:00:00.000Z', true]);
+    expect(chatEventSchema.safeParse({ ...confirmation, surfaced_at: null }).success).toBe(true);
+    const t = chatEventSchema.parse({ type: 'tab_question', ...base, question: { ...q, surfaced_at: '2026-09-30T13:00:00.000Z' }, resurfaced: true });
+    expect(t.type === 'tab_question' && t.resurfaced).toBe(true);
+  });
+  it('parses action_status, with or without an error code', () => {
+    const r = chatEventSchema.parse({ type: 'action_status', ...base, action_id: 'a1', status: 'failed', error_code: 'TAB_GONE' });
+    expect(r).toMatchObject({ type: 'action_status', action_id: 'a1', status: 'failed', error_code: 'TAB_GONE' });
+    for (const status of ['executed', 'expired'] as const) {
+      expect(chatEventSchema.safeParse({ type: 'action_status', ...base, action_id: 'a1', status, error_code: null }).success).toBe(true);
+    }
+    expect(chatEventSchema.safeParse({ type: 'action_status', ...base, action_id: 'a1', status: 'pending', error_code: null }).success).toBe(false);
+  });
+});

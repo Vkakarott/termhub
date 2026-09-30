@@ -11,10 +11,11 @@ import { closeTab, INPUT_MAX_CHARS, openTab, runCommand, RUN_MAX_SECONDS, sendIn
 import { linkProjectMachine, PROJECT_CWD, setProjectMachineCwd, unlinkProjectMachine } from '../control/project-links.js';
 import { addSubtasks, createTask, deleteTask, listTasks, moveTask, TASK_DESCRIPTION_MAX, TASK_POSITION_MAX, TASK_TITLE_MAX, updateTask, type CreatableType, type WorkType } from '../control/tasks.js';
 import { getTicket, importTickets, listTickets, pushTicketStatus, syncTickets, TICKET_IMPORT_MAX, TICKET_LIST_MAX } from '../control/tickets.js';
-import { PROMPT_MAX_CHARS, startAgent } from '../control/agents.js';
+import { linkTabTask, PROMPT_MAX_CHARS, startAgent } from '../control/agents.js';
 import { answerTabQuestionTool, listTabQuestions, recordDecision, searchMemory, MEMORY_REF, type MemoryRefKind } from '../control/memory.js';
 import { createIntegration, getProjectSetup, listIntegrations, setProjectRepo } from '../control/integrations.js';
 import { recordLesson } from '../control/lessons.js';
+import { recapPendingCards } from '../control/pending.js';
 import { readAttachment } from '../chat/attachments/read-tool.js';
 import { MAX_SUBTASKS_PER_CALL } from '../db/repositories/tasks.js';
 import type { TaskStatus, TaskType } from '../db/repositories/types.js';
@@ -95,7 +96,8 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'list_ai_accounts',
-    description: 'List the AI CLI accounts (Claude, Codex, Gemini, Antigravity) logged in on your machines: id, provider, label, machine.',
+    description:
+      "List the AI CLI accounts (Claude, Codex, Gemini, Antigravity) logged in on your machines: id, provider, label, machine and default. default: true is the machine's own login for that CLI (the one it uses with no config dir override); false is another login kept on the same machine.",
     scope: 'read', resource: 'ai_accounts', action: 'read',
     input: { machine_id: id.optional() },
     run: (ctx, a) => listAiAccounts(ctx, a as { machine_id?: string }),
@@ -195,10 +197,18 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'start_agent',
-    description: `Open a tab in a project and start Claude Code (account provider claude) or Codex (chatgpt) there under the chosen account, with prompt (max ${PROMPT_MAX_CHARS} chars) as its first message; the session stays interactive and visible in the app. With task_id (needs the tasks:update permission) the task is linked to the tab and moved to the project's agent column (a project setting; default the first doing column) unless it already sits in a doing column; a subtask is marked doing. The prompt cannot start with "-" or contain control characters other than newlines. To follow it, wait with wait_for_state (in one background subagent that ends at the first stop), then read_last_answer; questions and approvals reach the person as chat cards. read_screen only shows what is on screen; send_input answers it otherwise. Gemini and Antigravity accounts are not supported yet. machine_id picks the linked machine (required when the project has several).`,
+    description: `Open a tab in a project and start Claude Code (account provider claude) or Codex (chatgpt) there under the chosen account, with prompt (max ${PROMPT_MAX_CHARS} chars) as its first message; the session stays interactive and visible in the app. With task_id (needs the tasks:update permission) the task is linked to the tab and moved to the project's agent column (a project setting; default the first doing column) unless it already sits in a doing column; a subtask is marked doing. The prompt cannot start with "-" or contain control characters other than newlines. To follow it, wait with wait_for_state (in one background subagent that ends at the first stop), then read_last_answer; questions and approvals reach the person as chat cards. read_screen only shows what is on screen; send_input answers it otherwise. Gemini and Antigravity accounts are not supported yet. Pick the account with list_ai_accounts (default: true is the machine's own login). machine_id picks the linked machine (required when the project has several).`,
     scope: 'terminals', resource: 'terminals', action: 'write',
     input: { project_id: id, machine_id: id.optional(), account_id: id, prompt: z.string().min(1).max(PROMPT_MAX_CHARS), task_id: id.optional(), tab_name: z.string().trim().min(1).max(60).optional() },
     run: (ctx, a) => startAgent(ctx, a as { project_id: string; machine_id?: string; account_id: string; prompt: string; task_id?: string; tab_name?: string }),
+  },
+  {
+    name: 'link_tab_task',
+    description:
+      "Link a terminal tab that is already open to a card of the same project, as start_agent does for the tab it opens: the card shows the tab (and its agent in Progresso) and moves to the project's agent column unless it already sits in a doing column; a subtask is marked doing. A card linked to another tab is re-pointed (previous_tab_id names the one it left). Nothing is typed into the tab. Use it for an agent that was started by hand in a tab; to start an agent on a card, use start_agent with task_id.",
+    scope: 'tasks', resource: 'tasks', action: 'update',
+    input: { tab_id: id, task_id: id },
+    run: (ctx, a) => linkTabTask(ctx, a as { tab_id: string; task_id: string }),
   },
   {
     name: 'list_tasks',
@@ -275,6 +285,16 @@ export const TOOLS: ToolDef[] = [
     action: 'read',
     input: { project_id: id.optional() },
     run: (ctx, a) => listTabQuestions(ctx, a as { project_id?: string }),
+  },
+  {
+    name: 'recap_pending_cards',
+    description:
+      'Bring every card waiting on the person in this chat — your pending confirmations and the tabs\' open questions and permission prompts — back to the end of the conversation, and list them. Use it when the person asks to see what is waiting on them ("manda aqui pra eu aprovar") instead of telling them to scroll up. Nothing is decided or sent. Only works in the termhub chat.',
+    scope: 'read',
+    resource: 'terminals',
+    action: 'read',
+    input: {},
+    run: (ctx) => recapPendingCards(ctx),
   },
   {
     name: 'answer_tab_question',

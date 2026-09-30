@@ -79,3 +79,40 @@ describe('Chats', () => {
     expect(mockPush).toHaveBeenLastCalledWith('/chat/p-termhub');
   });
 });
+
+describe('Chats: pinning a project (TER-541)', () => {
+  afterEach(async () => {
+    // The mock server and the store live for the whole file: leave nothing pinned for the next test.
+    for (const p of useChatStore.getState().projects) if (p.favorite_position !== null) await useChatStore.getState().setFavorite(p.id, false);
+  });
+
+  it('has a pin on each project row, none on Chat geral', async () => {
+    await render(<ChatsScreen />);
+    expect(await screen.findByRole('button', { name: 'Fixar termhub em Favoritos' }, LOAD)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Fixar opapingou em Favoritos' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Chat geral em Favoritos/ })).toBeNull();
+  });
+
+  it('the pin pins the project, and then offers to unpin it', async () => {
+    const write = jest.spyOn(stores.api, 'setProjectFavorite');
+    await render(<ChatsScreen />);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Fixar termhub em Favoritos' }, LOAD));
+    expect(write).toHaveBeenCalledWith(expect.anything(), 'p-termhub', true);
+    expect(await screen.findByRole('button', { name: 'Tirar termhub de Favoritos' })).toBeTruthy();
+    // The row itself still opens the chat.
+    await fireEvent.press(screen.getByRole('button', { name: /^termhub/ }));
+    expect(mockPush).toHaveBeenLastCalledWith('/chat/p-termhub');
+  });
+
+  it('a long press on the row opens a sheet that pins it', async () => {
+    await render(<ChatsScreen />);
+    await fireEvent(await screen.findByRole('button', { name: /^opapingou/ }, LOAD), 'longPress');
+    // The sheet is titled with the project: its name is on screen twice, the row and the title.
+    await fireEvent.press(await screen.findByRole('button', { name: 'Fixar em Favoritos' }));
+    expect(screen.getAllByText('opapingou')).toHaveLength(1);
+    expect(await screen.findByRole('button', { name: 'Tirar opapingou de Favoritos' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Fixar em Favoritos' })).toBeNull();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+});
+

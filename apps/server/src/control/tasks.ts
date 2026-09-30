@@ -78,7 +78,7 @@ const outTree = (t: TaskWithSubtasks): TaskTreeOut => ({ ...taskOut(t), subtasks
 const columnOut = (c: TaskColumn): ColumnOut => ({ id: c.id, name: c.name, category: c.category });
 
 /** Board rules live in the repository; a broken one is the caller's mistake, said in pt-BR. */
-async function rules<T>(run: () => Promise<T>): Promise<T> {
+export async function rules<T>(run: () => Promise<T>): Promise<T> {
   try {
     return await run();
   } catch (e) {

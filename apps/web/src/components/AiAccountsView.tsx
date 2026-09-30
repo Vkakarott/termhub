@@ -8,7 +8,7 @@ import { ConfirmDialog, Modal } from './Modal';
 const PROVIDERS: AiProvider[] = ['claude', 'chatgpt', 'gemini', 'antigravity'];
 
 const PROVIDER_HINT: Record<AiProvider, string> = {
-  claude: 'Lê o login do Claude Code na máquina (~/.claude). Para uma segunda conta (ex.: a da empresa), faça login com CLAUDE_CONFIG_DIR=~/.claude-work claude e informe o diretório aqui.',
+  claude: 'Lê o login do Claude Code na máquina (~/.claude). Para uma segunda conta (ex.: a da empresa), faça login com CLAUDE_CONFIG_DIR=~/.claude-work claude e escolha "Outro diretório de config" abaixo.',
   chatgpt: 'Lê o login do Codex CLI na máquina (~/.codex). Entre com "Sign in with ChatGPT" — login por API key não tem limite de plano.',
   gemini: 'Lê o login do Gemini CLI na máquina (~/.gemini). Entre com a conta Google — login por API key não tem cota de plano.',
   antigravity: 'Lê o login do Antigravity CLI na máquina (~/.gemini/antigravity-cli/antigravity-oauth-token; o diretório de config é ~/.gemini). Rode `agy` e entre com a conta Google do plano AI Pro/Ultra — login por API key não tem cota de plano.',
@@ -21,11 +21,12 @@ const PROVIDER_STYLE: Record<AiProvider, string> = {
   antigravity: 'bg-[#a78bfa]/15 text-[#c4b5fd]',
 };
 
-const PROVIDER_DIR: Record<AiProvider, string> = {
-  claude: '~/.claude',
-  chatgpt: '~/.codex',
-  gemini: '~/.gemini',
-  antigravity: '~/.gemini',
+/** An example of a second login's config dir, never the CLI's own default: that one is "Conta padrão da máquina". */
+const OTHER_DIR_EXAMPLE: Record<AiProvider, string> = {
+  claude: '~/.claude-work',
+  chatgpt: '~/.codex-work',
+  gemini: '~/.gemini-work',
+  antigravity: '~/.gemini-work',
 };
 
 function countdown(iso: string | null, now: number): string | null {
@@ -119,7 +120,7 @@ function AccountCard({
       </div>
       <div className="mt-0.5 truncate font-mono text-[11px] text-fg-dim" title={account.config_dir ?? undefined}>
         {machineName}
-        {account.config_dir ? ` · ${account.config_dir}` : ''}
+        {account.config_dir ? ` · ${account.config_dir}` : ' · login padrão'}
       </div>
 
       <div className="mt-3 flex-1">
@@ -154,6 +155,9 @@ function AccountForm({ account, onClose, onSaved }: { account: AiAccount | null;
   const [provider, setProvider] = useState<AiProvider>(account?.provider ?? 'claude');
   const [label, setLabel] = useState(account?.label ?? '');
   const [machineId, setMachineId] = useState(account?.machine_id ?? machines[0]?.id ?? '');
+  // Which login the account is (TER-499): the machine's default one (no config dir, stored as null) or
+  // another one kept in its own config dir.
+  const [custom, setCustom] = useState(!!account?.config_dir);
   const [configDir, setConfigDir] = useState(account?.config_dir ?? '');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -163,7 +167,7 @@ function AccountForm({ account, onClose, onSaved }: { account: AiAccount | null;
     setBusy(true);
     setError(null);
     try {
-      const input = { label: label || AI_PROVIDER_LABEL[provider], machine_id: machineId, config_dir: configDir.trim() || null };
+      const input = { label: label || AI_PROVIDER_LABEL[provider], machine_id: machineId, config_dir: custom ? configDir.trim() : null };
       const r = account ? await api.aiAccounts.update(account.id, input) : await api.aiAccounts.create({ provider, ...input });
       onSaved(r.account);
     } catch (err) {
@@ -207,16 +211,38 @@ function AccountForm({ account, onClose, onSaved }: { account: AiAccount | null;
             ))}
           </select>
         </div>
-        <div>
-          <label className="label">Diretório de config (opcional)</label>
-          <input className="input font-mono" value={configDir} onChange={(e) => setConfigDir(e.target.value)} placeholder={PROVIDER_DIR[provider]} />
-        </div>
+        <fieldset>
+          <legend className="label">Login</legend>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="radio" name="ai-account-login" className="mt-1" checked={!custom} onChange={() => setCustom(false)} />
+            <span>
+              Conta padrão da máquina
+              <span className="block text-xs text-fg-dim">O login que o CLI usa quando nenhum diretório de config é definido.</span>
+            </span>
+          </label>
+          <label className="mt-2 flex items-start gap-2 text-sm">
+            <input type="radio" name="ai-account-login" className="mt-1" checked={custom} onChange={() => setCustom(true)} />
+            <span>
+              Outro diretório de config
+              <span className="block text-xs text-fg-dim">Uma segunda conta do mesmo CLI, logada em um diretório próprio.</span>
+            </span>
+          </label>
+          {custom && (
+            <input
+              className="input mt-2 font-mono"
+              aria-label="Diretório de config"
+              value={configDir}
+              onChange={(e) => setConfigDir(e.target.value)}
+              placeholder={OTHER_DIR_EXAMPLE[provider]}
+            />
+          )}
+        </fieldset>
         {error && <p className="text-sm text-danger">{error}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" className="btn-ghost" onClick={onClose}>
             Cancelar
           </button>
-          <button type="submit" className="btn-primary" disabled={busy || !machineId}>
+          <button type="submit" className="btn-primary" disabled={busy || !machineId || (custom && !configDir.trim())}>
             {account ? 'Salvar' : 'Adicionar'}
           </button>
         </div>

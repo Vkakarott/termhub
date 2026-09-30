@@ -4,7 +4,7 @@ import type { TabQuestionSuggestion } from '../../chat/decision-text.js';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
 import { ChatRepository } from './chat.js';
-import { LIST_OPEN_CHOICES_MAX, TabQuestionsRepository, type AutoAnswer } from './tab-questions.js';
+import { LIST_OPEN_CHOICES_MAX, TabQuestionsRepository, type AutoAnswer, type CloseScope } from './tab-questions.js';
 
 const payload = { questions: [{ question: 'Qual cor?', header: 'Cor', multi_select: false, options: [{ label: 'Azul', description: '', recommended: true }, { label: 'Verde', description: '', recommended: false }] }] };
 
@@ -46,10 +46,127 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
   });
 
   const open = async (tabId: string, now?: Date) => {
-    const r = await repo.open({ tab_id: tid(tabId), project_id: projectId, conversation_id: conversationId, kind: 'choice', payload, tool_use_id: 'toolu_1' }, now);
+    const r = await repo.open({ tab_id: tid(tabId), project_id: projectId, conversation_id: conversationId, kind: 'choice', payload, tool_use_id: 'toolu_1', agent_id: null }, now);
     return { question: r.question!, closed: r.closed };
   };
-  const openPermission = (tabId: string, tool: string) => repo.open({ tab_id: tid(tabId), project_id: projectId, conversation_id: conversationId, kind: 'permission', payload: { tool_name: tool }, tool_use_id: null });
+  const openPermission = (tabId: string, tool: string, agentId: string | null = null) => repo.open({ tab_id: tid(tabId), project_id: projectId, conversation_id: conversationId, kind: 'permission', payload: { tool_name: tool }, tool_use_id: null, agent_id: agentId });
+
+  const tool = (agent: string): CloseScope => ({ agent, leavesQueue: false });
+  const ended = (agent: string | null): CloseScope => ({ agent, leavesQueue: true });
+  const queueState = (id: string) => db.tabQuestion.findUniqueOrThrow({ where: { id }, select: { errorCode: true, queueAgents: true } });
+  const queuedPair = async (tabId: string) => {
+    const first = (await openPermission(tabId, 'Bash', 'A')).question!;
+    expect(first).toMatchObject({ status: 'open' });
+    expect(await openPermission(tabId, 'Bash', 'B')).toEqual({ question: null, closed: [expect.objectContaining({ id: first.id, status: 'answered_in_tab' })] });
+    expect(await queueState(first.id)).toEqual({ errorCode: 'QUEUED', queueAgents: ['A', 'B'] });
+    return first.id;
+  };
+
+  it('scoped closes reach only their agent and tab, including main-thread choices', async () => {
+    const aTab = newId();
+    const mainTab = newId();
+    const a = (await openPermission(aTab, 'Bash', 'A')).question!;
+    const main = (await open(mainTab)).question;
+    expect(await repo.closeForTab(aTab, 'answered_in_tab', ended(null))).toEqual([]);
+    expect(await repo.closeForTab(aTab, 'answered_in_tab', tool('B'))).toEqual([]);
+    expect((await repo.findOpenForTab(aTab))?.id).toBe(a.id);
+    expect(await repo.closeForTab(aTab, 'answered_in_tab', tool('A'))).toEqual([expect.objectContaining({ id: a.id, status: 'answered_in_tab' })]);
+    expect(await repo.closeForTab(mainTab, 'answered_in_tab', tool('A'))).toEqual([]);
+    expect(await repo.closeForTab(mainTab, 'answered_in_tab', ended(null))).toEqual([expect.objectContaining({ id: main.id, status: 'answered_in_tab' })]);
+  });
+
+  it('a scoped close preserves an answered card status and stamps closed_at only for its agent', async () => {
+    const tabId = newId();
+    const a = (await openPermission(tabId, 'Bash', 'A')).question!;
+    await repo.claim(a.id, userId, { allow: true });
+    expect(await repo.closeForTab(tabId, 'answered_in_tab', tool('B'))).toEqual([]);
+    expect((await repo.findByIdForUser(a.id, userId))?.closed_at).toBeNull();
+    const at = new Date('2026-09-30T05:00:00.000Z');
+    expect(await repo.closeForTab(tabId, 'answered_in_tab', ended('A'), at)).toEqual([expect.objectContaining({ id: a.id, status: 'answered', closed_at: at.toISOString() })]);
+  });
+
+  it('a queue keeps each agent until it ends, and adds new members without duplicates', async () => {
+    const tabId = newId();
+    const id = await queuedPair(tabId);
+    for (const agent of ['A', 'B']) {
+      expect(await repo.closeForTab(tabId, 'answered_in_tab', tool(agent))).toEqual([]);
+      expect(await queueState(id)).toEqual({ errorCode: 'QUEUED', queueAgents: ['A', 'B'] });
+    }
+    await repo.closeForTab(tabId, 'answered_in_tab', ended('H'));
+    expect(await queueState(id)).toEqual({ errorCode: 'QUEUED', queueAgents: ['A', 'B'] });
+    await repo.closeForTab(tabId, 'answered_in_tab', ended('A'));
+    expect(await queueState(id)).toEqual({ errorCode: 'QUEUED', queueAgents: ['B'] });
+    expect(await openPermission(tabId, 'Edit', 'C')).toEqual({ question: null, closed: [] });
+    expect(await openPermission(tabId, 'Bash', 'C')).toEqual({ question: null, closed: [] });
+    expect(await queueState(id)).toEqual({ errorCode: 'QUEUED', queueAgents: ['B', 'C'] });
+    await repo.closeForTab(tabId, 'answered_in_tab', ended(null));
+    expect(await queueState(id)).toEqual({ errorCode: 'QUEUED', queueAgents: ['B', 'C'] });
+    await repo.closeForTab(tabId, 'answered_in_tab', ended('B'));
+    expect(await queueState(id)).toEqual({ errorCode: 'QUEUED', queueAgents: ['C'] });
+    await repo.closeForTab(tabId, 'answered_in_tab', ended('C'));
+    expect(await queueState(id)).toEqual({ errorCode: null, queueAgents: [] });
+    expect((await openPermission(tabId, 'Bash', 'A')).question).toMatchObject({ status: 'open' });
+  });
+
+  it('the default all scope ends a queue at once', async () => {
+    const tabId = newId();
+    const id = await queuedPair(tabId);
+    expect(await repo.closeForTab(tabId, 'answered_in_tab')).toEqual([]);
+    expect(await queueState(id)).toEqual({ errorCode: null, queueAgents: [] });
+  });
+
+  it('the main thread queue has one empty-string member and ends on its closing event', async () => {
+    const tabId = newId();
+    const first = (await openPermission(tabId, 'Bash')).question!;
+    expect((await openPermission(tabId, 'Edit')).question).toBeNull();
+    expect(await queueState(first.id)).toEqual({ errorCode: 'QUEUED', queueAgents: [''] });
+    await repo.closeForTab(tabId, 'answered_in_tab', ended(null));
+    expect(await queueState(first.id)).toEqual({ errorCode: null, queueAgents: [] });
+  });
+
+  it.each(['A', null])('a previous-release queue survives tools and ends when %s leaves', async (agent) => {
+    const tabId = newId();
+    const first = (await openPermission(tabId, 'Bash')).question!;
+    await repo.closeForTab(tabId, 'answered_in_tab');
+    await db.tabQuestion.update({ where: { id: first.id }, data: { errorCode: 'QUEUED', queueAgents: [] } });
+    await repo.closeForTab(tabId, 'answered_in_tab', tool('A'));
+    expect(await queueState(first.id)).toEqual({ errorCode: 'QUEUED', queueAgents: [] });
+    await repo.closeForTab(tabId, 'answered_in_tab', ended(agent));
+    expect(await queueState(first.id)).toEqual({ errorCode: null, queueAgents: [] });
+  });
+
+  it.each([true, false])('a choice clears every queue mark and list, with conversation=%s', async (hasConversation) => {
+    const tabId = newId();
+    const id = await queuedPair(tabId);
+    // A previous release may leave an older mark behind too: clear every marked row.
+    const olderId = newId();
+    await db.tabQuestion.create({ data: { id: olderId, tabId, projectId, conversationId, kind: 'permission', payload: { tool_name: 'Bash' }, status: 'answered_in_tab', closedAt: new Date(), createdAt: new Date('2026-09-01'), errorCode: 'QUEUED', queueAgents: ['D'] } });
+    const result = await repo.open({ tab_id: tabId, project_id: projectId, conversation_id: hasConversation ? conversationId : null, kind: 'choice', payload, tool_use_id: null, agent_id: null });
+    if (hasConversation) expect(result.question).toMatchObject({ kind: 'choice', status: 'open' });
+    else expect(result.question).toBeNull();
+    for (const markedId of [id, olderId]) expect(await queueState(markedId)).toEqual({ errorCode: null, queueAgents: [] });
+  });
+
+  it('open stores a subagent id and null for the main thread', async () => {
+    const a = (await openPermission(newId(), 'Bash', 'A')).question!;
+    const main = (await open(newId())).question;
+    expect(await db.tabQuestion.findUniqueOrThrow({ where: { id: a.id } })).toMatchObject({ agentId: 'A' });
+    expect(await db.tabQuestion.findUniqueOrThrow({ where: { id: main.id } })).toMatchObject({ agentId: null });
+  });
+
+  it('surfaces the open questions of the conversation, never a suggestion nor a closed one (TER-477)', async () => {
+    const { question } = await open('tsurf1');
+    const closedOne = (await open('tsurf2')).question;
+    await repo.closeOne(closedOne.id, 'answered_in_tab');
+    expect(question.surfaced_at).toBeNull();
+    const now = new Date('2030-01-01T00:00:00.000Z');
+    const surfaced = await repo.surfaceOpen(conversationId, now);
+    expect(surfaced.map((r) => r.id)).toContain(question.id);
+    expect(surfaced.map((r) => r.id)).not.toContain(closedOne.id);
+    expect(surfaced.every((r) => r.kind !== 'suggestion' && r.status === 'open')).toBe(true);
+    expect(surfaced.find((r) => r.id === question.id)?.surfaced_at).toBe(now.toISOString());
+    await repo.closeOne(question.id, 'answered_in_tab');
+  });
 
   it('opens a question owned through its conversation, the tab\'s only open one', async () => {
     const { question, closed } = await open('t1');
@@ -138,7 +255,7 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
     expect(p4.question).toMatchObject({ kind: 'permission', status: 'open' });
     // A question event with no chat (`open` with no conversation) keeps the queue.
     await openPermission('t12', 'Edit'); // queues again
-    expect(await repo.open({ tab_id: 't12', project_id: projectId, conversation_id: null, kind: 'permission', payload: { tool_name: 'Write' }, tool_use_id: null })).toEqual({ question: null, closed: [] });
+    expect(await repo.open({ tab_id: 't12', project_id: projectId, conversation_id: null, kind: 'permission', payload: { tool_name: 'Write' }, tool_use_id: null, agent_id: null })).toEqual({ question: null, closed: [] });
     expect((await openPermission('t12', 'Bash')).question).toBeNull();
   });
 
@@ -154,8 +271,8 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
   const openNoChat = (tabId: string, kind: 'choice' | 'permission') =>
     repo.open(
       kind === 'choice'
-        ? { tab_id: tid(tabId), project_id: projectId, conversation_id: null, kind, payload, tool_use_id: 'toolu_1' }
-        : { tab_id: tid(tabId), project_id: projectId, conversation_id: null, kind, payload: { tool_name: 'Edit' }, tool_use_id: null },
+        ? { tab_id: tid(tabId), project_id: projectId, conversation_id: null, kind, payload, tool_use_id: 'toolu_1', agent_id: null }
+        : { tab_id: tid(tabId), project_id: projectId, conversation_id: null, kind, payload: { tool_name: 'Edit' }, tool_use_id: null, agent_id: null },
     );
 
   it('no conversation: a permission behind an open one marks it QUEUED and inserts nothing — a conversation created mid-queue opens no card for the third prompt', async () => {
@@ -249,7 +366,7 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
     expect(await chat.findLatestActiveForProject('nope', userId)).toBeUndefined();
   });
 
-  const openSuggestion = (tabId: string, text = 'commit it') => repo.open({ tab_id: tid(tabId), project_id: projectId, conversation_id: conversationId, kind: 'suggestion', payload: { text }, tool_use_id: null });
+  const openSuggestion = (tabId: string, text = 'commit it') => repo.open({ tab_id: tid(tabId), project_id: projectId, conversation_id: conversationId, kind: 'suggestion', payload: { text }, tool_use_id: null, agent_id: null });
 
   it("a suggestion is a row like the others: the tab's open one, closed by the tab's next event", async () => {
     const { question: s } = await openSuggestion('ts1');
@@ -399,7 +516,7 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
       const { question: sent } = await open('tc11');
       await repo.setAutoAnswer(sent.id, autoAnswer({ due_at: dueNow() }));
       await repo.claimAutoAnswer(sent.id);
-      const { question: foreign } = await repo.open({ tab_id: 'tc12', project_id: otherProject, conversation_id: otherConversation, kind: 'choice', payload, tool_use_id: null });
+      const { question: foreign } = await repo.open({ tab_id: 'tc12', project_id: otherProject, conversation_id: otherConversation, kind: 'choice', payload, tool_use_id: null, agent_id: null });
       await repo.setAutoAnswer(foreign!.id, autoAnswer());
 
       const cancelled = await repo.cancelScheduledForUser(userId);
@@ -570,7 +687,7 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
       const { question: openPerm } = await openPermission('lq2', 'Bash');
       const { question: answered } = await open('lq3');
       await repo.claim(answered.id, userId, { answers: [{ selected: [0] }] });
-      const { question: otherProjectChoice } = await repo.open({ tab_id: 'lq4', project_id: project2, conversation_id: conversation2, kind: 'choice', payload, tool_use_id: null });
+      const { question: otherProjectChoice } = await repo.open({ tab_id: 'lq4', project_id: project2, conversation_id: conversation2, kind: 'choice', payload, tool_use_id: null, agent_id: null });
 
       const mine = await repo.listOpenChoicesForUser(userId);
       const ids = mine.map((q) => q.id);

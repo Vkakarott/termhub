@@ -49,6 +49,12 @@ export interface Interpreted {
    * carries one. Stored apart from `text`, which stays capped for the UI (spec 2026-09-30 last answer).
    */
   answer?: string;
+  /**
+   * The event says nothing about the tab's state: it only runs the card bookkeeping (Claude's
+   * `SubagentStop`, which closes that subagent's card; spec 2026-09-30 tab questions per subagent).
+   * The ingest records nothing for it.
+   */
+  closeOnly?: true;
 }
 
 /**
@@ -185,6 +191,9 @@ function interpretClaudeEvent(ev: Record<string, unknown>): Interpreted | null {
     }
     case 'SessionEnd':
       return { kind: 'idle', text: null, meta: { event: name, reason: str(ev.reason) } };
+    case 'SubagentStop':
+      // Reduced to the subagent's id on the machine. No state: the tab is wherever its main thread is.
+      return agentIdOf(ev) === null ? null : { kind: 'working', text: null, meta: { event: name }, closeOnly: true };
     default:
       return null;
   }
@@ -195,6 +204,8 @@ function interpretClaudeEvent(ev: Record<string, unknown>): Interpreted | null {
  * bodies (`subagent: true`), and an AskUserQuestion, which travels whole, carries its own `agent_id` (so does
  * a Codex PermissionRequest, also whole; Codex's reduced tool events carry the flag the same way). Only
  * the boolean true and a non-blank string count: an old script sends neither and keeps today's behaviour.
+ * Claude's events also carry the subagent's id in `meta.agent_id` when it passes `AGENT_ID` (spec
+ * 2026-09-30 tab questions per subagent); Codex's never do.
  */
 const isSubagent = (ev: Record<string, unknown>): boolean => ev.subagent === true || str(ev.agent_id) !== null;
 
@@ -204,9 +215,16 @@ const asSubagent = (out: Interpreted): Interpreted => {
   return { ...rest, meta: { ...out.meta, subagent: true } };
 };
 
+/** A subagent's id as the hook script forwards it, checked again here, as it came (never trimmed). */
+const AGENT_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const agentIdOf = (ev: Record<string, unknown>): string | null => (typeof ev.agent_id === 'string' && AGENT_ID.test(ev.agent_id) ? ev.agent_id : null);
+
 function interpretClaude(ev: Record<string, unknown>): Interpreted | null {
   const out = interpretClaudeEvent(ev);
-  return out && isSubagent(ev) ? asSubagent(out) : out;
+  if (!out || !isSubagent(ev)) return out;
+  const sub = asSubagent(out);
+  const id = agentIdOf(ev);
+  return id === null ? sub : { ...sub, meta: { ...sub.meta, agent_id: id } };
 }
 
 /** How Codex's own naming prompt begins; the person's request is appended after it. */

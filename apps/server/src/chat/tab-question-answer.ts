@@ -7,7 +7,7 @@ import { toTabQuestionView, type TabQuestionView } from '../db/repositories/tab-
 import { forbidden, HttpError, notFound } from '../lib/errors.js';
 import { recordDecisions } from './decision-memory.js';
 import { defaultEmbedder, type Embedder } from './embeddings.js';
-import { lastNonBlankLines, promptVisible } from './permission-dialog.js';
+import { dialogFooterVisible, lastNonBlankLines, promptVisible } from './permission-dialog.js';
 import { answerKeyPlan, type KeyStep } from './tab-question-keys.js';
 import { checkChoiceAnswer, choiceAnswerBody, permissionAnswerBody, type ChoiceAnswer, type ChoicePayload, type PermissionAnswer, type PermissionPayload, type TabQuestionKind } from './tab-question-payload.js';
 import { publishTabQuestions } from './tab-questions.js';
@@ -17,7 +17,7 @@ import { publishTabQuestions } from './tab-questions.js';
 export const KEY_STEP_PAUSE_MS = 150;
 /** How much of the pane the live check and the excerpt read. */
 export const SCREEN_CHECK_LINES = 60;
-export { DIALOG_FOOTER, lastNonBlankLines, permissionDialogVisible, PROMPT_MARKER_LINES, promptVisible, SCREEN_EXCERPT_LINES } from './permission-dialog.js';
+export { DIALOG_FOOTER, dialogFooterVisible, lastNonBlankLines, permissionDialogVisible, PROMPT_MARKER_LINES, promptVisible, SCREEN_EXCERPT_LINES } from './permission-dialog.js';
 
 export type TabAnswer = ChoiceAnswer | PermissionAnswer;
 
@@ -25,7 +25,10 @@ export type TabAnswer = ChoiceAnswer | PermissionAnswer;
 export type QuestionRow = TabQuestion & { kind: TabQuestionKind };
 export const isQuestionRow = (row: TabQuestion | undefined): row is QuestionRow => row !== undefined && row.kind !== 'suggestion';
 
-export const promptChanged = () => new HttpError(409, 'A pergunta mudou na aba', 'TAB_PROMPT_CHANGED');
+export const promptChanged = () => new HttpError(409, 'A aba já não mostra esta pergunta: nada foi enviado.', 'TAB_PROMPT_CHANGED');
+/** A dialog is on the tab's screen, but it could not be matched to this card (TER-542): nothing is typed
+ * and the card stays open — closing it would lose the question over what may be a misread screen. */
+export const promptNotSeen = () => new HttpError(409, 'Não encontrei esta pergunta na tela da aba, então nada foi enviado. Responda direto na aba.', 'TAB_PROMPT_NOT_SEEN');
 
 /** The body, validated against the row's own kind and question (spec §5.3). */
 export function parseAnswer(row: TabQuestion, raw: unknown): TabAnswer {
@@ -125,6 +128,11 @@ export async function answerTabQuestion(ctx: ControlContext, id: string, raw: un
     throw asHttp(err);
   }
   if (!promptVisible(screen, row)) {
+    // A dialog is still up, just not one this card recognises: say so and leave the card alone.
+    if (dialogFooterVisible(screen)) {
+      deps.log.warn({ tabQuestionId: row.id, tabId: tab.id, kind: row.kind }, 'tab question not recognised on screen');
+      throw promptNotSeen();
+    }
     // The tab moved on without telling us: this card is stale, so it leaves the screens now (only this
     // row, only while still open). Best effort: the 409 is the answer either way.
     try {

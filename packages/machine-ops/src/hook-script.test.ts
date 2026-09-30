@@ -453,13 +453,13 @@ describe('termhub-hook script', () => {
       ...over,
     });
 
-    it("flags a subagent's tool call and permission prompt, and still sends only the tool name", async () => {
+    it("flags a subagent's tool call and permission prompt, names the agent, and still sends only the tool name", async () => {
       run(fromSubagent());
       run(fromSubagent({ hook_event_name: 'PermissionRequest', tool_name: 'Edit' }));
       const sent = await bodies(2);
       expect(sent.map(eventOf)).toEqual([
-        { hook_event_name: 'PreToolUse', tool_name: 'Bash', subagent: true },
-        { hook_event_name: 'PermissionRequest', tool_name: 'Edit', subagent: true },
+        { hook_event_name: 'PreToolUse', tool_name: 'Bash', subagent: true, agent_id: 'a1b2c3' },
+        { hook_event_name: 'PermissionRequest', tool_name: 'Edit', subagent: true, agent_id: 'a1b2c3' },
       ]);
       for (const body of sent) expect(body).not.toContain('secret');
     });
@@ -485,6 +485,147 @@ describe('termhub-hook script', () => {
       run(ask);
       const [body] = await bodies(1);
       expect(eventOf(body!)).toEqual(ask);
+    });
+  });
+
+  describe('subagent ids (spec 2026-09-30 tab questions per subagent)', () => {
+    const A = 'ac5724783efd1ee13';
+    const B = 'b0e1f2a3c4d5e6f70';
+    /** A payload shaped as measured (Claude Code 2.1.285): agent_id and agent_type before hook_event_name for a subagent. */
+    const payload = (agent: string | null, over: Record<string, unknown> = {}) => ({
+      session_id: 's1',
+      transcript_path: '/home/dev/.claude/projects/-w/s1.jsonl',
+      cwd: '/w',
+      prompt_id: 'p1',
+      permission_mode: 'default',
+      ...(agent === null ? {} : { agent_id: agent, agent_type: 'general-purpose' }),
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Bash',
+      tool_input: { command: 'ls /secret' },
+      tool_use_id: 'toolu_9',
+      ...over,
+    });
+    const permission = { hook_event_name: 'PermissionRequest', permission_suggestions: [] };
+    const subagentStop = { hook_event_name: 'SubagentStop', stop_hook_active: false, last_assistant_message: 'the secret answer', tool_name: undefined, tool_input: undefined, tool_use_id: undefined };
+    const markFile = () => join(tmp, 'termhub-hook-th-abc');
+
+    it("carries the subagent's id on its PreToolUse and PermissionRequest", async () => {
+      run(payload(A));
+      run(payload(A, permission));
+      const sent = await bodies(2);
+      expect(sent.map((b) => JSON.stringify(eventOf(b)))).toEqual([
+        `{"hook_event_name":"PreToolUse","tool_name":"Bash","subagent":true,"agent_id":"${A}"}`,
+        `{"hook_event_name":"PermissionRequest","tool_name":"Bash","subagent":true,"agent_id":"${A}"}`,
+      ]);
+      for (const body of sent) expect(body).not.toContain('secret');
+    });
+
+    it('puts the verb before the flag and the id when a spinner is on screen', async () => {
+      writeFileSync(pane, '✻ Moonwalking… (12s · esc to interrupt)\n');
+      run(payload(A));
+      const [body] = await bodies(1);
+      expect(JSON.stringify(eventOf(body!))).toBe(`{"hook_event_name":"PreToolUse","tool_name":"Bash","verb":"Moonwalking","subagent":true,"agent_id":"${A}"}`);
+    });
+
+    it("leaves the main thread's bodies byte for byte as they were", async () => {
+      run(payload(null));
+      run(payload(null, permission));
+      const sent = await bodies(2);
+      expect(sent).toEqual([
+        '{"tool":"claude","session":"th-abc","event":{"hook_event_name":"PreToolUse","tool_name":"Bash"}}',
+        '{"tool":"claude","session":"th-abc","event":{"hook_event_name":"PermissionRequest","tool_name":"Bash"}}',
+      ]);
+    });
+
+    it('drops an id of 65 characters or with a character outside A-Za-z0-9_-, and keeps the flag', async () => {
+      run(payload('a'.repeat(65)));
+      run(payload('a.b', permission));
+      run(payload('a"b', { tool_name: 'Edit' }));
+      const sent = await bodies(3);
+      expect(sent.map(eventOf)).toEqual([
+        { hook_event_name: 'PreToolUse', tool_name: 'Bash', subagent: true },
+        { hook_event_name: 'PermissionRequest', tool_name: 'Bash', subagent: true },
+        { hook_event_name: 'PreToolUse', tool_name: 'Edit', subagent: true },
+      ]);
+    });
+
+    it('drops a non-ASCII letter under a UTF-8 locale, where a range like a-z would let it through', async () => {
+      // macOS /bin/sh (bash) matches a bracket range by the locale's collation: under a UTF-8 locale,
+      // what Claude Code inherits on a person's machine, "é" sits inside a-z.
+      runWithStderr(payload('é1'), { LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8' });
+      runWithStderr(payload('é1', subagentStop), { LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8' });
+      const [body] = await bodies(1);
+      await sleep(200);
+      expect(logged()).toHaveLength(1);
+      expect(eventOf(body!)).toEqual({ hook_event_name: 'PreToolUse', tool_name: 'Bash', subagent: true });
+    });
+
+    it('accepts an id of 64 characters', async () => {
+      const id = `${'a'.repeat(62)}_-`;
+      run(payload(id));
+      const [body] = await bodies(1);
+      expect(eventOf(body!)).toEqual({ hook_event_name: 'PreToolUse', tool_name: 'Bash', subagent: true, agent_id: id });
+    });
+
+    it('never forwards the id for Codex: the flag alone travels', async () => {
+      runAs('codex', payload(A));
+      const [body] = await bodies(1);
+      expect(body).toBe('{"tool":"codex","session":"th-abc","event":{"hook_event_name":"PreToolUse","tool_name":"Bash","subagent":true}}');
+    });
+
+    it("reduces a SubagentStop to its three keys, never its last message", async () => {
+      run(payload(A, subagentStop));
+      const [body] = await bodies(1);
+      expect(JSON.stringify(eventOf(body!))).toBe(`{"hook_event_name":"SubagentStop","subagent":true,"agent_id":"${A}"}`);
+      expect(body).not.toContain('secret');
+    });
+
+    it('posts nothing for a SubagentStop whose id was dropped, or that has none', async () => {
+      run(payload('a'.repeat(65), subagentStop));
+      run(payload('a.b', subagentStop));
+      run({ hook_event_name: 'SubagentStop', last_assistant_message: 'x' });
+      await onlySentinelPosted();
+    });
+
+    it("keys the marker by agent: one agent's tool call never swallows another's", async () => {
+      run(payload(A));
+      run(payload(B));
+      run(payload(A));
+      const sent = await bodies(3);
+      expect(sent.map((b) => eventOf(b).agent_id)).toEqual([A, B, A]);
+    });
+
+    it('still dedupes one agent repeating a tool, and the main thread the same way, with the marker as before', async () => {
+      run(payload(A));
+      run(payload(A));
+      run(payload(null));
+      run(payload(null));
+      await bodies(2);
+      await sleep(200);
+      expect(logged().map((b) => eventOf(b).agent_id ?? null)).toEqual([A, null]);
+      expect(readFileSync(markFile(), 'utf8')).toBe('Bash');
+      writeFileSync(pane, '✻ Brewing… (1s)\n');
+      run(payload(null, { tool_name: 'Edit' }));
+      await bodies(3);
+      expect(readFileSync(markFile(), 'utf8')).toBe('Edit Brewing');
+    });
+
+    it("clears the marker on a Claude PermissionRequest, so the tool call after the dialog is posted", async () => {
+      run(payload(A));
+      run(payload(A, permission));
+      run(payload(A));
+      run(payload(null));
+      run(payload(null, permission));
+      run(payload(null));
+      const sent = await bodies(6);
+      expect(sent.map((b) => `${eventOf(b).hook_event_name}:${eventOf(b).agent_id ?? ''}`)).toEqual([
+        `PreToolUse:${A}`,
+        `PermissionRequest:${A}`,
+        `PreToolUse:${A}`,
+        'PreToolUse:',
+        'PermissionRequest:',
+        'PreToolUse:',
+      ]);
     });
   });
 });

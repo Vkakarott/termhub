@@ -125,13 +125,15 @@ export class MobilePushService {
     if (event.type === 'confirmation') {
       // A card re-published only to name its subagent: the person was already told about it.
       if (event.origin_update) return;
+      // Brought back to the end of the chat (TER-477): the same question, already notified.
+      if (event.resurfaced) return;
       // The event's project_id is the action's target (from the tool call's args), not the chat the
       // question belongs to: the wording and data.project_id come from the conversation itself.
       const projectId = await this.conversationProject(event.conversation_id, event.user_id);
       const ctx = await this.names(event.user_id, projectId, event.tab_id, event.machine_id);
       const data = { kind: 'confirmation', conversation_id: event.conversation_id, project_id: projectId, action_id: event.action_id };
       await this.deliver(event.user_id, 'confirmation', confirmationText(ctx), data, await this.offline(event.user_id));
-    } else if (event.type === 'tab_question' && event.question.kind !== 'suggestion') {
+    } else if (event.type === 'tab_question' && event.question.kind !== 'suggestion' && !event.resurfaced) {
       // (A suggestion never rides `tab_question` — it has its own events and is never pushed — the
       // kind check only narrows the view's type.)
       // Same channel as a confirmation — the history row keeps that kind, which every app version

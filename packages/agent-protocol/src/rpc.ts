@@ -70,6 +70,12 @@ export const RPC = {
    */
   'tmux.sendText': def(z.object({ session: sessionName, text: z.string().max(TEXT_MAX_CHARS), enter: z.boolean(), paste: z.boolean().optional() }), z.object({ sent: z.literal(true) }), 10_000),
   'tmux.sendKey': def(z.object({ session: sessionName, key: tmuxKey }), z.object({ sent: z.literal(true) }), 10_000),
+  /**
+   * A mouse-wheel scroll over the tab (TER-465): `lines` < 0 up, > 0 down, 0 leaves copy-mode. What it
+   * does depends on the pane (copy-mode, alternate screen, Codex in front): see `buildScrollScript` in
+   * `@termhub/machine-ops`, which the agent runs as is (since agent 0.12.0).
+   */
+  'tmux.scroll': def(z.object({ session: sessionName, lines: z.number().int().min(-500).max(500) }), z.object({ done: z.literal(true) })),
   'tools.detect': def(z.object({}), z.object({ os: z.string().nullable(), tools: z.array(z.string().max(32)) })),
   'hw.probe': def(z.object({}), z.object({ stdout: z.string() }), 15_000),
   'fs.list': def(z.object({ path: machinePath }), z.object({ stdout: z.string() })),

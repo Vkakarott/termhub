@@ -2,7 +2,7 @@ import { buildClaudeArgs } from '@termhub/claude-cli';
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { classifyFailure, RunFailed, runClaude } from './run.js';
 
 const req = {
@@ -88,6 +88,7 @@ beforeAll(() => {
     fake,
     `#!/bin/sh
 printf '%s\\n' "$@" > ${bin}/argv
+printf '%s' "$CLAUDE_CONFIG_DIR" > ${bin}/config_dir
 cat > ${bin}/stdin
 echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"oi"}}}'
 echo '{"type":"result","session_id":"'"$2"'","usage":{"input_tokens":7}}'
@@ -108,6 +109,17 @@ it('streams the CLI frames as lines and feeds the prompt over stdin', async () =
   // the prompt travels on stdin, so a prompt starting with "-" can never be read as a flag
   expect(readFileSync(join(bin, 'stdin'), 'utf8')).toBe('o que está rodando?');
   expect(readFileSync(join(bin, 'argv'), 'utf8')).toContain('--strict-mcp-config');
+});
+
+// TER-613: spawned without a shell, a stored `~/…` would reach the CLI unexpanded.
+it('expands `~` in the config dir against HOME before handing it to the CLI', async () => {
+  vi.stubEnv('HOME', bin);
+  try {
+    for await (const _line of runClaude({ ...req, config_dir: '~/cfg' }, { cliPath: join(bin, 'claude'), tmpDir: bin })) void _line;
+  } finally {
+    vi.unstubAllEnvs();
+  }
+  expect(readFileSync(join(bin, 'config_dir'), 'utf8')).toBe(join(bin, 'cfg'));
 });
 
 it('removes the per-run temp directory after a normal completion', async () => {

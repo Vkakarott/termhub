@@ -77,6 +77,13 @@ describe('mergeClaudeSettings', () => {
     expect(out.hooks.PermissionRequest[0].matcher).toBe('*');
     expect(out.hooks.PermissionRequest[0].hooks[0].command).toBe(`${script} claude`);
   });
+
+  it('subscribes SubagentStop with no matcher (spec 2026-09-30 tab questions per subagent)', () => {
+    const out = JSON.parse(mergeClaudeSettings('', script)) as { hooks: Record<string, { matcher?: string; hooks: { command: string }[] }[]> };
+    expect(CLAUDE_HOOK_EVENTS).toContain('SubagentStop');
+    expect(out.hooks.SubagentStop[0].matcher).toBeUndefined();
+    expect(out.hooks.SubagentStop[0].hooks[0].command).toBe(`${script} claude`);
+  });
 });
 
 describe('stripClaudeSettings', () => {

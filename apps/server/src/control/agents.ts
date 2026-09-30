@@ -6,6 +6,7 @@ import { mintTabToken, TAB_TOKEN_TOOLS } from '../mcp/tab-token.js';
 import { sendTextToSession } from '../terminal/session-ops.js';
 import { installTabMcp, TAB_MCP_SERVER, tabMcpSupported } from '../terminal/tab-mcp.js';
 import { ControlError, type ControlContext } from './context.js';
+import { boardUrl, rules, taskOut, type TaskOut } from './tasks.js';
 import { openTab } from './terminals.js';
 
 /** Same ceiling as one typed input: the prompt travels as a single command-line argument. */
@@ -31,15 +32,25 @@ export function checkPrompt(prompt: string): string {
 /**
  * How each provider is started (spec §4.4). The prompt goes in as the CLI's own initial-prompt argument,
  * so the session is interactive from the first turn and nothing has to guess when the TUI is "ready".
- * The account is chosen through the CLI's config-dir variable; gemini and antigravity are not wired yet.
+ * The account is chosen through the CLI's config-dir variable (`accountEnv`); gemini and antigravity are not wired yet.
  * No permission-bypass flag, ever.
  */
-const LAUNCH: Partial<Record<AiProvider, { binary: string; configEnv: string }>> = {
-  claude: { binary: 'claude', configEnv: 'CLAUDE_CONFIG_DIR' },
-  chatgpt: { binary: 'codex', configEnv: 'CODEX_HOME' },
+const LAUNCH: Partial<Record<AiProvider, Launcher>> = {
+  claude: { binary: 'claude', configEnv: 'CLAUDE_CONFIG_DIR', flags: '' },
+  // TER-465: in the alternate screen Codex keeps its messages off the pane history and turns no mouse
+  // tracking on, so the wheel had nothing to scroll (it walked the prompt history instead). Out of it,
+  // the transcript lands in the tmux history and the wheel scrolls it through copy-mode.
+  chatgpt: { binary: 'codex', configEnv: 'CODEX_HOME', flags: ' --no-alt-screen' },
 };
 
-function launcher(provider: AiProvider): { binary: string; configEnv: string } {
+/** `flags`: fixed options typed right after the binary (a leading space, or empty). */
+interface Launcher {
+  binary: string;
+  configEnv: string;
+  flags: string;
+}
+
+function launcher(provider: AiProvider): Launcher {
   const l = LAUNCH[provider];
   if (!l) throw new ControlError('PROVIDER_UNSUPPORTED', `Iniciar um agente ${provider} ainda não é suportado; por enquanto só claude e chatgpt (Codex)`);
   return l;
@@ -56,6 +67,18 @@ function configDirArg(dir: string): string {
   if (dir === '~') return '"$HOME"';
   if (dir.startsWith('~/')) return `"$HOME"/${shellQuote(dir.slice(2))}`;
   return shellQuote(dir);
+}
+
+/**
+ * How the line picks the account (spec 2026-09-30 TER-499 D2). With a config dir, the CLI's variable is a
+ * prefix of the command. Without one the account is the machine's default login, and a variable the tab's
+ * shell inherited must not stand in for it: it is cleared first. `unset`, not `env -u`, which would run the
+ * binary from PATH and skip the person's alias or shell function for it. The `command -v` guard keeps
+ * fish quiet (it has no `unset`); there the line behaves as it did before.
+ */
+function accountEnv(configEnv: string, configDir: string | null): { clear: string; prefix: string } {
+  if (configDir) return { clear: '', prefix: `${configEnv}=${configDirArg(configDir)} ` };
+  return { clear: `command -v unset >/dev/null 2>&1 && unset ${configEnv}; `, prefix: '' };
 }
 
 /** A file of the tab's MCP config dir as the machine's shell must read it: `$HOME` expanded there, the rest quoted. */
@@ -92,14 +115,15 @@ export const CODEX_TAB_MCP_ENABLED = true;
  * the machine that holds the token, never the token itself.
  */
 export function launchLine(provider: AiProvider, configDir: string | null, prompt: string, mcp?: { tabId: string; url: string } | null): string {
-  const { binary, configEnv } = launcher(provider);
-  const env = configDir ? `${configEnv}=${configDirArg(configDir)} ` : '';
-  if (!mcp) return `${env}${binary} ${shellQuote(prompt)}`;
+  const { binary: bin, configEnv, flags } = launcher(provider);
+  const binary = `${bin}${flags}`;
+  const { clear, prefix } = accountEnv(configEnv, configDir);
+  if (!mcp) return `${clear}${prefix}${binary} ${shellQuote(prompt)}`;
   if (!MCP_URL_RE.test(mcp.url)) throw new ControlError('INVALID_MCP_URL', 'MCP_URL inválido');
-  if (provider === 'claude') return `${env}${binary} ${claudeMcpFlags(mcp.tabId)} -- ${shellQuote(prompt)}`;
+  if (provider === 'claude') return `${clear}${prefix}${binary} ${claudeMcpFlags(mcp.tabId)} -- ${shellQuote(prompt)}`;
   const tokenEnv = `TERMHUB_MCP_TOKEN="$(cat ${tabMcpPath(mcp.tabId, 'token')})"`;
   const server = `mcp_servers.${TAB_MCP_SERVER}`;
-  return `${tokenEnv} ${env}${binary} -c ${shellQuote(`${server}.url="${mcp.url}"`)} -c ${shellQuote(`${server}.bearer_token_env_var="TERMHUB_MCP_TOKEN"`)} ${shellQuote(prompt)}`;
+  return `${clear}${tokenEnv} ${prefix}${binary} -c ${shellQuote(`${server}.url="${mcp.url}"`)} -c ${shellQuote(`${server}.bearer_token_env_var="TERMHUB_MCP_TOKEN"`)} ${shellQuote(prompt)}`;
 }
 
 /**
@@ -125,10 +149,10 @@ export const RESUME_PROMPT = 'A conta anterior atingiu o limite de uso. Continue
  */
 export function resumeLine(configDir: string | null, sessionId: string, prompt: string, mcpTabId?: string | null): string {
   if (!isClaudeSessionId(sessionId)) throw new ControlError('NO_SESSION', 'A sessão do Claude desta aba não é válida');
-  const env = configDir ? `CLAUDE_CONFIG_DIR=${configDirArg(configDir)} ` : '';
+  const { clear, prefix } = accountEnv('CLAUDE_CONFIG_DIR', configDir);
   const quoted = shellQuote(checkPrompt(prompt));
-  if (!mcpTabId) return `${env}claude --resume ${sessionId} ${quoted}`;
-  return `${env}claude ${claudeMcpFlags(mcpTabId)} --resume ${sessionId} -- ${quoted}`;
+  if (!mcpTabId) return `${clear}${prefix}claude --resume ${sessionId} ${quoted}`;
+  return `${clear}${prefix}claude ${claudeMcpFlags(mcpTabId)} --resume ${sessionId} -- ${quoted}`;
 }
 
 async function accountOnMachine(ctx: ControlContext, accountId: string, machine: Machine): Promise<AiAccount> {
@@ -151,6 +175,16 @@ export interface StartAgentResult {
   /** the tab the task was linked to before this call, when there was one (it stays open, unlinked) */
   previous_tab_id: string | null;
   note: string;
+}
+
+/**
+ * Points the card at the tab and starts work on it: a top-level card goes to the project's agent column
+ * (else the first doing column) unless it is already in a doing column; a subtask is marked doing.
+ * What `start_agent` does for the tab it opens and `link_tab_task` for one that is already open.
+ */
+async function attachTask(ctx: ControlContext, taskId: string, tabId: string): Promise<Task | undefined> {
+  const linked = await ctx.repos.tasks.setTab(taskId, tabId);
+  return (await ctx.repos.tasks.startWork(taskId)) ?? linked;
 }
 
 /**
@@ -203,10 +237,7 @@ export async function startAgent(
   await ctx.repos.tabs.setAgentFields(tab.tab_id, { ai_account_id: account.id }).catch(() => undefined);
   if (task) {
     try {
-      await ctx.repos.tasks.setTab(task.id, tab.tab_id);
-      // a top-level card goes to the project's agent column (else the first doing column) unless it is
-      // already in a doing column; a subtask is marked doing
-      await ctx.repos.tasks.startWork(task.id);
+      await attachTask(ctx, task.id, tab.tab_id);
     } catch (e) {
       throw new ControlError('TASK_LINK_FAILED', `A aba ${tab.tab_id} foi aberta e o agente iniciado, mas a tarefa não foi vinculada: ${reason(e)}. ${keptTab}`);
     }
@@ -222,6 +253,38 @@ export async function startAgent(
     task_id: task?.id ?? null,
     previous_tab_id: task?.tab_id ?? null,
     note: `O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou parar (num único subagente em segundo plano, que termina na primeira parada), e read_last_answer para a resposta dele (read_screen só para o que está na tela). Perguntas e permissões chegam como cards no chat. ${mcp.note}`,
+  };
+}
+
+export interface LinkTabTaskResult {
+  /** the card after the link, in the column it ended up in */
+  task: TaskOut;
+  tab_id: string;
+  tab_name: string;
+  /** the tab the card pointed at before, when it was another one (it stays open, unlinked) */
+  previous_tab_id: string | null;
+  board_url: string;
+}
+
+/**
+ * Links a terminal tab that is already open to a card of its project (spec 2026-09-30 TER-499 D5): an
+ * agent somebody started by hand then shows on the card and in Progresso, as one started by `start_agent`
+ * does. Nothing is typed into the tab. Several cards may point at one tab; a card has one tab, so
+ * linking re-points it.
+ */
+export async function linkTabTask(ctx: ControlContext, input: { tab_id: string; task_id: string }): Promise<LinkTabTaskResult> {
+  if (!(await ctx.can('tasks', 'update'))) throw new ControlError('FORBIDDEN', 'Vincular a tarefa precisa da permissão tasks:update na sua role');
+  const { tab } = await ctx.scoped.tab(input.tab_id);
+  const { task } = await ctx.scoped.task(input.task_id);
+  if (tab.kind !== 'terminal') throw new ControlError('TAB_NOT_TERMINAL', 'Só abas de terminal podem ser ligadas a uma tarefa');
+  if (task.project_id !== tab.project_id) throw new ControlError('TASK_OTHER_PROJECT', `A tarefa "${task.title}" é de outro projeto, não o da aba`);
+  const linked = await rules(() => attachTask(ctx, task.id, tab.id));
+  return {
+    task: taskOut(linked ?? { ...task, tab_id: tab.id }),
+    tab_id: tab.id,
+    tab_name: tab.name,
+    previous_tab_id: task.tab_id && task.tab_id !== tab.id ? task.tab_id : null,
+    board_url: boardUrl(task.project_id),
   };
 }
 

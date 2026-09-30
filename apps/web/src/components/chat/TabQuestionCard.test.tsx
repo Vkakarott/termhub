@@ -390,3 +390,8 @@ describe('a question that came from Codex', () => {
     expect(screen.getByText('A aba «api» perguntou (o Codex)')).toBeInTheDocument();
   });
 });
+
+it('carries its id for the pending bar to find it (TER-477)', () => {
+  const { container } = render(<TabQuestionCard question={permission()} answering={false} onAnswer={vi.fn()} />);
+  expect(container.querySelector('[data-chat-card="q2"]')).not.toBeNull();
+});

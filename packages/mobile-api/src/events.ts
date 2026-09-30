@@ -36,6 +36,12 @@ export const chatActionSchema = z.object({
   summary: z.string(),
   subagent: z.object({ id: z.string(), description: z.string() }).nullable().optional(),
   created_at: z.string(),
+  /** Why a `failed` row failed (`TAB_GONE`, `WAITING_PERMISSION`, `PROMPT_CHANGED`, …), spec 2026-09-30
+   * §2.3. A plain string, and optional + nullable: absent from an older server, stripped by an older app. */
+  error_code: z.string().nullable().optional(),
+  /** When the card was brought back to the end of the thread (spec 2026-09-30 §2.2): the thread orders
+   * it by `surfaced_at ?? created_at`. Absent from an older server. */
+  surfaced_at: z.string().nullable().optional(),
 });
 
 /** "Permitir sempre nesta aba" while it holds (server `ChatGrantView`). */
@@ -183,6 +189,8 @@ const tabQuestionCommon = {
   auto_answer: tabQuestionAutoAnswerSchema.nullable().optional(),
   /** `'auto'` when the countdown sent the answer; absent from an older server. */
   answered_via: z.enum(['card', 'auto']).nullable().optional(),
+  /** When the card was brought back to the end of the thread (spec 2026-09-30 §2.2); absent from an older server. */
+  surfaced_at: z.string().nullable().optional(),
 };
 export const tabQuestionSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -218,6 +226,8 @@ export const tabSuggestionSchema = z.object({
   created_at: z.string(),
   answered_at: z.string().nullable(),
   closed_at: z.string().nullable(),
+  /** As on a question (spec 2026-09-30 §2.2); absent from an older server. */
+  surfaced_at: z.string().nullable().optional(),
 });
 
 /** A concierge subagent's lifecycle (spec 2026-09-26 panel §4). */
@@ -258,6 +268,10 @@ export const chatEventSchema = z.discriminatedUnion('type', [
     summary: z.string(),
     subagent: z.object({ id: z.string(), description: z.string() }).nullable().optional(),
     created_at: z.string(),
+    /** Set when the card was brought back to the end of the thread (spec 2026-09-30 §2.2): a
+     * confirmation for an id already on screen then only moves it. `resurfaced` marks that re-publish. */
+    surfaced_at: z.string().nullable().optional(),
+    resurfaced: z.literal(true).optional(),
   }),
   z.object({ type: z.literal('decision'), user_id: z.string(), conversation_id: z.string(), action_id: z.string(), status: z.enum(['approved', 'denied']) }),
   z.object({ type: z.literal('grant'), user_id: z.string(), conversation_id: z.string(), grant: chatGrantSchema }),
@@ -268,8 +282,19 @@ export const chatEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('standing_grant'), user_id: z.string(), conversation_id: z.string(), grant: chatStandingGrantSchema }),
   /** Applied by id whatever the conversation: a standing grant is not conversation-bound. */
   z.object({ type: z.literal('standing_grant_revoked'), user_id: z.string(), conversation_id: z.string(), grant_id: z.string() }),
+  /** The gate moved a confirmation to `executed`, `failed` or `expired` (spec 2026-09-30 §2.3): the card
+   * updates without a reload. A new event rather than a new `decision` status, so an older app drops it. */
+  z.object({
+    type: z.literal('action_status'),
+    user_id: z.string(),
+    conversation_id: z.string(),
+    action_id: z.string(),
+    status: z.enum(['executed', 'failed', 'expired']),
+    error_code: z.string().nullable(),
+  }),
   z.object({ type: z.literal('granted_action'), user_id: z.string(), conversation_id: z.string(), action: chatActionSchema }),
-  z.object({ type: z.literal('tab_question'), user_id: z.string(), conversation_id: z.string(), question: tabQuestionSchema }),
+  /** `resurfaced`: the same card brought back to the end of the thread (spec 2026-09-30 §2.2). */
+  z.object({ type: z.literal('tab_question'), user_id: z.string(), conversation_id: z.string(), question: tabQuestionSchema, resurfaced: z.literal(true).optional() }),
   z.object({ type: z.literal('tab_question_answered'), user_id: z.string(), conversation_id: z.string(), question: tabQuestionSchema }),
   z.object({ type: z.literal('tab_question_closed'), user_id: z.string(), conversation_id: z.string(), question: tabQuestionSchema }),
   z.object({ type: z.literal('tab_suggestion'), user_id: z.string(), conversation_id: z.string(), suggestion: tabSuggestionSchema }),

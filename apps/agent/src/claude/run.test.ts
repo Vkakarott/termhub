@@ -162,6 +162,26 @@ describe('pidIn', () => {
 });
 
 describe('createClaudeManager', () => {
+  // TER-613: the run is spawned without a shell, so a stored `~/…` reached the CLI as is and it made
+  // a literal `~` directory, with no login, in the agent's cwd. Every chat message then failed.
+  it('expands `~` and `$HOME` in the config dir against the run HOME before handing it to the CLI', async () => {
+    for (const [stored, expected] of [
+      ['~/.claude_pedro', '.claude_pedro'],
+      ['$HOME/.claude_other', '.claude_other'],
+    ]) {
+      const { bin, out, runs } = fakeCli(RECORDER);
+      const { socket, sendControl } = makeSocket();
+      const home = mkdtempSync(join(root, 'home-'));
+      const claude = createClaudeManager({ log: vi.fn(), env: pathEnv(bin, { HOME: home }), tmpDir: runs });
+
+      await claude.open(1, { ...baseParams, config_dir: stored }, socket);
+      claude.write(1, Buffer.from(PROMPT));
+      await waitForClosed(sendControl);
+
+      expect(readFileSync(join(out, 'cfg'), 'utf8')).toBe(join(home, expected));
+    }
+  });
+
   it('spawns `claude` from the run PATH with the argv buildClaudeArgs produced, under the config dir it was given', async () => {
     const { bin, out, runs } = fakeCli(RECORDER);
     const { socket, sendControl } = makeSocket();

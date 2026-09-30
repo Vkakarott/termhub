@@ -21,7 +21,7 @@ const pt = {
     title: 'termhub — os terminais das suas máquinas, no navegador',
     description: 'Terminais de todas as suas máquinas no navegador, organizados por máquina, projeto e tab. Cada tab é uma sessão tmux persistente. Self-hosted e open source (MIT).',
   },
-  nav: { features: 'Recursos', agents: 'Agentes', how: 'Como funciona', compare: 'Comparar', cloud: 'Cloud', faq: 'FAQ', github: 'GitHub', app: 'Entrar no app' },
+  nav: { features: 'Recursos', agents: 'Agentes', how: 'Como funciona', compare: 'Comparar', cloud: 'Cloud', faq: 'FAQ', security: 'Segurança', github: 'GitHub', app: 'Entrar no app' },
   hero: {
     badge: 'self-hosted · open source · MIT',
     title_a: 'Os terminais das suas máquinas, ',
@@ -171,7 +171,7 @@ const pt = {
       { q: 'O que é o termhub?', a: 'Um painel no navegador para os terminais das suas máquinas. Você conecta cada máquina com o agente do termhub, organiza por projeto e abre tabs; cada tab é uma sessão tmux na máquina, que continua rodando quando você fecha o navegador.' },
       { q: 'Preciso instalar algo no computador que uso para acessar?', a: 'Não. Basta um navegador: funciona no notebook, no tablet e no celular. A instalação fica do outro lado: o servidor do termhub (um docker compose) e, em cada máquina que você quer acessar, o agente (@termhub/agent) com tmux.' },
       { q: 'Como conecto uma máquina?', a: 'Instale o agente com npm i -g @termhub/agent (precisa de Node 20+ e tmux), gere um token em Máquinas › Adicionar máquina e rode o termhub-agent connect que o app mostra. Depois, termhub-agent service install deixa o agente rodando em segundo plano (launchd no macOS, systemd no Linux). A conexão sai da máquina por WebSocket: não precisa abrir porta, configurar SSH nem estar na mesma rede.' },
-      { q: 'É seguro? Onde ficam as credenciais?', a: 'O agente abre uma conexão de saída até o servidor, então nenhuma porta fica exposta na máquina. O token de pareamento aparece uma vez só e o servidor guarda apenas o hash dele; o servidor nunca manda texto de shell para o agente, só pede operações nomeadas (abrir um terminal, listar sessões…). Para mostrar os limites das contas de IA, o login do CLI é lido na máquina na hora da consulta: nenhum token de IA é armazenado e o conteúdo dos terminais nunca é logado.' },
+      { q: 'É seguro? Onde ficam as credenciais?', a: 'O agente abre uma conexão de saída até o servidor, então nenhuma porta fica exposta na máquina. O token da máquina aparece uma vez só e o servidor guarda apenas o hash dele. O servidor não roda comandos soltos na máquina: só pede operações de uma lista fechada (abrir um terminal, listar sessões…), e quem digita num terminal é você, ou o chat depois que você aprova. Para mostrar os limites das contas de IA, o login do CLI é lido na máquina na hora da consulta e usado só para isso: nenhum token de IA é armazenado e o conteúdo dos terminais nunca é logado. Detalhes para o time de TI em termhub.dev/security.' },
       { q: 'Funciona com o Claude Code?', a: 'Sim, e foi feito pensando nele: cole imagens e arraste arquivos direto no terminal, dite o prompt por voz (a transcrição roda no seu servidor) e selecione e copie mesmo com o app usando o mouse. Codex, Gemini CLI, Antigravity ou qualquer outra CLI rodam do mesmo jeito, porque é um terminal de verdade.' },
       { q: 'Como sei quando o agente de IA precisa de mim?', a: 'Instale os hooks do monitor na máquina, com um clique no app. Quando o Claude Code ou o Codex termina de responder ou para esperando uma permissão, a tab ganha um ponto laranja, o projeto é marcado na barra lateral e um aviso aparece no canto da tela. A home lista tudo o que está esperando você, agrupado por máquina.' },
       { q: 'Funciona no Windows?', a: 'Para acessar, sim: é só abrir o navegador. Como máquina de destino, o agente roda em macOS e Linux e precisa de tmux; no Windows, use o WSL.' },
@@ -187,7 +187,7 @@ const pt = {
     accept: 'Aceitar',
     decline: 'Recusar',
   },
-  footer: { docs: 'Documentação', brand: 'Marca', coffee: '☕ Buy me a coffee', cookies: 'Cookies', made: 'feito em Goiânia' },
+  footer: { docs: 'Documentação', security: 'Segurança', brand: 'Marca', coffee: '☕ Buy me a coffee', cookies: 'Cookies', made: 'feito em Goiânia' },
   // /brand/ — logo, colors and typography for anyone writing about termhub
   brand: {
     meta: {
@@ -249,6 +249,115 @@ const pt = {
     },
     files: { svg: 'SVG', png: 'PNG' },
   },
+  // /security/ — security as a feature, for IT teams that must allow termhub. Every claim is backed by
+  // docs/security-and-network.md; what the code does not do yet lives under `limits`, never as a feature.
+  security: {
+    meta: {
+      title: 'Segurança do termhub — para times de TI',
+      description: 'Como o termhub se conecta às máquinas: só conexões de saída pela 443, nenhuma porta aberta, domínios para liberar no firewall e o checklist do time de TI.',
+    },
+    back: 'Início',
+    nav: { highlights: 'Destaques', how: 'Arquitetura', domains: 'Domínios', checklist: 'Checklist' },
+    badge: 'segurança · para times de TI',
+    title_a: 'Terminais remotos que o seu ',
+    title_b: 'time de TI aprova',
+    lead: 'O agente do termhub só abre conexões de saída pela porta 443, não abre porta nenhuma na máquina e roda com o usuário de quem o instalou. Aqui está tudo o que a sua rede precisa liberar e como cada acesso é controlado.',
+    cta_doc: 'Guia técnico completo',
+    cta_cloud: 'Entrar no beta do Cloud',
+    highlights: {
+      title: 'Segurança como recurso',
+      lead: 'Cada item abaixo é comportamento do código aberto do termhub, que você pode auditar no GitHub.',
+      items: [
+        { title: 'Só conexões de saída pela 443', text: 'O agente disca para o servidor por um WebSocket com TLS (wss://) e mantém a conexão aberta. Terminais, estado das abas e comandos viajam por ela.' },
+        { title: 'Nenhuma porta aberta na máquina', text: 'O agente não escuta em porta de rede nenhuma. Sem SSH, sem VPN, sem redirecionamento de porta e sem regra de entrada no firewall.' },
+        { title: 'Lista fechada de operações', text: 'O servidor não manda comandos soltos para o agente: só chama operações de uma lista fixa (abrir terminal, listar sessões, ler hardware…), com os parâmetros validados nas duas pontas.' },
+        { title: 'Confirmação humana', text: 'O chat do termhub só age depois de um card aprovado por você. Rodar comando, apagar card ou responder a um pedido de permissão de um agente sempre pedem confirmação. Cada aprovação vale uma vez e expira.' },
+        { title: 'Revogação imediata', text: 'Trocar o token de uma máquina ou excluí-la derruba a conexão na hora. Tokens de API e celulares também são revogados com um clique.' },
+        { title: 'Segredos nunca em texto puro', text: 'Sessões, tokens de API e da máquina ficam só como hash (SHA-256). Senhas usam argon2id. Tokens de integração (GitHub, Jira, Linear) são cifrados com AES-256-GCM.' },
+        { title: 'Roda como o seu usuário', text: 'O agente é um serviço de usuário (systemd --user no Linux, LaunchAgent no macOS). Não precisa de root, e a configuração fica num arquivo 0600.' },
+        { title: 'Conteúdo do terminal fora dos logs', text: 'Os logs do servidor guardam só metadados (aba, máquina, tamanho) e escondem cookies e cabeçalhos de autorização. O fluxo do terminal não é gravado no servidor.' },
+        { title: 'Celular com chave presa ao aparelho', text: 'O app assina cada requisição com uma chave P-256 guardada no cofre de chaves do sistema (Keychain ou Keystore), no padrão DPoP, depois de você aprovar o aparelho na web. Token de 15 minutos e PIN para renovar.' },
+      ],
+    },
+    how: {
+      title: 'Como funciona',
+      lead: 'Três peças, e todas as conexões partem do lado de quem usa.',
+      nodes: [
+        { name: 'Navegador e celular', host: 'app.termhub.dev · termhub.dev', text: 'O app web chama só a própria origem: nenhum script, CDN ou fonte de terceiros. O celular fala só com termhub.dev.' },
+        { name: 'termhub Cloud', host: 'TLS na borda', text: 'Serve o app, a API e os WebSockets. Recebe as conexões; nunca abre conexão para dentro da sua rede.' },
+        { name: 'Agente na máquina', host: 'wss://app.termhub.dev/agent/ws', text: 'Um WebSocket de saída, com ping a cada 20 s e reconexão automática. Cada terminal é uma sessão tmux na própria máquina.' },
+      ],
+      note: 'Os hooks do monitor (opcionais) avisam quando um agente de IA espera você: um curl de saída para termhub.dev a cada evento. Nas chamadas de ferramenta vai só o nome da ferramenta, nunca a entrada dela.',
+    },
+    ports: {
+      title: 'Portas e protocolos',
+      head: ['Onde', 'Entrada', 'Saída'],
+      rows: [
+        { where: 'Máquina com o agente', inbound: 'nenhuma', outbound: 'TCP 443 (HTTPS e WSS)' },
+        { where: 'Navegador', inbound: 'nenhuma', outbound: 'TCP 443 (HTTPS e WSS)' },
+        { where: 'Celular', inbound: 'nenhuma', outbound: 'TCP 443 (HTTPS e WSS)' },
+      ],
+      notes: [
+        'Libere o upgrade de WebSocket (Connection: Upgrade) para app.termhub.dev e termhub.dev.',
+        'Toda conexão manda ping a cada 30 s ou menos: proxies que fecham conexões ociosas depois de 60 s não atrapalham.',
+        'Com inspeção TLS (MITM), deixe os hosts do termhub de fora: o agente valida certificados com a lista padrão do Node.js.',
+      ],
+    },
+    domains: {
+      title: 'Domínios para liberar',
+      lead: 'A lista completa, separada entre o que é obrigatório e o que depende do recurso.',
+      required_label: 'Obrigatórios',
+      optional_label: 'Opcionais, por recurso',
+      head: ['Host', 'Para quê'],
+      required: [
+        { host: 'app.termhub.dev', why: 'App web, API e WebSockets do navegador; conexão do agente (/agent/ws).' },
+        { host: 'termhub.dev', why: 'Eventos dos hooks, endpoint MCP do chat e das abas de agente, API e WebSocket do app no celular.' },
+        { host: 'registry.npmjs.org', why: 'Instalar e atualizar o agente (npm i -g @termhub/agent).' },
+        { host: '*.cloudflareaccess.com · accounts.google.com', why: 'Login do navegador: o termhub Cloud fica atrás do Cloudflare Access, com login Google.' },
+      ],
+      optional: [
+        { host: 'Espelhos do seu gerenciador de pacotes', why: 'Instalar o tmux pelo comando de instalação (brew, apt-get, dnf ou pacman).' },
+        { host: 'Hosts das CLIs de IA que você já usa', why: 'Claude Code, Codex, Gemini… rodam nas abas como em qualquer terminal; o termhub não acrescenta hosts para elas.' },
+        { host: 'github.com', why: 'Só no macOS, na primeira configuração do visualizador do Simulador iOS.' },
+      ],
+    },
+    agent: {
+      title: 'O que o agente instala',
+      items: [
+        'O pacote @termhub/agent pelo npm, publicado pelo GitHub Actions com npm provenance (dá para conferir de qual commit veio cada versão).',
+        'O arquivo ~/.termhub/config.json (0600) com o endereço do servidor e o token da máquina.',
+        'Um serviço de usuário: systemd --user no Linux ou LaunchAgent no macOS. Sem root.',
+        'Opcional, pelo app: os hooks do monitor em ~/.termhub/bin e as entradas nas configurações do Claude Code, do Codex e do Cursor. O app também remove.',
+      ],
+    },
+    checklist: {
+      title: 'Checklist do time de TI',
+      items: [
+        'Saída TCP 443 com upgrade de WebSocket para app.termhub.dev, termhub.dev e registry.npmjs.org; no navegador, também Cloudflare Access e accounts.google.com.',
+        'Nenhuma regra de entrada nas máquinas: sem SSH, VPN ou redirecionamento de porta.',
+        'Hosts do termhub fora da inspeção TLS.',
+        'Saída direta ou proxy transparente: o agente ainda não usa proxy explícito (HTTPS_PROXY).',
+        'Na máquina: macOS ou Linux (Windows pelo WSL), Node.js 20+, tmux e uma conta de usuário comum.',
+      ],
+      test_label: 'Teste na máquina',
+      test_hint: '"✓ Servidor" no doctor e "conectado ✓" no status provam que token, TLS e WebSocket passaram pela rede. O curl responde 401 quando o host dos hooks está liberado.',
+    },
+    limits: {
+      title: 'O que ainda não temos',
+      lead: 'Para você decidir com a informação completa: estes itens estão no nosso roadmap e não existem hoje.',
+      items: [
+        'Suporte a proxy HTTP(S) explícito e a CA corporativa extra no agente.',
+        'SSO corporativo (SAML ou OIDC genérico), SCIM e autenticação multifator.',
+        'Trilha de auditoria de logins, permissões e tokens, com exportação. Hoje ficam registradas as ações do chat, com quem aprovou, e os eventos dos celulares.',
+        'Expiração de sessão por inatividade e "sair de todos os aparelhos".',
+        'Prazo de retenção e cifragem por aplicação para mensagens do chat e anexos.',
+      ],
+    },
+    cta: {
+      title: 'Leve para o seu time de segurança',
+      lead: 'O guia técnico traz a arquitetura, cada host e porta, o modelo de ameaça e onde cada afirmação está no código.',
+    },
+  },
 };
 
 const en: typeof pt = {
@@ -256,7 +365,7 @@ const en: typeof pt = {
     title: 'termhub — your machines’ terminals, in the browser',
     description: 'Every machine’s terminal in your browser, organized by machine, project and tab. Each tab is a persistent tmux session. Self-hosted and open source (MIT).',
   },
-  nav: { features: 'Features', agents: 'Agents', how: 'How it works', compare: 'Compare', cloud: 'Cloud', faq: 'FAQ', github: 'GitHub', app: 'Open the app' },
+  nav: { features: 'Features', agents: 'Agents', how: 'How it works', compare: 'Compare', cloud: 'Cloud', faq: 'FAQ', security: 'Security', github: 'GitHub', app: 'Open the app' },
   hero: {
     badge: 'self-hosted · open source · MIT',
     title_a: 'Your machines’ terminals, ',
@@ -406,7 +515,7 @@ const en: typeof pt = {
       { q: 'What is termhub?', a: 'A browser dashboard for your machines’ terminals. You connect each machine with the termhub agent, organize it by project and open tabs; each tab is a tmux session on the machine that keeps running when you close the browser.' },
       { q: 'Do I need to install anything on the device I use to access it?', a: 'No. A browser is enough: it works on the laptop, the tablet and the phone. The install happens on the other side: the termhub server (one docker compose) and, on each machine you want to reach, the agent (@termhub/agent) with tmux.' },
       { q: 'How do I connect a machine?', a: 'Install the agent with npm i -g @termhub/agent (it needs Node 20+ and tmux), generate a token under Machines › Add machine and run the termhub-agent connect command the app shows. Then termhub-agent service install keeps the agent running in the background (launchd on macOS, systemd on Linux). The connection goes out from the machine over a WebSocket: no port to open, no SSH to set up, no need to be on the same network.' },
-      { q: 'Is it secure? Where do the credentials live?', a: 'The agent opens an outbound connection to the server, so no port is exposed on the machine. The pairing token is shown only once and the server keeps only its hash; the server never sends shell text to the agent, it only asks for named operations (open a terminal, list sessions…). To show AI account limits, the CLI login is read on the machine at query time: no AI token is stored and terminal content is never logged.' },
+      { q: 'Is it secure? Where do the credentials live?', a: 'The agent opens an outbound connection to the server, so no port is exposed on the machine. The machine token is shown only once and the server keeps only its hash. The server does not run arbitrary commands on the machine: it only asks for operations from a closed list (open a terminal, list sessions…), and whoever types into a terminal is you, or the chat after you approve it. To show AI account limits, the CLI login is read on the machine at query time and used only for that: no AI token is stored and terminal content is never logged. Details for IT teams at termhub.dev/security.' },
       { q: 'Does it work with Claude Code?', a: 'Yes, and it was built with it in mind: paste images and drop files straight into the terminal, dictate the prompt by voice (transcription runs on your server) and select and copy even while the app owns the mouse. Codex, Gemini CLI, Antigravity or any other CLI run the same way, because it is a real terminal.' },
       { q: 'How do I know when the AI agent needs me?', a: 'Install the monitor hooks on the machine with one click in the app. When Claude Code or Codex finishes replying or stops to wait for a permission, the tab gets an orange dot, the project is flagged in the sidebar and a toast shows up in the corner of the screen. The home page lists everything waiting on you, grouped by machine.' },
       { q: 'Does it work on Windows?', a: 'To access it, yes: just open the browser. As a target machine, the agent runs on macOS and Linux and needs tmux; on Windows, use WSL.' },
@@ -422,7 +531,7 @@ const en: typeof pt = {
     accept: 'Accept',
     decline: 'Decline',
   },
-  footer: { docs: 'Documentation', brand: 'Brand', coffee: '☕ Buy me a coffee', cookies: 'Cookies', made: 'made in Goiânia' },
+  footer: { docs: 'Documentation', security: 'Security', brand: 'Brand', coffee: '☕ Buy me a coffee', cookies: 'Cookies', made: 'made in Goiânia' },
   brand: {
     meta: {
       title: 'termhub brand — logo, colors and typography',
@@ -482,6 +591,113 @@ const en: typeof pt = {
       donts_title: 'Avoid',
     },
     files: { svg: 'SVG', png: 'PNG' },
+  },
+  security: {
+    meta: {
+      title: 'termhub security — for IT teams',
+      description: 'How termhub connects to machines: outbound connections on 443 only, no open port, the domains to allow on the firewall and the checklist for IT.',
+    },
+    back: 'Home',
+    nav: { highlights: 'Highlights', how: 'Architecture', domains: 'Domains', checklist: 'Checklist' },
+    badge: 'security · for IT teams',
+    title_a: 'Remote terminals your ',
+    title_b: 'IT team signs off on',
+    lead: 'The termhub agent only makes outbound connections on port 443, opens no port on the machine and runs as the user who installed it. Here is everything your network has to allow, and how every access is controlled.',
+    cta_doc: 'Full technical guide',
+    cta_cloud: 'Join the Cloud beta',
+    highlights: {
+      title: 'Security as a feature',
+      lead: 'Every item below is behavior of termhub’s open source code, which you can audit on GitHub.',
+      items: [
+        { title: 'Outbound on 443 only', text: 'The agent dials the server over a TLS WebSocket (wss://) and keeps it open. Terminals, tab state and commands all travel over it.' },
+        { title: 'No open port on the machine', text: 'The agent listens on no network port. No SSH, no VPN, no port forwarding and no inbound firewall rule.' },
+        { title: 'A closed list of operations', text: 'The server does not send loose commands to the agent: it can only call operations from a fixed list (open a terminal, list sessions, read hardware…), with parameters validated on both ends.' },
+        { title: 'A human in the loop', text: 'The termhub chat only acts after you approve a card. Running a command, deleting a card or answering an agent’s permission prompt always ask for confirmation. Each approval works once and expires.' },
+        { title: 'Instant revocation', text: 'Rotating a machine’s token or deleting the machine drops its connection at once. API tokens and phones are revoked with one click too.' },
+        { title: 'No secrets in plain text', text: 'Sessions, API tokens and machine tokens are stored only as hashes (SHA-256). Passwords use argon2id. Integration tokens (GitHub, Jira, Linear) are encrypted with AES-256-GCM.' },
+        { title: 'Runs as your user', text: 'The agent is a user service (systemd --user on Linux, a LaunchAgent on macOS). It needs no root, and its config is a 0600 file.' },
+        { title: 'Terminal content stays out of the logs', text: 'Server logs keep metadata only (tab, machine, size) and redact cookies and authorization headers. The terminal stream is not recorded on the server.' },
+        { title: 'A phone key bound to the device', text: 'The app signs every request with a P-256 key held in the platform keystore (Keychain or Keystore), using DPoP, after you approve the device on the web. 15-minute tokens, and a PIN to renew.' },
+      ],
+    },
+    how: {
+      title: 'How it works',
+      lead: 'Three pieces, and every connection starts on the user’s side.',
+      nodes: [
+        { name: 'Browser and phone', host: 'app.termhub.dev · termhub.dev', text: 'The web app only calls its own origin: no third-party script, CDN or font. The phone only talks to termhub.dev.' },
+        { name: 'termhub Cloud', host: 'TLS at the edge', text: 'Serves the app, the API and the WebSockets. It receives connections; it never opens one into your network.' },
+        { name: 'Agent on the machine', host: 'wss://app.termhub.dev/agent/ws', text: 'One outbound WebSocket, pinged every 20 s, reconnecting on its own. Each terminal is a tmux session on the machine itself.' },
+      ],
+      note: 'The monitor hooks (optional) tell you when an AI agent is waiting for you: an outbound curl to termhub.dev per event. Tool calls carry only the tool’s name, never its input.',
+    },
+    ports: {
+      title: 'Ports and protocols',
+      head: ['Where', 'Inbound', 'Outbound'],
+      rows: [
+        { where: 'Machine with the agent', inbound: 'none', outbound: 'TCP 443 (HTTPS and WSS)' },
+        { where: 'Browser', inbound: 'none', outbound: 'TCP 443 (HTTPS and WSS)' },
+        { where: 'Phone', inbound: 'none', outbound: 'TCP 443 (HTTPS and WSS)' },
+      ],
+      notes: [
+        'Allow the WebSocket upgrade (Connection: Upgrade) to app.termhub.dev and termhub.dev.',
+        'Every connection pings every 30 s or less: proxies that close idle connections after 60 s do not get in the way.',
+        'With TLS inspection (MITM), leave the termhub hosts out: the agent validates certificates against Node.js’s default list.',
+      ],
+    },
+    domains: {
+      title: 'Domains to allow',
+      lead: 'The complete list, split between what is required and what depends on the feature.',
+      required_label: 'Required',
+      optional_label: 'Optional, per feature',
+      head: ['Host', 'What for'],
+      required: [
+        { host: 'app.termhub.dev', why: 'Web app, API and browser WebSockets; the agent connection (/agent/ws).' },
+        { host: 'termhub.dev', why: 'Hook events, the MCP endpoint for the chat and agent tabs, the phone app’s API and WebSocket.' },
+        { host: 'registry.npmjs.org', why: 'Installing and updating the agent (npm i -g @termhub/agent).' },
+        { host: '*.cloudflareaccess.com · accounts.google.com', why: 'Browser sign-in: termhub Cloud sits behind Cloudflare Access, with Google login.' },
+      ],
+      optional: [
+        { host: 'Your package manager’s mirrors', why: 'Installing tmux with the install command (brew, apt-get, dnf or pacman).' },
+        { host: 'The hosts of the AI CLIs you already use', why: 'Claude Code, Codex, Gemini… run in tabs as in any terminal; termhub adds no hosts for them.' },
+        { host: 'github.com', why: 'macOS only, the first time you set up the iOS Simulator viewer.' },
+      ],
+    },
+    agent: {
+      title: 'What the agent installs',
+      items: [
+        'The @termhub/agent package from npm, published by GitHub Actions with npm provenance (you can check which commit each version came from).',
+        'The file ~/.termhub/config.json (0600) with the server address and the machine token.',
+        'A user service: systemd --user on Linux or a LaunchAgent on macOS. No root.',
+        'Optional, from the app: the monitor hooks in ~/.termhub/bin and entries in the Claude Code, Codex and Cursor settings. The app removes them too.',
+      ],
+    },
+    checklist: {
+      title: 'Checklist for IT',
+      items: [
+        'Outbound TCP 443 with WebSocket upgrade to app.termhub.dev, termhub.dev and registry.npmjs.org; for browsers, also Cloudflare Access and accounts.google.com.',
+        'No inbound rule on the machines: no SSH, VPN or port forwarding.',
+        'termhub hosts excluded from TLS inspection.',
+        'Direct egress or a transparent proxy: the agent does not use an explicit proxy (HTTPS_PROXY) yet.',
+        'On the machine: macOS or Linux (Windows through WSL), Node.js 20+, tmux and a regular user account.',
+      ],
+      test_label: 'Test on the machine',
+      test_hint: '"✓ Servidor" from doctor and "conectado ✓" from status prove the token, TLS and WebSocket made it through the network. The curl answers 401 when the hooks host is allowed.',
+    },
+    limits: {
+      title: 'What we don’t have yet',
+      lead: 'So you can decide with the full picture: these items are on our roadmap and do not exist today.',
+      items: [
+        'Support for an explicit HTTP(S) proxy and an extra corporate CA in the agent.',
+        'Corporate SSO (SAML or generic OIDC), SCIM and multi-factor authentication.',
+        'An audit trail of logins, permissions and tokens, with export. Today the chat’s actions, with who approved them, and phone events are recorded.',
+        'Idle session timeout and "sign out everywhere".',
+        'A retention limit and application-level encryption for chat messages and attachments.',
+      ],
+    },
+    cta: {
+      title: 'Take it to your security team',
+      lead: 'The technical guide covers the architecture, every host and port, the threat model and where each claim lives in the code.',
+    },
   },
 };
 

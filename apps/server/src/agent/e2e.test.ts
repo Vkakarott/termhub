@@ -23,6 +23,7 @@ import { captureScreen } from './screen.js';
 // server test suite's, not the agent's).
 import { runAgent } from '../../../agent/src/run.js';
 import type { AgentConfig } from '../../../agent/src/config.js';
+import { removeTempDir } from '../../test/temp-dir.js';
 
 const { resolveUserMock, canAccessMock } = vi.hoisted(() => ({
   resolveUserMock: vi.fn(),
@@ -89,10 +90,24 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
   let prevTmuxTmpDir: string | undefined;
   let prevTmuxPath: string | undefined;
   let prevTmux: string | undefined;
+  let agentHome: string;
+  let prevHome: string | undefined;
 
   beforeAll(async () => {
     tmuxTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'thtest-tmux-'));
     projectCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'thtest-cwd-'));
+
+    // The agent's home, seeded like a machine with termhub hooks installed and Codex present.
+    agentHome = fs.mkdtempSync(path.join(os.tmpdir(), 'thtest-home-'));
+    fs.mkdirSync(path.join(agentHome, '.termhub', 'bin'), { recursive: true });
+    fs.mkdirSync(path.join(agentHome, '.codex'));
+    fs.writeFileSync(path.join(agentHome, '.termhub', 'hook.env'), "TERMHUB_HOOK_URL='http://127.0.0.1:1/x'\nTERMHUB_HOOK_TOKEN='t'\n");
+    fs.writeFileSync(path.join(agentHome, '.termhub', 'bin', 'termhub-hook'), '#!/bin/sh\n# placeholder\n', { mode: 0o755 });
+    // `runAgent` heals the monitor hooks (~/.termhub/bin/termhub-hook, ~/.codex/hooks.json, ...) of
+    // the HOME it runs in, and os.homedir() reads $HOME: without this the suite rewrote the
+    // developer's real hooks. Restored in afterAll.
+    prevHome = process.env.HOME;
+    process.env.HOME = agentHome;
 
     // Set before anything spawns tmux: the agent's own tmux calls (pty open + tmux.capture RPC)
     // build their env from process.env at call time, so this keeps the real tmux server the
@@ -208,8 +223,11 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
       /* no session left, or tmux server already gone — fine */
     }
     if (server) await shutdown(server);
-    fs.rmSync(tmuxTmpDir, { recursive: true, force: true });
+    removeTempDir(tmuxTmpDir);
     fs.rmSync(projectCwd, { recursive: true, force: true });
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    removeTempDir(agentHome);
 
     if (prevTmuxTmpDir === undefined) delete process.env.TMUX_TMPDIR;
     else process.env.TMUX_TMPDIR = prevTmuxTmpDir;
@@ -263,6 +281,13 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
       { timeout: 15_000, interval: 100 },
     );
   }
+
+  it('heals the monitor hooks of the temporary HOME it runs in, never the real one (TER-491)', { timeout: 15_000 }, async () => {
+    await vi.waitFor(
+      () => expect(fs.readFileSync(path.join(agentHome, '.codex', 'hooks.json'), 'utf8')).toContain('termhub-hook codex'),
+      { timeout: 8_000, interval: 100 },
+    );
+  });
 
   it(
     'echoes a command through a real tmux session on the agent side',

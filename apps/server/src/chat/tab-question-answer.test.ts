@@ -175,6 +175,28 @@ describe('answerTabQuestion', () => {
     expect(sendKey).not.toHaveBeenCalled();
   });
 
+  it('409 TAB_PROMPT_NOT_SEEN when a dialog is on screen but not recognised — nothing typed, and the card stays open (TER-542)', async () => {
+    const { ctx, tabQuestions } = ctxFor(row());
+    readScreen.mockResolvedValue({ tab_id: 't1', lines: 60, text: `Which city?\n❯ 1. Paris\n  2. Rome\n${'Enter to select · ↑/↓ to navigate · Esc to cancel'}`, styled: false });
+    const err = await answerTabQuestion(ctx, 'q1', { answers: [{ selected: [0] }, { selected: [0] }] }, { log: log(), sleep: noSleep }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ statusCode: 409, code: 'TAB_PROMPT_NOT_SEEN' });
+    expect((err as Error).message).toMatch(/nada foi enviado/i);
+    expect(tabQuestions.claim).not.toHaveBeenCalled();
+    expect(tabQuestions.closeOne).not.toHaveBeenCalled();
+    expect(sendKey).not.toHaveBeenCalled();
+  });
+  it('the answer reaches a tab whose dialog is taller than its pane (TER-542)', async () => {
+    const optIn = {
+      question: 'Pela regra nova de impacto em outros usuários, como os cards do Codex devem chegar para quem não pediu?',
+      header: 'Opt-in',
+      multi_select: false,
+      options: ['Aprovação/pergunta padrão; resposta opt-in', 'Tudo padrão, sem opção', 'Tudo opt-in por usuário', 'Tirar o item 2 do PR'].map((label, i) => ({ label, description: '', recommended: i === 0 })),
+    };
+    const { ctx } = ctxFor(row({ payload: { questions: [optIn] } }));
+    readScreen.mockResolvedValue({ tab_id: 't1', lines: 60, text: fx('screen-choice-tall.txt'), styled: false });
+    await answerTabQuestion(ctx, 'q1', { answers: [{ selected: [0] }] }, { log: log(), sleep: noSleep, embedder: null });
+    expect(sendKey).toHaveBeenCalledWith(expect.anything(), { tab_id: 't1', key: '1' });
+  });
   it('409 TAB_PROMPT_CHANGED when the question is not on the live screen — before any claim, and the card closes', async () => {
     const { ctx, tabQuestions } = ctxFor(row());
     readScreen.mockResolvedValue({ tab_id: 't1', lines: 60, text: '$ ls\nREADME.md\n', styled: false });
@@ -366,6 +388,23 @@ const CHOICE_FOOTER = 'Enter to select · Tab/Arrow keys to navigate · Esc to c
 const PERMISSION_FOOTER = 'Esc to cancel · Tab to amend';
 
 describe('promptVisible', () => {
+  // TER-542: a real Claude Code card taller than the pane — the question's start is above the top of
+  // the screen, only its last wrapped row is left. The option labels are what identifies it then.
+  const optIn = {
+    question: 'Pela regra nova de impacto em outros usuários, como os cards do Codex devem chegar para quem não pediu?',
+    header: 'Opt-in',
+    multi_select: false,
+    options: ['Aprovação/pergunta padrão; resposta opt-in', 'Tudo padrão, sem opção', 'Tudo opt-in por usuário', 'Tirar o item 2 do PR'].map((label, i) => ({ label, description: '', recommended: i === 0 })),
+  };
+  it('recognises a dialog taller than the pane by its option labels (TER-542)', () => {
+    expect(promptVisible(fx('screen-choice-tall.txt'), row({ payload: { questions: [optIn] } }))).toBe(true);
+  });
+  it('labels alone are not enough when one of them is missing, or with no dialog footer', () => {
+    const other = { ...optIn, options: [...optIn.options.slice(0, 3), { label: 'Outra coisa', description: '', recommended: false }] };
+    expect(promptVisible(fx('screen-choice-tall.txt'), row({ payload: { questions: [other] } }))).toBe(false);
+    const noFooter = fx('screen-choice-tall.txt').replace('Enter to select · ↑/↓ to navigate · Esc to cancel', '');
+    expect(promptVisible(noFooter, row({ payload: { questions: [optIn] } }))).toBe(false);
+  });
   it('finds the first question on the captured card and the permission prompt on its own screen', () => {
     expect(promptVisible(screens.choice, row())).toBe(true);
     expect(promptVisible(screens.permission, permission())).toBe(true);

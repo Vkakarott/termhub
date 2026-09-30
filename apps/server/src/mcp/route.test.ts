@@ -105,7 +105,7 @@ describe('POST /mcp tools', () => {
 
     const list = await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
     const names = list.json().result.tools.map((t: { name: string }) => t.name).sort();
-    expect(names).toEqual(['find', 'get_project_setup', 'list_machines', 'list_project_groups', 'list_projects', 'list_tab_questions', 'list_tabs', 'read_last_answer', 'read_screen', 'wait_for_state']);
+    expect(names).toEqual(['find', 'get_project_setup', 'list_machines', 'list_project_groups', 'list_projects', 'list_tab_questions', 'list_tabs', 'read_last_answer', 'read_screen', 'recap_pending_cards', 'wait_for_state']);
     await flush();
     expect(apiTokens.touchLastUsed).toHaveBeenCalledWith('tok1');
   });
@@ -422,7 +422,7 @@ describe('terminals scope', () => {
 });
 
 describe('tasks scope', () => {
-  const TASK_TOOLS = ['list_tasks', 'create_task', 'add_subtasks', 'update_task', 'move_task', 'delete_task'];
+  const TASK_TOOLS = ['list_tasks', 'create_task', 'add_subtasks', 'update_task', 'move_task', 'delete_task', 'link_tab_task'];
   const tasksToken = token({ scopes: ['read', 'tasks'] });
   const taskGrants = ['projects:read', 'tasks:read', 'tasks:create', 'tasks:update', 'tasks:delete'];
 
@@ -443,13 +443,13 @@ describe('tasks scope', () => {
     const { app } = build({ token: tasksToken, grants: ['tasks:read', 'tasks:update'] });
     const list = await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
     const names = list.json().result.tools.map((t: { name: string }) => t.name);
-    expect(names).toEqual(expect.arrayContaining(['list_tasks', 'update_task', 'move_task']));
+    expect(names).toEqual(expect.arrayContaining(['list_tasks', 'update_task', 'move_task', 'link_tab_task']));
     expect(names).not.toContain('create_task');
     expect(names).not.toContain('add_subtasks');
     expect(names).not.toContain('delete_task');
   });
 
-  it('offers all six to a tasks token whose user has every tasks grant', async () => {
+  it('offers all of them to a tasks token whose user has every tasks grant', async () => {
     const { app } = build({ token: tasksToken, grants: taskGrants });
     const list = await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
     expect(list.json().result.tools.map((t: { name: string }) => t.name)).toEqual(expect.arrayContaining(TASK_TOOLS));

@@ -181,6 +181,7 @@ function Page() {
             <a href="#comparar" className="nav-link hidden lg:inline-flex">{t.nav.compare}</a>
             <a href="#cloud" className="nav-link">{t.nav.cloud}</a>
             <a href="#faq" className="nav-link hidden lg:inline-flex">{t.nav.faq}</a>
+            <a href="/security/" className="nav-link hidden lg:inline-flex">{t.nav.security}</a>
             <a href={REPO_URL} className="nav-link hidden lg:inline-flex">{t.nav.github}</a>
           </>
         }

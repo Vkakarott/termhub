@@ -13,10 +13,11 @@ vi.mock('../terminal/session-ops.js', () => ({ sendTextToSession }));
 vi.mock('../terminal/tab-mcp.js', async (orig) => ({ ...(await orig<typeof import('../terminal/tab-mcp.js')>()), installTabMcp, tabMcpSupported }));
 
 import type { Repositories } from '../db/repositories/index.js';
-import type { AiAccount, Machine, Project, Task } from '../db/repositories/types.js';
+import type { AiAccount, Machine, Project, Tab, Task } from '../db/repositories/types.js';
+import { TaskRuleError } from '../db/repositories/tasks.js';
 import { Scoped } from '../auth/scope.js';
 import { ControlError, type ControlContext } from './context.js';
-import { checkPrompt, CODEX_TAB_MCP_ENABLED, launchLine, LESSONS_REMINDER, PROMPT_MAX_CHARS, RESUME_PROMPT, resumeLine, startAgent, withLessonsReminder } from './agents.js';
+import { checkPrompt, CODEX_TAB_MCP_ENABLED, launchLine, LESSONS_REMINDER, linkTabTask, PROMPT_MAX_CHARS, RESUME_PROMPT, resumeLine, startAgent, withLessonsReminder } from './agents.js';
 
 const machine = (over: Partial<Machine> & { id: string }): Machine => ({
   name: over.id, host: null, ssh_user: null, ssh_port: 22, type: 'agent', os: 'macos', capabilities: ['tmux', 'claude', 'codex'], checked_at: null,
@@ -51,6 +52,19 @@ const kdoing = task({ id: 'k2', project_id: 'p1', title: 'Already', status: 'doi
 const ksub = task({ id: 's1', project_id: 'p1', title: 'A subtask', parent_id: 'k1', tab_id: 't-old' });
 const klong = task({ id: 'k3', project_id: 'p1', title: 'T'.repeat(80) });
 const k9 = task({ id: 'k9', project_id: 'p2', title: 'Elsewhere' });
+const kx = task({ id: 'kx', project_id: 'px', title: 'Not yours' });
+const tab = (over: Partial<Tab> & { id: string; project_id: string; machine_id: string }): Tab => ({
+  name: over.id, kind: 'terminal', tmux_session: `th-${over.id}`, simulator_udid: null, position: 0,
+  state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, created_at: '', ...over,
+});
+/** Open tabs: t1 and t-old in p1, a simulator tab there too, t2 in p2, tx of the other user. */
+const tabs = [
+  tab({ id: 't1', project_id: 'p1', machine_id: 'm1', name: 'claude à mão' }),
+  tab({ id: 't-old', project_id: 'p1', machine_id: 'm1' }),
+  tab({ id: 'tsim', project_id: 'p1', machine_id: 'm1', kind: 'simulator', tmux_session: null }),
+  tab({ id: 't2', project_id: 'p2', machine_id: 'm2' }),
+  tab({ id: 'tx', project_id: 'px', machine_id: 'mx' }),
+];
 
 function ctx(grants: string[] = ['terminals:write', 'tasks:update']) {
   const repos = {
@@ -65,12 +79,12 @@ function ctx(grants: string[] = ['terminals:write', 'tasks:update']) {
       list: vi.fn(async (owner: string | null) => accounts.filter((a) => owner === null || machines.find((m) => m.id === a.machine_id)!.owner_id === owner)),
     },
     tasks: {
-      findById: vi.fn(async (id: string) => [k1, kdoing, ksub, klong, k9].find((t) => t.id === id)),
+      findById: vi.fn(async (id: string) => [k1, kdoing, ksub, klong, k9, kx].find((t) => t.id === id)),
       setTab: vi.fn(async () => undefined),
       update: vi.fn(async () => undefined),
-      startWork: vi.fn(async () => undefined),
+      startWork: vi.fn(async (_id: string): Promise<Task | undefined> => undefined),
     },
-    tabs: { setAgentFields: vi.fn(async () => undefined) },
+    tabs: { setAgentFields: vi.fn(async () => undefined), findById: vi.fn(async (id: string) => tabs.find((t) => t.id === id)) },
     apiTokens: {
       create: vi.fn(async (userId: string, input: { name: string; tabId?: string | null }) => ({ id: 'tt1', user_id: userId, name: input.name, tab_id: input.tabId ?? null })),
       revokeForTab: vi.fn(async () => 1),
@@ -97,16 +111,40 @@ beforeEach(() => {
 const NOTE = 'O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou parar (num único subagente em segundo plano, que termina na primeira parada), e read_last_answer para a resposta dele (read_screen só para o que está na tela). Perguntas e permissões chegam como cards no chat.';
 const MCP_URL = 'https://termhub.dev/mcp';
 const MCP_FLAGS = `--mcp-config "$HOME"/'.termhub/tabs/abc/mcp.json' --allowedTools 'mcp__termhub_tab__search_memory' 'mcp__termhub_tab__record_lesson'`;
+/** What the line of an account without a config dir starts with: the CLI's variable cleared in the tab's shell (TER-499). */
+const CLEAR_CLAUDE = 'command -v unset >/dev/null 2>&1 && unset CLAUDE_CONFIG_DIR; ';
+const CLEAR_CODEX = 'command -v unset >/dev/null 2>&1 && unset CODEX_HOME; ';
 
 describe('launchLine', () => {
   it('starts claude with the prompt as its argument, under CLAUDE_CONFIG_DIR when the account has one', () => {
     expect(launchLine('claude', '/Users/p/.claude-work', 'write a spec')).toBe("CLAUDE_CONFIG_DIR='/Users/p/.claude-work' claude 'write a spec'");
-    expect(launchLine('claude', null, 'write a spec')).toBe("claude 'write a spec'");
   });
 
-  it('starts codex under CODEX_HOME', () => {
-    expect(launchLine('chatgpt', '/Users/p/.codex-work', 'fix it')).toBe("CODEX_HOME='/Users/p/.codex-work' codex 'fix it'");
-    expect(launchLine('chatgpt', null, 'fix it')).toBe("codex 'fix it'");
+  // TER-499: no config dir is the machine's default login, so a variable the tab's shell inherited must
+  // not pick another one. `unset`, not `env -u`: the person's alias or function for the binary still runs.
+  it("clears the CLI's config variable for an account without a config dir, and only for it", () => {
+    expect(launchLine('claude', null, 'write a spec')).toBe(`${CLEAR_CLAUDE}claude 'write a spec'`);
+    expect(launchLine('chatgpt', null, 'fix it')).toBe(`${CLEAR_CODEX}codex --no-alt-screen 'fix it'`);
+    expect(launchLine('claude', '~/.claude-work', 'x')).not.toContain('unset');
+    expect(launchLine('chatgpt', '/Users/p/.codex-work', 'x', { tabId: 'abc', url: MCP_URL })).not.toContain('unset');
+  });
+
+  it('clears the variable before the token assignment of a codex tab with the MCP', () => {
+    expect(launchLine('chatgpt', null, 'fix it', { tabId: 'abc', url: MCP_URL })).toBe(
+      `${CLEAR_CODEX}TERMHUB_MCP_TOKEN="$(cat "$HOME"/'.termhub/tabs/abc/token')" codex --no-alt-screen -c 'mcp_servers.termhub_tab.url="https://termhub.dev/mcp"' -c 'mcp_servers.termhub_tab.bearer_token_env_var="TERMHUB_MCP_TOKEN"' 'fix it'`,
+    );
+  });
+
+  it('starts codex under CODEX_HOME, out of the alternate screen', () => {
+    expect(launchLine('chatgpt', '/Users/p/.codex-work', 'fix it')).toBe("CODEX_HOME='/Users/p/.codex-work' codex --no-alt-screen 'fix it'");
+  });
+
+  // TER-465: in the alternate screen Codex's messages never reach the pane history, so the mouse wheel has
+  // nothing to scroll; Claude turns mouse tracking on and scrolls by itself, so its line stays as it was.
+  it('passes --no-alt-screen to codex only, with or without the tab MCP', () => {
+    expect(launchLine('chatgpt', null, 'x', { tabId: 'abc', url: MCP_URL })).toContain(' codex --no-alt-screen -c ');
+    for (const mcp of [null, { tabId: 'abc', url: MCP_URL }]) expect(launchLine('claude', null, 'x', mcp)).not.toContain('--no-alt-screen');
+    expect(resumeLine(null, '123e4567-e89b-12d3-a456-426614174000', 'x')).not.toContain('--no-alt-screen');
   });
 
   it('keeps quotes, spaces, newlines and ; inert in the prompt and the config dir', () => {
@@ -116,20 +154,20 @@ describe('launchLine', () => {
 
   it("leaves a config dir's ~ for the machine's shell to expand, the rest still quoted", () => {
     expect(launchLine('claude', '~/.claude-work', 'write a spec')).toBe("CLAUDE_CONFIG_DIR=\"$HOME\"/'.claude-work' claude 'write a spec'");
-    expect(launchLine('chatgpt', '~', 'fix it')).toBe('CODEX_HOME="$HOME" codex \'fix it\'');
+    expect(launchLine('chatgpt', '~', 'fix it')).toBe('CODEX_HOME="$HOME" codex --no-alt-screen \'fix it\'');
     // Only the leading ~/ is outside the quotes: a tilde further in, and anything else, stays literal.
     expect(launchLine('claude', "~/it's $HOME; rm -rf /", 'x')).toBe("CLAUDE_CONFIG_DIR=\"$HOME\"/'it'\\''s $HOME; rm -rf /' claude 'x'");
     expect(launchLine('claude', '/tmp/~/x', 'x')).toBe("CLAUDE_CONFIG_DIR='/tmp/~/x' claude 'x'");
   });
 
   it('points claude at the tab config and pre-allows only the memory tools, `--` before the prompt', () => {
-    expect(launchLine('claude', null, 'write a spec', { tabId: 'abc', url: MCP_URL })).toBe(`claude ${MCP_FLAGS} -- 'write a spec'`);
+    expect(launchLine('claude', null, 'write a spec', { tabId: 'abc', url: MCP_URL })).toBe(`${CLEAR_CLAUDE}claude ${MCP_FLAGS} -- 'write a spec'`);
     expect(launchLine('claude', '~/.claude-work', 'x', { tabId: 'abc', url: MCP_URL })).toBe(`CLAUDE_CONFIG_DIR="$HOME"/'.claude-work' claude ${MCP_FLAGS} -- 'x'`);
   });
 
   it('gives codex the server by -c overrides and the token through an env var read from the tab file', () => {
     expect(launchLine('chatgpt', '/Users/p/.codex-work', 'fix it', { tabId: 'abc', url: MCP_URL })).toBe(
-      `TERMHUB_MCP_TOKEN="$(cat "$HOME"/'.termhub/tabs/abc/token')" CODEX_HOME='/Users/p/.codex-work' codex -c 'mcp_servers.termhub_tab.url="https://termhub.dev/mcp"' -c 'mcp_servers.termhub_tab.bearer_token_env_var="TERMHUB_MCP_TOKEN"' 'fix it'`,
+      `TERMHUB_MCP_TOKEN="$(cat "$HOME"/'.termhub/tabs/abc/token')" CODEX_HOME='/Users/p/.codex-work' codex --no-alt-screen -c 'mcp_servers.termhub_tab.url="https://termhub.dev/mcp"' -c 'mcp_servers.termhub_tab.bearer_token_env_var="TERMHUB_MCP_TOKEN"' 'fix it'`,
     );
   });
 
@@ -150,8 +188,8 @@ describe('launchLine', () => {
   });
 
   it('is exactly the plain line without mcp', () => {
-    expect(launchLine('claude', null, 'x', null)).toBe("claude 'x'");
-    expect(launchLine('chatgpt', null, 'x', undefined)).toBe("codex 'x'");
+    expect(launchLine('claude', '/c', 'x', null)).toBe("CLAUDE_CONFIG_DIR='/c' claude 'x'");
+    expect(launchLine('chatgpt', '/c', 'x', undefined)).toBe("CODEX_HOME='/c' codex --no-alt-screen 'x'");
   });
 
   it('refuses gemini and antigravity for now', () => {
@@ -165,8 +203,10 @@ describe('resumeLine', () => {
   it('resumes the session under the account, prompt quoted', () => {
     expect(resumeLine('~/.claude_b', SID, RESUME_PROMPT)).toBe(`CLAUDE_CONFIG_DIR="$HOME"/'.claude_b' claude --resume ${SID} 'A conta anterior atingiu o limite de uso. Continue a tarefa de onde parou.'`);
   });
-  it('no env for the default account', () => {
-    expect(resumeLine(null, SID, 'x')).toBe(`claude --resume ${SID} 'x'`);
+  it('clears an inherited config dir for the default account', () => {
+    expect(resumeLine(null, SID, 'x')).toBe(`${CLEAR_CLAUDE}claude --resume ${SID} 'x'`);
+    expect(resumeLine(null, SID, 'x', 'abc')).toBe(`${CLEAR_CLAUDE}claude ${MCP_FLAGS} --resume ${SID} -- 'x'`);
+    expect(resumeLine('~/.claude_b', SID, 'x')).not.toContain('unset');
   });
   it('refuses a session id that is not a uuid', () => {
     expect(() => resumeLine(null, "x'; rm -rf ~", 'x')).toThrow(ControlError);
@@ -178,7 +218,7 @@ describe('resumeLine', () => {
 
   it('keeps the tab config when the tab has a live tab token, `--` before the prompt', () => {
     expect(resumeLine('~/.claude_b', SID, 'x', 'abc')).toBe(`CLAUDE_CONFIG_DIR="$HOME"/'.claude_b' claude ${MCP_FLAGS} --resume ${SID} -- 'x'`);
-    expect(resumeLine(null, SID, 'x', null)).toBe(`claude --resume ${SID} 'x'`);
+    expect(resumeLine(null, SID, 'x', null)).toBe(`${CLEAR_CLAUDE}claude --resume ${SID} 'x'`);
     expect(() => resumeLine(null, SID, 'x', '../x')).toThrow(ControlError);
   });
 });
@@ -474,5 +514,68 @@ describe('startAgent', () => {
     openTab.mockRejectedValue(new ControlError('TAB_LIMIT', 'limite'));
     await expect(startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p' })).rejects.toEqual(new ControlError('TAB_LIMIT', 'limite'));
     expect(sendTextToSession).not.toHaveBeenCalled();
+  });
+});
+
+// TER-499: a tab that is already open — an agent started by hand — linked to a card the way start_agent
+// links the tab it opens, so the card shows it and Progresso lists the agent.
+describe('linkTabTask', () => {
+  it('points the card at the tab and starts work on it, answering the card as it ended up', async () => {
+    const { c, repos } = ctx();
+    repos.tasks.startWork.mockResolvedValue({ ...k1, ref: 'P1-7', status: 'doing', column_id: 'c-doing', tab_id: 't1' });
+    const r = await linkTabTask(c, { tab_id: 't1', task_id: 'k1' });
+    expect(repos.tasks.setTab).toHaveBeenCalledWith('k1', 't1');
+    expect(repos.tasks.startWork).toHaveBeenCalledWith('k1');
+    expect(repos.tasks.setTab.mock.invocationCallOrder[0]).toBeLessThan(repos.tasks.startWork.mock.invocationCallOrder[0]);
+    expect(r).toMatchObject({
+      task: { id: 'k1', ref: 'P1-7', status: 'doing', column_id: 'c-doing', tab_id: 't1', url: 'https://app.test/project/P1-7' },
+      tab_id: 't1', tab_name: 'claude à mão', previous_tab_id: null, board_url: 'https://app.test/projects/p1/tasks',
+    });
+  });
+
+  it('re-points a card linked to another tab and names the tab it left', async () => {
+    const { c, repos } = ctx();
+    const r = await linkTabTask(c, { tab_id: 't1', task_id: 's1' });
+    expect(repos.tasks.setTab).toHaveBeenCalledWith('s1', 't1');
+    expect(r.previous_tab_id).toBe('t-old');
+  });
+
+  it('linking the tab a card already has is not a change of tab', async () => {
+    const { c, repos } = ctx();
+    const r = await linkTabTask(c, { tab_id: 't-old', task_id: 's1' });
+    expect(r.previous_tab_id).toBeNull();
+    expect(repos.tasks.startWork).toHaveBeenCalledWith('s1');
+  });
+
+  it('refuses a card of another project, writing nothing', async () => {
+    const { c, repos } = ctx();
+    await expect(linkTabTask(c, { tab_id: 't1', task_id: 'k9' })).rejects.toEqual(new ControlError('TASK_OTHER_PROJECT', 'A tarefa "Elsewhere" é de outro projeto, não o da aba'));
+    expect(repos.tasks.setTab).not.toHaveBeenCalled();
+  });
+
+  it('refuses a tab that is not a terminal', async () => {
+    const { c, repos } = ctx();
+    await expect(linkTabTask(c, { tab_id: 'tsim', task_id: 'k1' })).rejects.toEqual(new ControlError('TAB_NOT_TERMINAL', 'Só abas de terminal podem ser ligadas a uma tarefa'));
+    expect(repos.tasks.setTab).not.toHaveBeenCalled();
+  });
+
+  it('needs the tasks:update grant', async () => {
+    const { c, repos } = ctx(['terminals:write']);
+    await expect(linkTabTask(c, { tab_id: 't1', task_id: 'k1' })).rejects.toEqual(new ControlError('FORBIDDEN', 'Vincular a tarefa precisa da permissão tasks:update na sua role'));
+    expect(repos.tasks.setTab).not.toHaveBeenCalled();
+  });
+
+  it('says a broken board rule as the board would, not as a server error', async () => {
+    const { c, repos } = ctx();
+    repos.tasks.startWork.mockRejectedValue(new TaskRuleError('COLUMN_NOT_FOUND'));
+    await expect(linkTabTask(c, { tab_id: 't1', task_id: 'k1' })).rejects.toEqual(new ControlError('COLUMN_NOT_FOUND', new TaskRuleError('COLUMN_NOT_FOUND').message));
+  });
+
+  it("404s another user's tab or card, the same way as one that does not exist", async () => {
+    const { c, repos } = ctx();
+    await expect(linkTabTask(c, { tab_id: 'tx', task_id: 'k1' })).rejects.toMatchObject({ statusCode: 404, message: 'Tab não encontrada' });
+    await expect(linkTabTask(c, { tab_id: 'nope', task_id: 'k1' })).rejects.toMatchObject({ statusCode: 404, message: 'Tab não encontrada' });
+    await expect(linkTabTask(c, { tab_id: 't1', task_id: 'kx' })).rejects.toMatchObject({ statusCode: 404, message: 'Tarefa não encontrada' });
+    expect(repos.tasks.setTab).not.toHaveBeenCalled();
   });
 });

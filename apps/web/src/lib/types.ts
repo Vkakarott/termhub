@@ -917,6 +917,11 @@ export interface ChatAction {
   grant_id?: string | null;
   /** The subagent (spec 2026-09-26 §4) whose turn proposed this action; null for the top-level run. */
   subagent?: { id: string; description: string } | null;
+  /** Why a `failed` row failed (`TAB_GONE`, `WAITING_PERMISSION`, `PROMPT_CHANGED`…); absent from an older server. */
+  error_code?: string | null;
+  /** When the card was last brought back to the end of the chat (TER-477): the thread orders it by
+   * `surfaced_at ?? created_at`. Absent from an older server. */
+  surfaced_at?: string | null;
 }
 
 /** Mirrors the server's `SubagentStatus` (apps/server/src/chat/stream.ts). */
@@ -1083,6 +1088,8 @@ interface TabQuestionBase {
   status: TabQuestionStatus;
   error_code: string | null;
   created_at: string;
+  /** When the card was last brought back to the end of the chat (TER-477); absent from an older server. */
+  surfaced_at?: string | null;
   answered_at: string | null;
   closed_at: string | null;
   /** Only while the card is `open`; absent from a server that predates it, so treat undefined as null. */
@@ -1185,6 +1192,8 @@ export interface TabSuggestion {
   answer: { text: string } | null;
   error_code: string | null;
   created_at: string;
+  /** When the card was last brought back to the end of the chat (TER-477); absent from an older server. */
+  surfaced_at?: string | null;
   answered_at: string | null;
   closed_at: string | null;
 }
@@ -1210,10 +1219,13 @@ export type ChatEvent =
   /** An answer row was deleted on the server: drop it. */
   | { type: 'message_removed'; message_id: string; conversation_id?: string }
   /** A new pending action to show a card for, enriched exactly like `GET /api/chat`'s `actions` —
-   * never resolve a name from this event, the server already did it. */
-  | ({ type: 'confirmation'; action_id: string; conversation_id?: string } & Omit<ChatAction, 'id' | 'status'>)
+   * never resolve a name from this event, the server already did it. For an id already on screen,
+   * `resurfaced: true` with a new `surfaced_at` is that card brought back to the end of the chat. */
+  | ({ type: 'confirmation'; action_id: string; conversation_id?: string; resurfaced?: true } & Omit<ChatAction, 'id' | 'status'>)
   /** Someone answered a pending action (possibly in another tab): update the card by its id. */
   | { type: 'decision'; action_id: string; status: 'approved' | 'denied'; conversation_id?: string }
+  /** The gate ran an action, or it failed or expired (TER-477): update the card's status by its id. */
+  | { type: 'action_status'; user_id?: string; action_id: string; status: 'executed' | 'failed' | 'expired'; error_code: string | null; conversation_id?: string }
   /** A new (or renewed) trusted-tab grant, e.g. from "Permitir sempre nesta aba" in another tab. */
   | { type: 'grant'; grant: ChatGrant; conversation_id?: string }
   /** A grant was revoked (by this or another tab, or because it expired and a reset ended it). */
@@ -1230,7 +1242,7 @@ export type ChatEvent =
   /** An action the server ran straight away under a trusted tab or a trusted project, with no confirmation card first. */
   | { type: 'granted_action'; action: ChatAction; conversation_id?: string }
   /** A tab asked something, the chat answered it (or failed to), or it left the tab's screen: the whole card each time. */
-  | { type: 'tab_question' | 'tab_question_answered' | 'tab_question_closed'; question: TabQuestion; conversation_id?: string }
+  | { type: 'tab_question' | 'tab_question_answered' | 'tab_question_closed'; question: TabQuestion; conversation_id?: string; resurfaced?: true }
   /** A tab shows a suggestion, or it was sent, dismissed or left the screen: the whole card each time. */
   | { type: 'tab_suggestion' | 'tab_suggestion_closed'; suggestion: TabSuggestion; conversation_id?: string }
   /** An attachment finished extracting or failed: update the chip by its id. */

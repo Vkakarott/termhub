@@ -22,6 +22,15 @@ it('tells the concierge to hand verified lessons to a stuck tab and to record ne
   expect(ORCHESTRATOR_PROMPT).toMatch(/- Lessons:.*kinds \["lesson"\].*record_lesson/);
 });
 
+// TER-499: Progresso lists the agents of a card from the tab linked to it, and only start_agent with
+// task_id (or link_tab_task) makes that link.
+it('tells the concierge to start agents on cards with start_agent and task_id, and to link a tab started by hand', () => {
+  expect(ORCHESTRATOR_PROMPT).toMatch(/- Agents on cards:.*start_agent with task_id/);
+  expect(ORCHESTRATOR_PROMPT).toMatch(/list_ai_accounts.*default: true/);
+  expect(ORCHESTRATOR_PROMPT).toMatch(/[Nn]ever start an agent by typing .* into a tab .*open_tab/);
+  expect(ORCHESTRATOR_PROMPT).toContain('link_tab_task');
+});
+
 it('goes first, with the project prompt after it, and fits the protocol cap with the longest project prompt', () => {
   expect(streamedSystemPrompt(null)).toBe(ORCHESTRATOR_PROMPT);
   expect(streamedSystemPrompt('projeto')).toBe(`${ORCHESTRATOR_PROMPT}\n\nprojeto`);

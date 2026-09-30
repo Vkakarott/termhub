@@ -38,6 +38,7 @@ describe('interpretHookEvent — claude', () => {
 
   it('returns null for unknown events and non-objects', () => {
     expect(interpretHookEvent('claude', { hook_event_name: 'SubagentStop' })).toBeNull();
+    expect(interpretHookEvent('claude', { hook_event_name: 'PostToolBatch' })).toBeNull();
     expect(interpretHookEvent('claude', 'nope')).toBeNull();
   });
 
@@ -105,6 +106,68 @@ describe('interpretHookEvent — claude subagents (spec 2026-09-26 §4.5)', () =
     ['a Stop (subagents end with SubagentStop, which we ignore)', { hook_event_name: 'Stop', last_assistant_message: 'ok' }],
   ])('does not flag %s', (_label, ev) => {
     expect(interpretHookEvent('claude', ev)?.meta).not.toHaveProperty('subagent');
+  });
+});
+
+describe('interpretHookEvent — claude subagent ids (spec 2026-09-30 tab questions per subagent)', () => {
+  const A = 'ac5724783efd1ee13';
+
+  it("carries the subagent's id on its PreToolUse and PermissionRequest", () => {
+    const pre = interpretHookEvent('claude', { hook_event_name: 'PreToolUse', tool_name: 'Bash', subagent: true, agent_id: A });
+    expect(pre?.meta).toEqual({ event: 'PreToolUse', tool: 'Bash', subagent: true, agent_id: A });
+    const perm = interpretHookEvent('claude', { hook_event_name: 'PermissionRequest', tool_name: 'Bash', subagent: true, agent_id: A });
+    expect(perm?.meta.subagent).toBe(true);
+    expect(perm?.meta.agent_id).toBe(A);
+    expect(perm?.question).toMatchObject({ kind: 'permission' });
+  });
+
+  it('carries the id of a whole AskUserQuestion, question included', () => {
+    const ask = {
+      session_id: 's1', transcript_path: '/x.jsonl', cwd: '/w', prompt_id: 'p1', permission_mode: 'default', agent_id: A, agent_type: 'general-purpose',
+      hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'Qual cor?', header: 'Cor', options: [{ label: 'Azul' }, { label: 'Verde' }], multiSelect: false }] }, tool_use_id: 'toolu_9',
+    };
+    const out = interpretHookEvent('claude', ask);
+    expect(out?.meta).toMatchObject({ subagent: true, agent_id: A });
+    expect(out?.question).toMatchObject({ kind: 'choice' });
+  });
+
+  it.each([
+    ['no agent_id', undefined],
+    ['an id with a dot', 'a.b'],
+    ['an id of 65 characters', 'a'.repeat(65)],
+    ['an id with spaces around it', ' ac57 '],
+  ])('keeps the flag and no agent_id key for %s', (_label, id) => {
+    const out = interpretHookEvent('claude', { hook_event_name: 'PreToolUse', tool_name: 'Bash', subagent: true, ...(id === undefined ? {} : { agent_id: id }) });
+    expect(out?.meta.subagent).toBe(true);
+    expect(out?.meta).not.toHaveProperty('agent_id');
+  });
+
+  it("gives the main thread's events neither key", () => {
+    for (const ev of [{ hook_event_name: 'PreToolUse', tool_name: 'Bash' }, { hook_event_name: 'PermissionRequest', tool_name: 'Bash' }, { hook_event_name: 'Stop', last_assistant_message: 'ok' }]) {
+      const meta = interpretHookEvent('claude', ev)?.meta;
+      expect(meta).not.toHaveProperty('subagent');
+      expect(meta).not.toHaveProperty('agent_id');
+    }
+  });
+
+  it('never gives a Codex event an agent_id', () => {
+    const out = interpretHookEvent('codex', { hook_event_name: 'PermissionRequest', tool_name: 'Bash', agent_id: A, tool_input: { command: 'ls', description: 'Listar?' } });
+    expect(out?.meta.subagent).toBe(true);
+    expect(out?.meta).not.toHaveProperty('agent_id');
+  });
+
+  it('reads a SubagentStop with an id as a close-only event', () => {
+    expect(interpretHookEvent('claude', { hook_event_name: 'SubagentStop', subagent: true, agent_id: A })).toEqual({
+      kind: 'working', text: null, closeOnly: true, meta: { event: 'SubagentStop', subagent: true, agent_id: A },
+    });
+  });
+
+  it.each([
+    ['no id', { hook_event_name: 'SubagentStop', subagent: true }],
+    ['an id with a dot', { hook_event_name: 'SubagentStop', subagent: true, agent_id: 'a.b' }],
+    ['an id of 65 characters', { hook_event_name: 'SubagentStop', subagent: true, agent_id: 'a'.repeat(65) }],
+  ])('ignores a SubagentStop with %s', (_label, ev) => {
+    expect(interpretHookEvent('claude', ev)).toBeNull();
   });
 });
 

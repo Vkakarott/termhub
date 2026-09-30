@@ -7,7 +7,7 @@ import { DICT, LANG_KEY, LangContext, detectLang, useLang, type Dict, type Lang 
 /**
  * What every page of termhub.dev shares: the language switch, analytics and
  * the cookie banner (`Site`), plus the header and footer chrome. The home
- * page and the adjacent ones (/brand/, later terms and privacy) are separate
+ * page and the adjacent ones (/brand/, /security/, later terms and privacy) are separate
  * Vite entries, so each mounts its own tree inside a `Site`.
  */
 
@@ -77,6 +77,7 @@ export function SiteFooter() {
         <span>© {new Date().getFullYear()} termhub · MIT</span>
         <a href={REPO_URL} className="hover-tint tap px-1.5 py-0.5 hover:text-frost">GitHub</a>
         <a href={`${REPO_URL}/blob/main/README.md`} className="hover-tint tap px-1.5 py-0.5 hover:text-frost">{t.footer.docs}</a>
+        <a href="/security/" className="hover-tint tap px-1.5 py-0.5 hover:text-frost">{t.footer.security}</a>
         <a href="/brand/" className="hover-tint tap px-1.5 py-0.5 hover:text-frost">{t.footer.brand}</a>
         <a href={COFFEE_URL} className="hover-tint tap px-1.5 py-0.5 hover:text-frost">{t.footer.coffee}</a>
         {ANALYTICS_ENABLED && (

@@ -183,3 +183,26 @@ that assert the texts).
 - `wait_for_state` description: add that it is the way to follow a tab, instead of a subagent polling it.
 - Tests assert the new rule's key phrases (`wait_for_state`, `read_last_answer`, never a subagent to watch a
   tab) and the absence of "waiting on an agent".
+
+## Task 7: the Codex reply card is opt-in per user (decided 2026-09-30)
+
+Pedro's decision under the new CLAUDE.md "Impact on other users" rule: approval and `request_user_input` cards
+stay on for everyone (parity with Claude Code's cards, and only with trusted Codex hooks); the prose reply card
+of Task 4 is a per-user setting, **off by default**.
+
+Files: follow the existing `chat_autodecide` switch end to end — `apps/server/prisma/schema.prisma` (+ a new
+migration, backward compatible: `ADD COLUMN ... NOT NULL DEFAULT false`), `apps/server/src/db/repositories/users.ts`,
+the settings route that reads/writes `chat_autodecide` (`apps/server/src/routes/chat-memory.ts` and its
+control module), the web Settings UI that shows that switch, the mobile app if it shows that switch, and
+`apps/server/src/chat/tab-suggestions.ts` (`openCodexReply`).
+
+- New `User.chatCodexReplies Boolean @default(false) @map("chat_codex_replies")`.
+- Read/write it wherever `chat_autodecide` is read/written (same zod validation, same response shape, field
+  `codex_replies` next to it — match the existing naming).
+- `openCodexReply` opens the card only when the owner of the project (the user whose conversation receives the
+  card) has it on; otherwise it does nothing (log nothing but ids).
+- Web Settings, next to the other chat switches: label `Responder perguntas do Codex pelo chat`, help
+  `Quando o Codex termina o turno com uma pergunta, abre um card no chat para você responder sem ir até a aba.`
+- Tests: default false; the switch round-trips through the route; `openCodexReply` opens only when on; the
+  settings UI renders and toggles it. Regenerate the Prisma client (`npx prisma generate` in apps/server) as the
+  project does.

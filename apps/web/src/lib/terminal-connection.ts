@@ -11,6 +11,8 @@ export interface TerminalConnectionHandlers {
 }
 
 const MAX_ATTEMPTS = 8;
+/** Most lines one scroll message may carry (the server refuses more). */
+const SCROLL_MAX_LINES = 500;
 const BASE_DELAY = 500;
 const MAX_DELAY = 15_000;
 
@@ -29,6 +31,11 @@ export class TerminalConnection {
   /** set when the last close was a 1012 (deploy/agent reconnecting): keep showing "Reconectando…" instead of "Conectando…" */
   private restarting = false;
   state: ConnectionState = 'connecting';
+  /**
+   * The server scrolls the tmux pane on a wheel (TER-465): set from `ready` on every connection, false
+   * until then and for an older server or agent — the wheel then stays with xterm.js, as before.
+   */
+  canScroll = false;
 
   constructor(
     private tabId: string,
@@ -53,6 +60,7 @@ export class TerminalConnection {
     const ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
+    this.canScroll = false;
     this.setState(this.attempt === 0 && !this.restarting ? 'connecting' : 'reconnecting');
 
     // The socket opens before the server has started the terminal, which can still fail on the
@@ -65,8 +73,9 @@ export class TerminalConnection {
         return;
       }
       try {
-        const msg = JSON.parse(String(ev.data)) as { type: string; code?: number; message?: string };
+        const msg = JSON.parse(String(ev.data)) as { type: string; code?: number; message?: string; scroll?: boolean };
         if (msg.type === 'ready') {
+          this.canScroll = msg.scroll === true;
           this.attempt = 0;
           this.restarting = false;
           this.setState('connected');
@@ -86,6 +95,7 @@ export class TerminalConnection {
     ws.onclose = (ev) => {
       if (this.ws !== ws) return;
       this.ws = null;
+      this.canScroll = false;
       if (this.stopped) return;
       if (this.exited) {
         this.setState('closed');
@@ -145,6 +155,13 @@ export class TerminalConnection {
   sendResize(cols: number, rows: number) {
     this.size = { cols, rows };
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+  }
+
+  /** Scrolls the tab's tmux pane by `lines` (< 0 up, > 0 down); does nothing unless `canScroll`. */
+  sendScroll(lines: number) {
+    if (!this.canScroll || lines === 0 || this.ws?.readyState !== WebSocket.OPEN) return;
+    const capped = Math.max(-SCROLL_MAX_LINES, Math.min(SCROLL_MAX_LINES, Math.trunc(lines)));
+    if (capped !== 0) this.ws.send(JSON.stringify({ type: 'scroll', lines: capped }));
   }
 
   close() {

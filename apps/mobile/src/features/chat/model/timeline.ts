@@ -11,6 +11,10 @@ export type ChatEntry =
   | { kind: 'tab_question'; at: string; question: TabQuestion }
   | { kind: 'tab_suggestion'; at: string; suggestion: TabSuggestion };
 
+/** Where a card sits in the thread (spec 2026-09-30 §2.2): when it was brought back to the end of the
+ * thread, else when it was created. Both the order and the window rule below use it. */
+const cardAt = (card: { created_at: string; surfaced_at?: string | null }): string => card.surfaced_at ?? card.created_at;
+
 /**
  * Merges messages and gate cards into one chronological thread, so a card renders next to the
  * answer that proposed it instead of in a separate list. Copies both inputs into entries first —
@@ -29,20 +33,21 @@ export function chatTimeline(messages: ChatMessage[], actions: ChatAction[], tab
    * apply: keep every action rather than inventing one.
    */
   const oldestMessageAt = messages.reduce<string | null>((oldest, m) => (oldest === null || m.created_at < oldest ? m.created_at : oldest), null);
-  const visibleActions = oldestMessageAt === null ? actions : actions.filter((action) => action.created_at >= oldestMessageAt);
+  // A card brought back to the end of the thread is measured where it now sits (`cardAt`).
+  const visibleActions = oldestMessageAt === null ? actions : actions.filter((action) => cardAt(action) >= oldestMessageAt);
   // A tab's question card follows the same window rule as a gate card: it belongs next to the thread around it.
-  const visibleQuestions = oldestMessageAt === null ? tabQuestions : tabQuestions.filter((q) => q.created_at >= oldestMessageAt);
-  const visibleSuggestions = oldestMessageAt === null ? tabSuggestions : tabSuggestions.filter((s) => s.created_at >= oldestMessageAt);
+  const visibleQuestions = oldestMessageAt === null ? tabQuestions : tabQuestions.filter((q) => cardAt(q) >= oldestMessageAt);
+  const visibleSuggestions = oldestMessageAt === null ? tabSuggestions : tabSuggestions.filter((s) => cardAt(s) >= oldestMessageAt);
 
   // Actions first, deliberately: a stable sort with no tiebreak would just preserve this
   // concatenation order, so putting actions ahead of messages here means the "message before
   // action" rule below is doing the work, not an accident of array order. Removing that tiebreak
   // would now surface the wrong order (action before message on a tie) instead of hiding it.
   const entries: ChatEntry[] = [
-    ...visibleActions.map((action): ChatEntry => ({ kind: 'action', at: action.created_at, action })),
+    ...visibleActions.map((action): ChatEntry => ({ kind: 'action', at: cardAt(action), action })),
     ...messages.map((message): ChatEntry => ({ kind: 'message', at: message.created_at, message })),
-    ...visibleQuestions.map((question): ChatEntry => ({ kind: 'tab_question', at: question.created_at, question })),
-    ...visibleSuggestions.map((suggestion): ChatEntry => ({ kind: 'tab_suggestion', at: suggestion.created_at, suggestion })),
+    ...visibleQuestions.map((question): ChatEntry => ({ kind: 'tab_question', at: cardAt(question), question })),
+    ...visibleSuggestions.map((suggestion): ChatEntry => ({ kind: 'tab_suggestion', at: cardAt(suggestion), suggestion })),
   ];
 
   return entries.sort((a, b) => {

@@ -187,6 +187,26 @@ describe('ingestHookEvent — tab questions', () => {
   });
 });
 
+describe('ingestHookEvent — close-only events (spec 2026-09-30 tab questions per subagent)', () => {
+  it("a Claude SubagentStop records nothing, cancels no suggestion check and reaches the tab-question service", async () => {
+    note.mockClear();
+    cancel.mockClear();
+    const current = tab({ state: 'waiting_permission' });
+    const { r, recordEvent, setActivity, setAgentFields } = repos(current);
+    const event = { hook_event_name: 'SubagentStop', subagent: true, agent_id: 'ac5724783efd1ee13' };
+    const out = await ingestHookEvent(r, log, { machineId: 'm1', tool: 'claude', session: 'th-t1', event });
+    expect(recordEvent).not.toHaveBeenCalled();
+    expect(setActivity).not.toHaveBeenCalled();
+    expect(setAgentFields).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+    expect(note).toHaveBeenCalledTimes(1);
+    const [, , passedTab, interpreted] = note.mock.calls[0]!;
+    expect(passedTab).toBe(current);
+    expect(interpreted).toMatchObject({ closeOnly: true, meta: { event: 'SubagentStop', agent_id: 'ac5724783efd1ee13' } });
+    expect(out).toEqual({ ok: true, tab: current });
+  });
+});
+
 describe('ingestHookEvent — suggestions', () => {
   it('a Claude Stop schedules the suggestion check; every event of the tab first cancels a pending one', async () => {
     schedule.mockClear();

@@ -243,6 +243,8 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
     setPushToken: (a: Auth, token: string) => empty('PUT', '/api/m/v1/push-token', { token: a.accessToken, body: { token } }),
 
     chatProjects: (a: Auth) => call('GET', '/api/m/v1/chat/projects', chatProjectsResponse, { token: a.accessToken }),
+    setProjectFavorite: (a: Auth, projectId: string, favorite: boolean) =>
+      empty('PUT', `/api/m/v1/chat/projects/${encodeURIComponent(projectId)}/favorite`, { token: a.accessToken, body: { favorite } }),
     chat: (a: Auth, projectId: string | null) =>
       call('GET', `/api/m/v1/chat${projectId ? `?project=${encodeURIComponent(projectId)}` : ''}`, chatResponse, { token: a.accessToken }),
     hostOptions: (a: Auth) => call('GET', '/api/m/v1/chat/host/options', hostOptionsResponse, { token: a.accessToken }),
