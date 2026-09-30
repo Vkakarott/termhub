@@ -165,6 +165,62 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     });
   });
 
+  describe('recordEvent — a background subagent never takes the tab out of its main thread\'s wait (TER-615)', () => {
+    const sub = (tool: string, agent_id?: string) => ({ kind: 'working' as const, tool: 'claude', text: null, meta: { event: 'PreToolUse', tool, subagent: true, ...(agent_id ? { agent_id } : {}) } });
+
+    it('replays the hulk tab of 2026-09-30: every Stop and the question stay waiting', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, meta: { event: 'UserPromptSubmit' } });
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'Pronto.', meta: { event: 'Stop', background_tasks: 2 } });
+      const afterStop = await repo.recordEvent(tabId, sub('Read'));
+      expect(afterStop.event).toBeNull();
+      expect(afterStop.tab).toMatchObject({ state: 'waiting_input', state_text: 'Pronto.' });
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'Claude is waiting for your input', meta: { event: 'Notification', type: 'idle_prompt' }, continuesWait: true, keepsWaitText: true });
+      expect((await repo.recordEvent(tabId, sub('Bash'))).tab.state).toBe('waiting_input');
+      // the subagent's message wakes the main thread, which asks a question
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, meta: { event: 'UserPromptSubmit' } });
+      await repo.recordEvent(tabId, { kind: 'waiting_permission', tool: 'claude', text: 'Claude needs your permission', meta: { event: 'Notification', type: 'permission_prompt' } });
+      const handback = await repo.recordEvent(tabId, sub('SubagentHandback'));
+      expect(handback.event).toBeNull();
+      expect(handback.tab).toMatchObject({ state: 'waiting_permission', state_text: 'Claude needs your permission' });
+    });
+
+    it('a subagent is back at work once the person approved its own prompt', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: null, meta: { event: 'Stop', background_tasks: 1 } });
+      await repo.recordEvent(tabId, { kind: 'waiting_permission', tool: 'claude', text: null, meta: { event: 'PermissionRequest', tool: 'Bash', subagent: true, agent_id: 'a1' } });
+      await repo.recordEvent(tabId, { kind: 'waiting_permission', tool: 'claude', text: 'Claude needs your permission', meta: { event: 'Notification', type: 'permission_prompt' } });
+      expect((await repo.recordEvent(tabId, sub('Read', 'a2'))).tab.state).toBe('waiting_permission');
+      const approved = await repo.recordEvent(tabId, sub('Bash', 'a1'));
+      expect(approved.event).not.toBeNull();
+      expect(approved.tab.state).toBe('working');
+    });
+  });
+
+  describe('stale working tabs (TER-615)', () => {
+    it('lists Claude terminal tabs working with nothing since the cut, oldest first', async () => {
+      const { tab } = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, meta: { event: 'UserPromptSubmit' } });
+      const later = new Date(Date.parse(tab.state_at!) + 1);
+      expect((await repo.listStaleWorking(later)).map((t) => t.id)).toContain(tabId);
+      expect((await repo.listStaleWorking(new Date(Date.parse(tab.state_at!)))).map((t) => t.id)).not.toContain(tabId);
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'codex', text: null, meta: { event: 'UserPromptSubmit' } });
+      expect((await repo.listStaleWorking(new Date(Date.now() + 1000))).map((t) => t.id)).not.toContain(tabId);
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: null, meta: { event: 'Stop' } });
+      expect((await repo.listStaleWorking(new Date(Date.now() + 1000))).map((t) => t.id)).not.toContain(tabId);
+    });
+
+    it('ifStateAt: writes only when the tab is still working since that moment', async () => {
+      const { tab } = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, meta: { event: 'UserPromptSubmit' } });
+      const read = tab.state_at!;
+      // a hook landed between the screen capture and the write
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, meta: { event: 'UserPromptSubmit' } });
+      const late = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: null, meta: { event: 'ScreenCheck', screen: 'prompt' }, ifStateAt: read });
+      expect(late.event).toBeNull();
+      expect(late.tab.state).toBe('working');
+      const fresh = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: null, meta: { event: 'ScreenCheck', screen: 'prompt' }, ifStateAt: late.tab.state_at! });
+      expect(fresh.event).not.toBeNull();
+      expect(fresh.tab).toMatchObject({ state: 'waiting_input', state_seen_at: null });
+    });
+  });
+
   describe('recordEvent — the same wait (Claude: Stop, then idle_prompt ~1min later) stays seen, a new one re-arms', () => {
     it('carries the seen mark forward: seen waiting_input + a waiting_input that continues it stays seen', async () => {
       await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'first?' });

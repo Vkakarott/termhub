@@ -60,6 +60,13 @@ export interface HistoryRow {
   ageMs: number;
   /** a Claude Stop that left background tasks running */
   backgroundTasks: boolean;
+  /** a subagent's event (`meta.subagent`), with its id when the hook script sent one; null for the main thread */
+  subagent?: SubagentRef | null;
+}
+
+/** Which subagent an event belongs to: `id` is null when an older hook script sent only the flag. */
+export interface SubagentRef {
+  id: string | null;
 }
 
 export interface WaitEvent {
@@ -68,10 +75,12 @@ export interface WaitEvent {
   name: string | null;
   continuesWait: boolean;
   keepsWaitText: boolean;
+  /** a subagent's event, null or absent for the main thread's */
+  subagent?: SubagentRef | null;
 }
 
 export type WaitOutcome =
-  | { action: 'drop'; reason: 'session_start_during_turn' | 'post_tool_after_interrupt' }
+  | { action: 'drop'; reason: 'session_start_during_turn' | 'post_tool_after_interrupt' | 'subagent_during_wait' }
   /**
    * `carry`: the person had seen the wait this one follows. `born`: a wait with nothing new in it,
    * seen from its first moment. `none`: a request the person has not seen.
@@ -117,8 +126,32 @@ function lastWaitInputRow(history: HistoryRow[]): HistoryRow | undefined {
   return history.find((row) => row.kind === 'waiting_input');
 }
 
+/** Two refs of the same subagent: the same id, or at least one of them from a script that names nobody. */
+const sameSubagent = (a: SubagentRef, b: SubagentRef): boolean => a.id === null || b.id === null || a.id === b.id;
+
+/**
+ * Whether the wait the tab is in was opened by this subagent's own permission prompt. The
+ * `Notification` rows on top are passed over: they only announce the prompt below them.
+ */
+function waitOwnedBy(history: HistoryRow[], subagent: SubagentRef): boolean {
+  for (const row of history) {
+    if (row.event === 'Notification') continue;
+    return isWait(row.kind) && !!row.subagent && sameSubagent(row.subagent, subagent);
+  }
+  return false;
+}
+
 export function decideWait(current: WaitCurrent, history: HistoryRow[], event: WaitEvent): WaitOutcome {
   const last = history[0] ?? null;
+
+  // A subagent left running in the background keeps calling tools after its main thread ended the
+  // turn (a Stop with background tasks), asked a question or opened a permission dialog (TER-615).
+  // The tab is where its main thread is: that wait is still the person's to answer, and nothing the
+  // main thread sends later would take the tab out of working again. Only the subagent whose own
+  // prompt the tab waits on is back at work when it calls a tool: the person approved it.
+  if (event.kind === 'working' && event.subagent && isWait(current.state) && !waitOwnedBy(history, event.subagent)) {
+    return { action: 'drop', reason: 'subagent_during_wait' };
+  }
 
   // Cursor's launch with a prompt fires sessionStart and beforeSubmitPrompt together. When the
   // prompt lands first, the session start must not take the tab out of the turn it announces.
