@@ -7,3 +7,4 @@ export * from './events.js';
 export * from './notifications.js';
 export * from './proofs.js';
 export * from './progress.js';
+export * from './project-ai.js';

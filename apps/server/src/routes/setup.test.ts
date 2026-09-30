@@ -16,7 +16,7 @@ vi.mock('../setup/tickets-sync.js', () => ({
   forgetSync: vi.fn(),
 }));
 
-function build(saved: unknown[]) {
+function build(saved: unknown[], ai?: unknown) {
   const app = Fastify();
   applyErrorHandler(app);
   app.addHook('preHandler', async (request) => {
@@ -30,7 +30,7 @@ function build(saved: unknown[]) {
     integrations: { findById: vi.fn(async (id: string) => ({ id, owner_id: 'u1', provider: 'github', config: {} })) },
     machines: { findById: vi.fn() },
     projectSetup: {
-      get: vi.fn(async () => ({ data: { ticket_sources: saved } })),
+      get: vi.fn(async () => ({ data: { ticket_sources: saved, ...(ai ? { ai } : {}) } })),
       save,
     },
     tickets: { pruneSource },
@@ -78,5 +78,17 @@ describe('setup routes', () => {
     const res = await app.inject({ method: 'POST', url: '/projects/p1/tickets/sync' });
     expect(res.statusCode).toBe(502);
     expect(res.json().code).toBe('PROVIDER_ERROR');
+  });
+});
+
+describe('full setup PUT and the ai block (TER-589)', () => {
+  it('keeps the stored ai block whatever the body says: it has its own endpoint', async () => {
+    const stored = { accounts: ['a1'], models: { claude: 'opus', chatgpt: null } };
+    for (const payload of [{}, { ai: { accounts: [], models: { claude: null, chatgpt: null } } }]) {
+      const { app, save } = build([], stored);
+      const res = await app.inject({ method: 'PUT', url: '/projects/p1/setup', payload });
+      expect(res.statusCode).toBe(200);
+      expect((save.mock.calls[0][1] as { ai: unknown }).ai).toEqual(stored);
+    }
   });
 });
