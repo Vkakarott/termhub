@@ -576,7 +576,8 @@ export class ChatService {
    * chat action's own lookup: a foreign or missing id is the same 404, never a hint that a subagent
    * of someone else's conversation exists. A row already at rest (`SUBAGENT_NOT_RUNNING`) or one whose
    * process is no longer around to ask (`SUBAGENT_GONE`, marked `interrupted` here) both throw a 409:
-   * the click did not fail, there is simply nothing left to cancel. A process live on another instance
+   * the click did not fail, there is simply nothing left to cancel. A process that is still there but
+   * takes no input is ended, so that `interrupted` is what happened to its subagent. A process live on another instance
    * (a fresh, unreleased `chat_live_runs` row of theirs) is `SUBAGENT_GONE` too, but its row is left
    * untouched: that instance still runs it and will report its real end.
    */
@@ -598,7 +599,11 @@ export class ChatService {
     const stopping = await this.deps.repos.chatSubagents.setStatus(row.id, 'stopping', { from: ['running'] });
     if (!stopping) throw new HttpError(409, 'Este subagente não está rodando', 'SUBAGENT_NOT_RUNNING');
     chatBus.publish({ type: 'subagent', user_id: user.id, conversation_id: row.conversation_id, subagent: toSubagentView(stopping) });
-    if (!live.stopTask(row.task_id, row.id)) return this.subagentGone(user, row.id, row.conversation_id);
+    if (!live.stopTask(row.task_id, row.id)) {
+      // A process that takes no input cannot be asked: ending it is the only way to stop what it runs.
+      live.stop();
+      return this.subagentGone(user, row.id, row.conversation_id);
+    }
     setTimeout(() => void live.rollbackStop(row.id).catch(() => {}), CANCEL_TIMEOUT_MS).unref?.();
     return toSubagentView(stopping);
   }

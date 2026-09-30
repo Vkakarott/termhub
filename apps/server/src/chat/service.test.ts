@@ -2590,6 +2590,31 @@ describe('subagentsFor / cancelSubagent (spec 2026-09-26 panel §4/§5.4)', () =
     return { ...built, run };
   }
 
+  it('cancelling a subagent of a process that takes no input ends that process: nothing else can stop it (TER-498)', async () => {
+    const built = build([], { streaming: true });
+    const lr = liveRunner();
+    vi.mocked(built.runner.run).mockImplementation(lr.run);
+    const started = await built.service.start(user, 'vigia a aba');
+    const run = await runAt(lr, 0);
+    // The first monitor ends while the turn runs, so the input ends with the turn…
+    run.push(replayOf(run.input.text.trim()));
+    run.push(backgroundTasks(['task0']));
+    run.push(backgroundTasks([]));
+    run.push(delta('Disparei.'));
+    run.push(done());
+    await started.done;
+    await settled();
+    // …and the turn that reports it starts another, which no `stop_task` line can reach any more.
+    run.push(taskStarted('task1', 'tu1', 'Monitorar a aba'));
+    run.push(backgroundTasks(['task1']));
+    await vi.waitFor(() => expect(built.subagentsStore).toHaveLength(1));
+
+    await expect(built.service.cancelSubagent(user, built.subagentsStore[0].id)).rejects.toMatchObject({ statusCode: 409, code: 'SUBAGENT_GONE' });
+    // The row says interrupted, and it is true: the subagent ended with its process.
+    expect(built.subagentsStore[0].status).toBe('interrupted');
+    expect(run.closed()).toBe(true);
+  });
+
   it('writes the stop control line, marks the row stopping and tells every open screen', async () => {
     const { service, run } = await withRunningSubagent();
     const events: ChatEvent[] = [];
