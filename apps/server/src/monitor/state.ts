@@ -63,7 +63,17 @@ const verbOf = (v: unknown): string | null => {
 };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+/**
+ * A payload string, trimmed, or null when blank. Null characters are dropped first: Postgres rejects
+ * them in `text` and `jsonb`, and one in an answer, a text or a meta value would fail the whole event
+ * (the tab would stay `working`). Every string read from a payload goes through here, so the whole
+ * answer, the capped text and meta are all clean.
+ */
+const str = (v: unknown): string | null => {
+  if (typeof v !== 'string') return null;
+  const s = v.replaceAll('\u0000', '').trim();
+  return s ? s : null;
+};
 const cap = (v: string | null): string | null => (v && v.length > STATE_TEXT_MAX ? `${v.slice(0, STATE_TEXT_MAX - 1)}…` : v);
 
 /** The most of an agent's answer that is kept whole (spec 2026-09-30 last answer): the hook body is

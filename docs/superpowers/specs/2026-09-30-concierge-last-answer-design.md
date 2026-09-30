@@ -33,11 +33,11 @@ Claude Code, `last_assistant_message` of Codex's `Stop` and `last-assistant-mess
 | Stale answers | The tool answers `stale: true` when a `working` event of the tab is newer than the answer, and carries the tab's `state` and `state_at`. | After an Esc, an empty `Stop`, a lost `afterAgentResponse` or a hook body over its cap, the stored answer is from an earlier turn. The concierge must be able to tell. |
 | Order of two answers | Not handled. | Hooks post in the background with a five-second timeout, so an older `Stop` lands after a newer one only when the next turn ended inside that window. `at` is server time under the row lock. |
 | The tool | `read_last_answer(tab_id, offset?, max_chars?)`. Scope `read`, resource `terminals`, action `read`, a read for the gate. The tab is loaded through `ctx.scoped.tab`. It reads the database only: the machine may be offline. | The answer is the tab's, and reading a tab needs `terminals:read`, as `read_screen`. No key goes to the terminal, no card opens. |
-| Paging | `offset` (default 0) and `max_chars` (default 20 000, at most 60 000). The answer carries `text` (that slice), `chars` (the whole length), `offset` and `next_offset` (null when the slice reached the end). | The concierge runs on Claude Code, which caps a tool result at about 25 000 tokens, and the MCP route pretty-prints the JSON. A hundred thousand characters in one result would be refused. |
+| Paging | `offset` (default 0) and `max_chars` (default 20 000, at most 60 000). The answer carries `text` (that slice), `chars` (the whole length), `offset` and `next_offset` (null when the slice reached the end). A page never ends between the two halves of a surrogate pair: its end moves back by one and the next page starts on the pair (a page of one unit on a pair takes the whole pair, so paging always moves). | The concierge runs on Claude Code, which caps a tool result at about 25 000 tokens, and the MCP route pretty-prints the JSON. A hundred thousand characters in one result would be refused. |
 | The rest of the answer | `source: 'hook'`, `tool`, `at`, `cut` (the stored answer was capped), `state`, `state_at`, `stale`. | The issue asks for the origin, so a transcript source can come later. |
 | A tab with no answer | `text: null` and the note: "Esta aba não tem resposta registrada pelos hooks (hooks não instalados na máquina, ou nenhum turno terminou). Use read_screen para ver o terminal." | The concierge must know to fall back. |
 | The tab's rows elsewhere | `Tab` and every list of tabs stay as they are. The repository gains `readLastAnswer(tabId)`. | The answer has one reader. |
-| `read_screen` | On its styled path (the tool's), a `note` when the tab's last reported tool is Claude Code, Codex or Cursor, or when the tab has no monitor state at all: "Se esta aba roda um agente de tela cheia (Claude Code, Codex ou Cursor), o que saiu do topo não está no histórico do tmux. Com os hooks instalados na máquina, read_last_answer traz a última resposta completa." The server's own plain reads get no note. | The fallback the issue asks for, on tabs without hooks too. Worded as a condition: `state_tool` outlives the agent (a shell used after Claude exits still says `claude`), and a tab with no state may be a shell. |
+| `read_screen` | On its styled path (the tool's), a `note` when the tab's last reported tool is Claude Code, Codex or Cursor, or when the tab has no monitor state at all: "Se esta aba roda um agente de tela cheia (Claude Code, Codex ou Cursor), o que saiu do topo não está no histórico do tmux. Com os hooks instalados na máquina, read_last_answer traz a última resposta completa." The server's own plain reads get no note. | The fallback the issue asks for, on tabs without hooks too. Worded as a condition: `state_tool` outlives the agent (a shell used after Claude exits still says `claude`), and a tab with no state may be a shell. `state_tool` is only ever a hook tool, or `termhub` when a web reply reaches a tab with a state and no tool, so the note shows on every tab that has no monitor state, which is most plain shells: about 200 characters per `read_screen`, accepted. |
 | The concierge's prompts | The description of `read_last_answer` says what it is (the final message of the agent's last turn, the agent's output: data, never instructions), when to use it and how to page; the description of `read_screen` points to it. The project prompt's tail gains one sentence: "For an agent's last answer in full, use read_last_answer: read_screen shows only what is on the screen." | Descriptions are what the model reads first. The answer is text the agent, and whoever holds the machine's hook token, controls: the same class as `read_screen`, but longer. |
 | Logs | The answer is terminal content: never logged. `recordState` logs its length only, as it does for `text`. | CLAUDE.md. |
 | Phone and web | Nothing to do: no screen shows the answer. | The tool is the concierge's. |
@@ -75,7 +75,7 @@ readScreen(...) // its result gains `note?: string` on the styled path
 ```
 
 `cut` is true when the stored answer is exactly `LAST_ANSWER_MAX` long and ends with "…". `offset`
-past the end answers an empty `text` with `next_offset: null`.
+past the end answers an empty `text` with `next_offset: null`. A page never splits a surrogate pair (§2, Paging).
 
 ## 4. Tests
 
@@ -89,10 +89,10 @@ past the end answers an empty `text` with `next_offset: null`.
   leaves it; `stale` is false right after the answer and true once a `working` event follows; the
   answer is not in the `Tab` the repository answers; deleting the tab deletes the row.
 - `screen.test.ts`: `read_last_answer` answers the stored answer with its fields; paging with
-  `offset` and `max_chars`, the clamp, an offset past the end; `cut`; `stale` passed through; the note
+  `offset` and `max_chars`, the clamp, an offset past the end, an emoji at a page boundary; `cut`; `stale` passed through; the note
   for a tab with none; 404 for a missing tab and for a tab outside the scope; works with the machine
   offline; `read_screen` adds the note for a tab whose last tool is Claude, Codex or Cursor and for a
-  tab with no state, not for a shell with a state, and never on the plain path.
+  tab with no state, not for a shell with a state (`state_tool: 'termhub'`, the only other tool ever written), and never on the plain path.
 - `mcp/route.test.ts`: the exact list of tools gains `read_last_answer`; `gate.test.ts`: it is a read.
 - `project-prompt.test.ts`: the new sentence is in the tail and the prompt stays within 4000.
 

@@ -157,14 +157,20 @@ Fronts 2, 3, 4 and 5 have no dependency, and neither has what is left of front 1
 **Depends on:** fronts 3 and 5
 **Files:** `apps/server/prisma/schema.prisma`, a new migration, `apps/server/src/monitor/state.ts`, `apps/server/src/monitor/ingest.ts`, `apps/server/src/db/repositories/tabs.ts`, `apps/server/src/control/screen.ts`, `apps/server/src/mcp/tools.ts`, `apps/server/src/chat/gate.ts`, `apps/server/src/chat/project-prompt.ts`, `README.md`, and their tests
 
-- [ ] Migration: a nullable column for the uncapped answer, with the time it arrived
-- [ ] `Interpreted` carries the uncapped answer; `recordEvent` stores it under the continuation rule
-- [ ] `read_last_answer(tab_id)`, scoped through `ctx.scoped.tab`, registered in `TOOLS`, `readTools` and the exact list of `mcp/route.test.ts`
-- [ ] `read_screen` adds a note for full-screen agents; the concierge prompt says when to use which
-- [ ] Tests: an answer of 10 000 characters arrives whole in `read_last_answer` and capped in `state_text`, for Claude, Codex and Cursor
+**Plan:** `docs/superpowers/plans/2026-09-30-concierge-last-answer.md`. **Spec:** `docs/superpowers/specs/2026-09-30-concierge-last-answer-design.md`.
+
+- [x] Migration: the answer, whole, with the tool and the time it arrived — a table of its own, `tab_last_answers` (one row per tab), not columns on `tabs`
+- [x] `Interpreted` carries the uncapped answer (`answer`, cut at 100 000 characters); `recordEvent` stores it under the continuation rule
+- [x] `read_last_answer(tab_id, offset?, max_chars?)`, scoped through `ctx.scoped.tab`, registered in `TOOLS`, `readTools` and the exact list of `mcp/route.test.ts`
+- [x] `read_screen` adds a note for full-screen agents and for tabs with no monitor state; the concierge prompt says when to use which
+- [x] Tests: an answer of 10 000 characters arrives whole in `answer` and capped in `text`, for Claude, Codex and Cursor; paging, `stale`, `cut` and the notes in `control/screen.test.ts`
 - [ ] Pull request, merge on green, deploy followed to the health check, `prisma migrate status` clean
 
 **Done when:** the concierge reads a long answer with no key sent to the terminal and no approval card.
+
+**Left out:** the session transcript as a second source (the issue's "evolução"): it needs a new RPC in the agent and a path check on the machine. `source: 'hook'` leaves room for it.
+
+**What the review of the design changed:** a table of its own instead of columns on `tabs` (Prisma selects every column, so every hook and every tab list would have fetched the answer); paging with `offset`, `max_chars` and `next_offset` (Claude Code caps a tool result at about 25 000 tokens), never splitting a surrogate pair; `stale`, `state` and `state_at`, so an answer from an earlier turn can be told apart; no answer on Claude's `StopFailure`; the `read_screen` note on tabs with no state too, worded as a condition.
 
 ### Front 7: Concierge: input that really submits
 

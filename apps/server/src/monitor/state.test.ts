@@ -509,4 +509,25 @@ describe('the whole answer (spec 2026-09-30 last answer)', () => {
   it('an empty answer is no answer', () => {
     expect(interpretHookEvent('claude', { hook_event_name: 'Stop', last_assistant_message: '   ' })?.answer).toBeUndefined();
   });
+
+  it('drops null characters from the answer and the text: Postgres text rejects them, and the event would be lost', () => {
+    const out = interpretHookEvent('claude', { hook_event_name: 'Stop', last_assistant_message: `Pronto.\u0000 Rodo${'\u0000'.repeat(3)} os testes?` })!;
+    expect(out.answer).toBe('Pronto. Rodo os testes?');
+    expect(out.text).toBe('Pronto. Rodo os testes?');
+    // past the text's cap too, and before the answer's cut, so the kept lengths do not shrink
+    const long = interpretHookEvent('codex', { type: 'agent-turn-complete', 'last-assistant-message': `${'\u0000'.repeat(10)}${'z'.repeat(LAST_ANSWER_MAX + 10)}` })!;
+    expect(long.answer!.includes('\u0000')).toBe(false);
+    expect(long.answer!.length).toBe(LAST_ANSWER_MAX);
+    expect(long.text!.includes('\u0000')).toBe(false);
+    expect(long.text!.length).toBe(STATE_TEXT_MAX);
+    // other capped texts: a Notification message, a Codex permission description
+    expect(interpretHookEvent('claude', { hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'Posso\u0000 rodar?' })?.text).toBe('Posso rodar?');
+    expect(interpretHookEvent('codex', { hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { description: 'Rodar\u0000 testes' } })?.text).toBe('Rodar testes');
+  });
+
+  it('an answer of null characters only is no answer', () => {
+    const out = interpretHookEvent('cursor', { hook_event_name: 'afterAgentResponse', text: '\u0000\u0000' })!;
+    expect(out.answer).toBeUndefined();
+    expect(out.text).toBeNull();
+  });
 });

@@ -45,6 +45,10 @@ it('tells the concierge that ⟦…⟧ is a dimmed suggestion, never typed text 
   expect(text).toMatch(/styled: false, text after ❯ may be such a suggestion too/);
 });
 
+it("tells the concierge to read an agent's last answer with read_last_answer, not read_screen", () => {
+  expect(projectSystemPrompt({ name: 'X', key: 'X' }, [])).toContain("For an agent's last answer in full, use read_last_answer: read_screen shows only what is on the screen.");
+});
+
 it('tells the concierge external tickets are not cards and how to bring them in', () => {
   const text = projectSystemPrompt({ name: 'X', key: 'X' }, []);
   expect(text).toContain('list_tickets');
@@ -56,6 +60,7 @@ it('stays under the protocol cap with a long name and many long paths, and keeps
   const text = projectSystemPrompt({ name: 'N'.repeat(200), key: 'X' }, links);
   expect(text.length).toBeLessThanOrEqual(4000);
   expect(text).toContain('A dimmed `Try "…"` in an empty prompt');
+  expect(text).toContain("For an agent's last answer in full, use read_last_answer");
   expect(text.endsWith('Keep answers short unless asked for detail.')).toBe(true);
 });
 
