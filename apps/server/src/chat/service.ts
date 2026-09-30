@@ -932,12 +932,18 @@ export class ChatService {
    * so it is answered at once, even with subagents at work. Otherwise it is queued, shown right away,
    * and answered by the next process. A decision (`beforeRun`) is never queued here: it keeps its own
    * durable path (409 → queued note → `drainNextDecision`).
+   *
+   * Either way, a process that takes no input is asked to give way: one that only a subagent keeps
+   * alive is ended, so what waits behind it runs now and not when the subagent is done.
    */
   private async startWhileBusy(user: User, conversation: ChatConversation, text: string, opts?: StartOptions): Promise<StartedRun> {
     // "Nova conversa" is archiving this thread: nothing typed now belongs in it.
     if (this.resetting.has(conversation.id)) throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
     const live = this.live.get(conversation.id);
-    if (!live?.accepting && opts?.beforeRun) throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
+    if (!live?.accepting && opts?.beforeRun) {
+      live?.giveWay();
+      throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
+    }
     // The attachments this message names, checked with reads only (spec 2026-09-26 §5.5), as in
     // `startIn`: a bad id is a message never sent — 409, nothing stored, no decision marked, no tab
     // context stamped — whether the message is injected or queued.
@@ -958,6 +964,7 @@ export class ChatService {
     this.enqueue(conversation.id, { userId: user.id, text, runText, attachments: attachable.rows, question, answer, settle: d.settle });
     // Announced here, before the queue may run: `launchQueued` can close this turn at once.
     chatBus.publish({ type: 'run_started', user_id: user.id, conversation_id: conversation.id, message_id: answer.id });
+    this.live.get(conversation.id)?.giveWay();
     // The process may already be gone, with the lock released during the awaits above.
     if (!this.running.has(conversation.id)) void this.launchQueued(user, conversation.id);
     return started;

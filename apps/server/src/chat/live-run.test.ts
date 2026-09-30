@@ -229,6 +229,31 @@ it('stop ends a process that takes no input, and what its own turn had said is s
   expect(h.live.busy).toBe(false);
 });
 
+it('giveWay stops a process that takes no input and has a subagent in the background (TER-498)', async () => {
+  const { s, consumed } = await stranded();
+  h.live.giveWay();
+  expect(s.closed()).toBe(true);
+  await consumed;
+});
+
+it('giveWay leaves a process with nothing in the background to finish, and stops it if a turn on its way starts a subagent', async () => {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1)); s.push(delta('ok')); s.push(result());
+  await settle();
+  expect(h.live.accepting).toBe(false);
+  // Nothing in the background: the process exits on its own once it is done.
+  h.live.giveWay();
+  expect(s.closed()).toBe(false);
+  // A turn that was still on its way starts a subagent: nothing would end this process for a long time.
+  s.push(toolCall()); s.push(background(1));
+  await settle();
+  expect(s.closed()).toBe(true);
+  await consumed;
+});
+
 it('a stream that ends with turns open fails each one', async () => {
   const a = await h.turn(U1, 'a');
   const b = await h.turn(U2, 'b');

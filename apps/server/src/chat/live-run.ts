@@ -84,6 +84,8 @@ export class LiveRun {
   private stopping = new Set<string>();
   /** The process was ended on purpose (`stop`): a turn of its own that was cut is not a failed answer. */
   private stopped = false;
+  /** Someone waits for this process to end (`giveWay`). */
+  private wanted = false;
 
   constructor(private deps: LiveRunDeps) {
     this.session = deps.sessionId;
@@ -261,6 +263,7 @@ export class LiveRun {
           // relaunches itself). With the input already closed that process would take no message,
           // and would hold every `result` back until nothing is left in the background.
           this.background = frame.count;
+          this.stopIfStranded();
         } else if (frame.type === 'subagent_started') {
           await this.bookkeeping(async () => {
             const row = await this.deps.subagents.start({ conversation_id: this.deps.conversationId, task_id: frame.task_id, tool_use_id: frame.tool_use_id, description: frame.description, subagent_type: frame.subagent_type });
@@ -471,6 +474,18 @@ export class LiveRun {
     this.endInput();
     this.stopped = true;
     this.stream?.close?.();
+  }
+
+  /** A message or a decision waits for this process to end. One that takes no input and has a subagent
+   *  in the background would last as long as the subagent does, so it is stopped: now, or when a turn
+   *  still on its way starts one. With nothing in the background it exits on its own, and is left to. */
+  giveWay(): void {
+    this.wanted = true;
+    this.stopIfStranded();
+  }
+
+  private stopIfStranded(): void {
+    if (this.wanted && !this.inputOpen && this.background > 0) this.stop();
   }
 
   /** Keeps a subagent row by task and by launching tool_use_id, and tells every open screen. */

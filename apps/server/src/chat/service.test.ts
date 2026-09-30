@@ -1993,6 +1993,8 @@ describe('a chat that never blocks', () => {
 
     const late = await service.start(user, 'dois'); // the process has not exited yet
     expect(lr.runs).toHaveLength(1);
+    // Nothing in the background: the process exits on its own, and is left to.
+    expect(run.closed()).toBe(false);
     run.end();
     await vi.waitFor(() => expect(lr.runs).toHaveLength(2));
     const next = lr.runs[1];
@@ -2002,6 +2004,66 @@ describe('a chat that never blocks', () => {
     next.push(done());
     expect((await late.done).text).toBe('segunda resposta');
     next.end();
+  });
+
+  /** A process left with its input closed and a subagent in the background: the first monitor ended
+   *  while the turn ran, so the input ended with the turn, and the turn that reports the monitor
+   *  started another. The CLI holds that turn's `result` back for as long as the subagent runs. */
+  async function strandedRun(service: ChatService, lr: ReturnType<typeof liveRunner>) {
+    const first = await service.start(user, 'vigia a aba');
+    const run = await runAt(lr, 0);
+    run.push(replayOf(run.input.text.trim()));
+    run.push(backgroundTasks(['t1']));
+    run.push(backgroundTasks([]));
+    run.push(delta('Disparei.'));
+    run.push(done());
+    await first.done;
+    await settled();
+    run.push(delta('Relancei o monitor.'));
+    run.push(backgroundTasks(['t2']));
+    await settled();
+    return run;
+  }
+  /** What a resumed session writes first when its last process left a subagent unfinished (Claude Code 2.1.285). */
+  const leftover = (taskId: string) => [
+    taskNotification(taskId, 'stopped'),
+    JSON.stringify({ type: 'result', subtype: 'success', is_error: false, num_turns: 0, result: '', session_id: '3f1e9b1e-0000-4000-8000-000000000001', usage: { input_tokens: 0, output_tokens: 0, iterations: [] } }),
+  ];
+
+  it('a message behind a process that takes no input and lives on a subagent ends that process, and the next one answers it (TER-498)', async () => {
+    const { service, runner, messages } = build([], { streaming: true });
+    const lr = liveRunner();
+    vi.mocked(runner.run).mockImplementation(lr.run);
+    const run = await strandedRun(service, lr);
+
+    const late = await service.start(user, 'e agora?');
+    expect(run.closed()).toBe(true);
+    const next = await runAt(lr, 1);
+    expect(next.input.resume).toBe(true); // the same session
+    for (const line of leftover('t2')) next.push(line);
+    next.push(replayOf(next.input.text.trim()));
+    next.push(delta('Agora respondo.'));
+    next.push(done());
+    expect(await late.done).toMatchObject({ text: 'Agora respondo.', error_code: null });
+    // The turn the old process was cut in keeps what it had said, as a plain message.
+    expect(messages.filter((m) => m.role === 'assistant').map((m) => [m.text, m.error_code])).toEqual([['Disparei.', null], ['Relancei o monitor.', null], ['Agora respondo.', null]]);
+    next.end();
+  });
+
+  it('a decision behind a process that takes no input and lives on a subagent ends that process, and the next run carries it (TER-498)', async () => {
+    const { service, runner, chatActions } = build([], { streaming: true, chatActions: [action({ id: 'a1' })] });
+    const lr = liveRunner();
+    vi.mocked(runner.run).mockImplementation(lr.run);
+    const run = await strandedRun(service, lr);
+
+    // Still a 409 for the click (the row is decided and waits for the drain), but the wait is short now.
+    await expect(service.resumeAfterDecision(user, action())).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_BUSY' });
+    expect(run.closed()).toBe(true);
+    const next = await runAt(lr, 1);
+    expect(JSON.parse(next.input.text.trim()).message.content).toMatch(/^O usuário autorizou:/);
+    expect(chatActions.markInjectedMany).toHaveBeenCalledWith(['a1']);
+    next.end();
+    await settled();
   });
 
   it('injects an approved decision into a live run', async () => {
