@@ -36,6 +36,8 @@ export interface TabQuestionItem {
 }
 export interface ChoicePayload {
   questions: TabQuestionItem[];
+  /** Absent = Claude Code; `'codex'` when Codex's `request_user_input` asked, so the answer uses Codex's keys. */
+  agent?: 'codex';
 }
 /**
  * The stored shape of `ChoicePayload` (spec 2026-09-26 §5, backfill): already normalised by
@@ -59,10 +61,15 @@ export const choicePayload = z.object({
     )
     .min(1)
     .max(4),
+  agent: z.literal('codex').optional(),
 });
 /** A permission prompt: the tool's name only, never its input (spec §4.1). */
 export interface PermissionPayload {
   tool_name: string;
+  /** Absent = Claude Code. */
+  agent?: 'codex';
+  /** Codex only: `tool_input.description`, the question written for the person. Never the command. */
+  question?: string;
 }
 /**
  * Claude Code's dimmed next prompt, read off the tab's screen (spec 2026-09-25 tab suggestions §6.1), and the
@@ -71,6 +78,8 @@ export interface PermissionPayload {
  */
 export interface SuggestionPayload {
   text: string;
+  /** Absent = Claude Code. */
+  agent?: 'codex';
   context?: string | null;
 }
 /** What the person sent for it, as edited. */
@@ -104,6 +113,29 @@ export function parseAskUserQuestion(toolInput: unknown): ChoicePayload | null {
       multi_select: q.multiSelect ?? false,
       options: q.options.map((o) => ({ ...normaliseLabel(o.label), description: (o.description ?? '').trim() })),
     })),
+  };
+}
+
+// Codex's `request_user_input` arguments: like AskUserQuestion, minus `multiSelect` (Codex has none) and
+// plus an `id` we do not keep. Unknown keys are ignored (zod strips them).
+const codexQuestion = z.object({
+  question: rawQuestion.shape.question,
+  header: rawQuestion.shape.header,
+  options: rawQuestion.shape.options,
+});
+const codexInput = z.object({ questions: z.array(codexQuestion).min(1).max(4) });
+
+export function parseCodexUserInput(toolInput: unknown): ChoicePayload | null {
+  const r = codexInput.safeParse(toolInput);
+  if (!r.success) return null;
+  return {
+    questions: r.data.questions.map((q) => ({
+      question: q.question,
+      header: (q.header ?? '').trim(),
+      multi_select: false,
+      options: q.options.map((o) => ({ ...normaliseLabel(o.label), description: (o.description ?? '').trim() })),
+    })),
+    agent: 'codex',
   };
 }
 

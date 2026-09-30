@@ -27,12 +27,14 @@ export type TabQuestionEventType = 'tab_question' | 'tab_question_answered' | 't
  * subagent works while the main thread's dialog is still on screen; after the person answers a subagent's
  * own prompt in the tab, its card waits for the main thread's next closing event, and an answer from it
  * meanwhile fails the live check (409) and closes it. An event that opens a question closes the previous
- * one itself (`open`).
+ * one itself (`open`). Nor does Codex's `notify` (`agent-turn-complete`): it only repeats the end of the turn
+ * its `Stop` hook already reported, and would close the reply card that `Stop` just opened.
  */
 export function closesOpenQuestion(next: Interpreted): boolean {
   if (next.question) return false;
   if (next.meta.subagent === true) return false;
   if (next.meta.event === 'Notification') return false;
+  if (next.meta.event === 'agent-turn-complete') return false;
   if (next.meta.event === 'PermissionRequest' && next.meta.tool === 'AskUserQuestion') return false;
   return true;
 }

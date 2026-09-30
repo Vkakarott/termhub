@@ -89,6 +89,9 @@ describe('closesOpenQuestion', () => {
     ['an idle reminder', { kind: 'waiting_input', text: 'x', meta: { event: 'Notification', type: 'idle_prompt' } }, false],
     ['AskUserQuestion\'s own PermissionRequest', { kind: 'waiting_permission', text: null, meta: { event: 'PermissionRequest', tool: 'AskUserQuestion' } }, false],
     ['an event that opens a question', choice, false],
+    ["Codex's notify for a finished turn", { kind: 'waiting_input', text: 'x', meta: { event: 'agent-turn-complete' } }, false],
+    ["Codex's PostToolUse", { kind: 'working', text: null, meta: { event: 'PostToolUse', tool: 'request_user_input' } }, true],
+    ["Codex's Interrupt", { kind: 'waiting_input', text: null, meta: { event: 'Interrupt' } }, true],
     ["a subagent's tool call", { kind: 'working', text: null, meta: { event: 'PreToolUse', tool: 'Bash', subagent: true } }, false],
     ["a subagent's permission prompt that opens no card (ExitPlanMode)", { kind: 'waiting_permission', text: null, meta: { event: 'PermissionRequest', tool: 'ExitPlanMode', subagent: true } }, false],
   ] as [string, Interpreted, boolean][])('%s → %s', (_l, next, closes) => {

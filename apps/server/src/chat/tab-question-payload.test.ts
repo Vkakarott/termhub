@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CONTROL_CHARS_RE, answerText, checkChoiceAnswer, choiceAnswerBody, normaliseLabel, parseAskUserQuestion, parsePermissionTool, permissionAnswerBody, sliceUnits, toolUseIdOf, typedText } from './tab-question-payload.js';
+import { CONTROL_CHARS_RE, answerText, checkChoiceAnswer, choiceAnswerBody, choicePayload, normaliseLabel, parseAskUserQuestion, parseCodexUserInput, parsePermissionTool, permissionAnswerBody, sliceUnits, toolUseIdOf, typedText } from './tab-question-payload.js';
 
 const fixture = (name: string) => JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures/tab-questions', name), 'utf8')) as Record<string, unknown>;
 const two = fixture('pretooluse-ask-two-questions.json');
@@ -55,6 +55,56 @@ describe('parseAskUserQuestion', () => {
     ['nothing', undefined],
   ])('drops %s', (_l, input) => {
     expect(parseAskUserQuestion(input)).toBeNull();
+  });
+});
+
+const CODEX_INPUT = {
+  questions: [
+    {
+      header: 'Nome',
+      id: 'nome_arquivo',
+      question: 'O arquivo deve ser azul.txt ou verde.txt?',
+      options: [
+        { label: 'azul.txt', description: 'Usar o nome azul.txt.' },
+        { label: 'verde.txt (Recommended)', description: 'Usar o nome verde.txt.' },
+      ],
+    },
+  ],
+};
+
+describe('parseCodexUserInput', () => {
+  it('parses the rollout payload of request_user_input into a codex choice', () => {
+    const payload = parseCodexUserInput(CODEX_INPUT);
+    expect(payload).toEqual({
+      questions: [
+        {
+          question: 'O arquivo deve ser azul.txt ou verde.txt?',
+          header: 'Nome',
+          multi_select: false,
+          options: [
+            { label: 'azul.txt', description: 'Usar o nome azul.txt.', recommended: false },
+            { label: 'verde.txt', description: 'Usar o nome verde.txt.', recommended: true },
+          ],
+        },
+      ],
+      agent: 'codex',
+    });
+    expect(choicePayload.safeParse(payload).success).toBe(true);
+  });
+
+  it('defaults a missing header and description to empty strings and ignores unknown keys', () => {
+    const p = parseCodexUserInput({ extra: 1, questions: [{ question: 'Q?', other: true, options: [{ label: 'A' }, { label: 'B', foo: 1 }] }] });
+    expect(p?.questions[0]).toMatchObject({ header: '', options: [{ description: '' }, { description: '' }] });
+  });
+
+  it('drops anything off-shape, an options-less question included', () => {
+    expect(parseCodexUserInput({ questions: [{ question: 'Q?' }] })).toBeNull();
+    expect(parseCodexUserInput({ questions: [{ question: 'Q?', options: [{ label: 'A' }] }] })).toBeNull();
+    expect(parseCodexUserInput({ questions: [] })).toBeNull();
+    expect(parseCodexUserInput({ questions: Array(5).fill(CODEX_INPUT.questions[0]) })).toBeNull();
+    expect(parseCodexUserInput({ questions: [{ question: 'x'.repeat(1001), options: [{ label: 'A' }, { label: 'B' }] }] })).toBeNull();
+    expect(parseCodexUserInput('nope')).toBeNull();
+    expect(parseCodexUserInput(undefined)).toBeNull();
   });
 });
 
