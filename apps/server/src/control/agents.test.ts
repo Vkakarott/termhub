@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { openTab, sendTextToSession, installTabMcp, tabMcpSupported, cfg } = vi.hoisted(() => ({
+const { openTab, sendTextToSession, installTabMcp, tabMcpSupported, cfg, getAccountUsage } = vi.hoisted(() => ({
+  getAccountUsage: vi.fn(),
   openTab: vi.fn(),
   sendTextToSession: vi.fn(),
   installTabMcp: vi.fn(),
@@ -8,6 +9,7 @@ const { openTab, sendTextToSession, installTabMcp, tabMcpSupported, cfg } = vi.h
   cfg: { publicUrl: 'https://app.test', mcpUrl: null as string | null },
 }));
 vi.mock('../config.js', () => ({ config: cfg }));
+vi.mock('../ai/index.js', () => ({ getAccountUsage }));
 vi.mock('./terminals.js', () => ({ openTab }));
 vi.mock('../terminal/session-ops.js', () => ({ sendTextToSession }));
 vi.mock('../terminal/tab-mcp.js', async (orig) => ({ ...(await orig<typeof import('../terminal/tab-mcp.js')>()), installTabMcp, tabMcpSupported }));
@@ -17,6 +19,7 @@ import type { AiAccount, Machine, Project, Tab, Task } from '../db/repositories/
 import { TaskRuleError } from '../db/repositories/tasks.js';
 import { Scoped } from '../auth/scope.js';
 import { ControlError, type ControlContext } from './context.js';
+import { normalizeSetup } from '../setup/schema.js';
 import { checkPrompt, CODEX_TAB_MCP_ENABLED, launchLine, LESSONS_REMINDER, linkTabTask, PROMPT_MAX_CHARS, RESUME_PROMPT, resumeLine, startAgent, withLessonsReminder } from './agents.js';
 
 const machine = (over: Partial<Machine> & { id: string }): Machine => ({
@@ -66,8 +69,9 @@ const tabs = [
   tab({ id: 'tx', project_id: 'px', machine_id: 'mx' }),
 ];
 
-function ctx(grants: string[] = ['terminals:write', 'tasks:update']) {
+function ctx(grants: string[] = ['terminals:write', 'tasks:update'], setup: Record<string, unknown> = {}) {
   const repos = {
+    projectSetup: { get: vi.fn(async (projectId: string) => ({ project_id: projectId, version: 2, data: normalizeSetup(setup, 2), updated_at: null })) },
     machines: { findById: vi.fn(async (id: string) => machines.find((m) => m.id === id)) },
     projects: { findById: vi.fn(async (id: string) => projects.find((p) => p.id === id)) },
     projectMachines: {
@@ -105,6 +109,7 @@ beforeEach(() => {
   sendTextToSession.mockResolvedValue(undefined);
   installTabMcp.mockResolvedValue(undefined);
   tabMcpSupported.mockReturnValue(true);
+  getAccountUsage.mockResolvedValue({ ok: true, plan: null, windows: [], error: null, hint: null });
   cfg.mcpUrl = null;
 });
 
@@ -280,6 +285,7 @@ describe('startAgent', () => {
     expect(sendTextToSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'termhub-p1-t9', launchLine('claude', '/Users/p/.claude-work', withLessonsReminder('write a spec')), true);
     expect(r).toEqual({
       tab_id: 't9', tab_name: 'pedrogoiania', project_id: 'p1', tmux_session: 'termhub-p1-t9', tab_url: 'https://app.test/projects/p1', command: 'claude', task_id: null, previous_tab_id: null,
+      account: { id: 'a1', label: 'pedrogoiania' }, model: null,
       note: `${NOTE} A aba abriu sem o MCP de memória: MCP_URL não configurado.`,
     });
   });
@@ -542,6 +548,95 @@ describe('startAgent', () => {
 
 // TER-499: a tab that is already open — an agent started by hand — linked to a card the way start_agent
 // links the tab it opens, so the card shows it and Progresso lists the agent.
+describe('startAgent with the project setup (TER-589)', () => {
+  const usage = (peak: number | null) => (peak === null ? { ok: false, plan: null, windows: [], error: 'x', hint: null } : { ok: true, plan: null, windows: [{ key: '5h', label: '5h', utilization: peak, resets_at: null }], error: null, hint: null });
+  // m1 has a1 (claude, /Users/p/.claude-work), a2 (codex); add a second claude account there for the order
+  const a6 = account({ id: 'a6', label: 'segunda', machine_id: 'm1', config_dir: '~/.claude-2' });
+  beforeEach(() => accounts.push(a6));
+  afterEach(() => accounts.splice(accounts.indexOf(a6), 1));
+  const lineOf = () => sendTextToSession.mock.calls[0][2] as string;
+
+  it('without account_id, starts on the first listed account of the machine with room', async () => {
+    const { c } = ctx(undefined, { ai: { accounts: ['a6', 'a1'] } });
+    const r = await startAgent(c, { project_id: 'p1', prompt: 'p' });
+    expect(lineOf()).toBe(launchLine('claude', '~/.claude-2', withLessonsReminder('p')));
+    expect(r.account).toEqual({ id: 'a6', label: 'segunda' });
+  });
+
+  it('skips a listed account at its limit for the next one in the order', async () => {
+    getAccountUsage.mockImplementation(async (a: { id: string }) => usage(a.id === 'a6' ? 95 : 40));
+    const { c } = ctx(undefined, { ai: { accounts: ['a6', 'a1'] } });
+    expect((await startAgent(c, { project_id: 'p1', prompt: 'p' })).account.id).toBe('a1');
+  });
+
+  it('takes the first listed account, saying so, when all of them are at their limit', async () => {
+    getAccountUsage.mockResolvedValue(usage(99));
+    const { c } = ctx(undefined, { ai: { accounts: ['a6', 'a1'] } });
+    const r = await startAgent(c, { project_id: 'p1', prompt: 'p' });
+    expect(r.account.id).toBe('a6');
+    expect(r.note).toContain('Todas as contas do projeto em MacBook Pro M4 estão no limite de uso; o agente começou em segunda.');
+  });
+
+  it('unknown usage counts as room', async () => {
+    getAccountUsage.mockResolvedValue(usage(null));
+    const { c } = ctx(undefined, { ai: { accounts: ['a6', 'a1'] } });
+    expect((await startAgent(c, { project_id: 'p1', prompt: 'p' })).account.id).toBe('a6');
+  });
+
+  it('an explicit account_id still wins over the project list', async () => {
+    const { c } = ctx(undefined, { ai: { accounts: ['a6'] } });
+    expect((await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p' })).account.id).toBe('a1');
+  });
+
+  it('without account_id and without configuration, asks for it, listing the accounts of the machine', async () => {
+    const { c } = ctx();
+    await expect(startAgent(c, { project_id: 'p1', prompt: 'p' })).rejects.toEqual(
+      new ControlError('ACCOUNT_REQUIRED', 'Escolha a conta (account_id): o projeto não tem contas configuradas em MacBook Pro M4. Contas lá: pedrogoiania (claude, a1), ChatGPT (chatgpt, a2), Gemini (gemini, a5), segunda (claude, a6)'),
+    );
+    expect(openTab).not.toHaveBeenCalled();
+  });
+
+  it('passes the project model for the provider, and an explicit model over it', async () => {
+    const { c } = ctx(undefined, { ai: { accounts: ['a1'], models: { claude: 'opus', chatgpt: 'gpt-5-codex' } } });
+    const r = await startAgent(c, { project_id: 'p1', prompt: 'p' });
+    expect(lineOf()).toBe(launchLine('claude', '/Users/p/.claude-work', withLessonsReminder('p'), null, 'opus'));
+    expect(r.model).toBe('opus');
+    expect(r.warning).toBeUndefined();
+    sendTextToSession.mockClear();
+    const codex = await startAgent(c, { project_id: 'p1', account_id: 'a2', prompt: 'p' });
+    expect(lineOf()).toContain(" -m 'gpt-5-codex' ");
+    expect(codex.model).toBe('gpt-5-codex');
+    sendTextToSession.mockClear();
+    expect((await startAgent(c, { project_id: 'p1', prompt: 'p', model: 'haiku' })).model).toBe('haiku');
+  });
+
+  it('warns when the model is a full id an older CLI may not know', async () => {
+    const { c } = ctx(undefined, { ai: { accounts: ['a1'], models: { claude: 'claude-opus-5-5' } } });
+    const r = await startAgent(c, { project_id: 'p1', prompt: 'p' });
+    expect(r.warning).toBe('O modelo claude-opus-5-5 não é um apelido (opus, sonnet, haiku): um CLI mais antigo nesta máquina pode não reconhecê-lo. Se a aba mostrar erro de modelo, use um apelido no setup do projeto.');
+  });
+
+  it('refuses a bad model before opening anything', async () => {
+    const { c } = ctx();
+    await expect(startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p', model: 'x;id' })).rejects.toBeInstanceOf(ControlError);
+    expect(openTab).not.toHaveBeenCalled();
+  });
+
+  it('with several machines and no machine_id, uses the machine of the first listed account with room', async () => {
+    links.push({ id: 'l9', position: 1, created_at: '', project_id: 'p1', machine_id: 'm2', cwd: '/src/p1' });
+    try {
+      getAccountUsage.mockImplementation(async (a: { id: string }) => usage(a.id === 'a3' ? 95 : 10));
+      const { c } = ctx(undefined, { ai: { accounts: ['a3', 'a6'] } });
+      await startAgent(c, { project_id: 'p1', prompt: 'p' });
+      expect(openTab).toHaveBeenCalledWith(c, expect.objectContaining({ machine_id: 'm1' }));
+      const { c: plain } = ctx();
+      await expect(startAgent(plain, { project_id: 'p1', prompt: 'p' })).rejects.toMatchObject({ code: 'MACHINE_REQUIRED' });
+    } finally {
+      links.pop();
+    }
+  });
+});
+
 describe('linkTabTask', () => {
   it('points the card at the tab and starts work on it, answering the card as it ended up', async () => {
     const { c, repos } = ctx();

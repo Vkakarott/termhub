@@ -23,7 +23,7 @@ export const ORCHESTRATOR_PROMPT = [
   '- When the person states a decision in the chat, record it with record_decision.',
   '- When the person asks to see what waits on them (a card to approve, a tab question), call recap_pending_cards: it brings every pending card back to the end of the chat. Never tell them to scroll up.',
   // TER-499: Progresso shows a card's agents from the tab linked to it; only these two calls make that link.
-  '- Agents on cards: to put an agent on a card, call start_agent with task_id: the tab is linked to the card and shows in Progresso. Pick the account with list_ai_accounts (default: true is the machine\'s own login, false another login kept on it); when a machine has several and the person has not said which to use, ask. Never start an agent by typing its CLI into a tab you opened with open_tab. If an agent was started by hand in a tab for a card, link it with link_tab_task.',
+  '- Agents on cards: to put an agent on a card, call start_agent with task_id: the tab is linked to the card and shows in Progresso. Pick the account with list_ai_accounts (default: true is the machine\'s own login, false another login kept on it); when a machine has several and the person has not said which to use, ask — unless the project\'s setup lists AI accounts: then omit account_id (and model) and start_agent picks the project\'s account by its priority and its default model. Never start an agent by typing its CLI into a tab you opened with open_tab. If an agent was started by hand in a tab for a card, link it with link_tab_task.',
 ].join('\n');
 
 /** The `append_system_prompt` of a streamed run: the orchestrator's rules, then the project's focus. */

@@ -1,8 +1,12 @@
 import { mcpConfig } from '@termhub/claude-cli';
 import { isClaudeSessionId, shellQuote, TAB_ID_RE, TAB_MCP_DIR_REL } from '@termhub/machine-ops';
 import { config } from '../config.js';
-import { MODEL_RE } from '../setup/schema.js';
-import type { AiAccount, AiProvider, Machine, Task } from '../db/repositories/types.js';
+import { MODEL_RE, type ProjectAi } from '../setup/schema.js';
+import { getAccountUsage } from '../ai/index.js';
+import { accountsOn, isAlias, modelFor } from '../ai/project-accounts.js';
+import { peakUtilization, SWAP_MAX_UTILIZATION } from './account-swap.js';
+import type { AiAccount, AiProvider, Machine, Project, Task } from '../db/repositories/types.js';
+import { HttpError } from '../lib/errors.js';
 import { mintTabToken, TAB_TOKEN_TOOLS } from '../mcp/tab-token.js';
 import { sendTextToSession } from '../terminal/session-ops.js';
 import { installTabMcp, TAB_MCP_SERVER, tabMcpSupported } from '../terminal/tab-mcp.js';
@@ -176,6 +180,60 @@ async function accountOnMachine(ctx: ControlContext, accountId: string, machine:
   throw new ControlError('ACCOUNT_OTHER_MACHINE', `A conta "${account.label}" está na máquina ${home.name}, não em ${machine.name}. Contas em ${machine.name}: ${list}`);
 }
 
+/** Room left on the account: below the swap threshold, or usage that could not be read (spec §5). */
+async function hasRoom(account: AiAccount, machine: Machine): Promise<boolean> {
+  const peak = peakUtilization(await getAccountUsage(account, machine));
+  return peak === null || peak < SWAP_MAX_UTILIZATION;
+}
+
+/** The first of `accounts` (in order) with room; one account alone is taken without reading its usage. */
+async function firstWithRoom(accounts: AiAccount[], machineOf: (a: AiAccount) => Machine): Promise<AiAccount | undefined> {
+  if (accounts.length <= 1) return accounts[0];
+  for (const a of accounts) if (await hasRoom(a, machineOf(a))) return a;
+  return undefined;
+}
+
+/**
+ * Where and under which account the agent starts (spec 2026-09-30 project AI accounts §5). An explicit
+ * `machine_id` / `account_id` rules as before; without them the project's list decides: the first listed
+ * account with room (on the given machine, or — with several machines and none given — on any of them).
+ * A project without a list keeps today's errors.
+ */
+async function placeAgent(
+  ctx: ControlContext,
+  input: { project_id: string; machine_id?: string; account_id?: string },
+): Promise<{ project: Project; machine: Machine; account: AiAccount; ai: ProjectAi; note: string | null }> {
+  await ctx.scoped.project(input.project_id);
+  const { ai } = (await ctx.repos.projectSetup.get(input.project_id)).data;
+  const listed = input.account_id === undefined || input.machine_id === undefined ? await ctx.repos.aiAccounts.list(ctx.scope.ownerId) : [];
+
+  let placed: { project: Project; machine: Machine };
+  try {
+    placed = await ctx.scoped.projectMachineFor(input.project_id, input.machine_id);
+  } catch (e) {
+    if (!(e instanceof HttpError) || e.code !== 'MACHINE_REQUIRED' || input.account_id !== undefined || ai.accounts.length === 0) throw e;
+    const { project, machines } = await ctx.scoped.projectMachines(input.project_id);
+    const onLinked = machines.flatMap(({ machine }) => accountsOn(ai, listed, machine.id)).sort((x, y) => ai.accounts.indexOf(x.id) - ai.accounts.indexOf(y.id));
+    const machineOf = (a: AiAccount) => machines.find((m) => m.machine.id === a.machine_id)!.machine;
+    const pick = (await firstWithRoom(onLinked, machineOf)) ?? onLinked[0];
+    if (!pick) throw e;
+    placed = { project, machine: machineOf(pick) };
+  }
+  const { project, machine } = placed;
+
+  if (input.account_id !== undefined) return { project, machine, account: await accountOnMachine(ctx, input.account_id, machine), ai, note: null };
+  const candidates = accountsOn(ai, listed, machine.id);
+  if (candidates.length === 0) {
+    const here = listed.filter((a) => a.machine_id === machine.id);
+    const list = here.length ? here.map((a) => `${a.label} (${a.provider}, ${a.id})`).join(', ') : 'nenhuma';
+    throw new ControlError('ACCOUNT_REQUIRED', `Escolha a conta (account_id): o projeto não tem contas configuradas em ${machine.name}. Contas lá: ${list}`);
+  }
+  const withRoom = await firstWithRoom(candidates, () => machine);
+  if (withRoom) return { project, machine, account: withRoom, ai, note: null };
+  const first = candidates[0];
+  return { project, machine, account: first, ai, note: `Todas as contas do projeto em ${machine.name} estão no limite de uso; o agente começou em ${first.label}.` };
+}
+
 export interface StartAgentResult {
   tab_id: string;
   tab_name: string;
@@ -187,6 +245,12 @@ export interface StartAgentResult {
   task_id: string | null;
   /** the tab the task was linked to before this call, when there was one (it stays open, unlinked) */
   previous_tab_id: string | null;
+  /** the account the agent runs under (chosen from the project's list when none was given) */
+  account: { id: string; label: string };
+  /** the model passed to the CLI; null = the CLI's own default */
+  model: string | null;
+  /** set when the model is a full id an older CLI may not recognise */
+  warning?: string;
   note: string;
 }
 
@@ -206,14 +270,16 @@ async function attachTask(ctx: ControlContext, taskId: string, tabId: string): P
  */
 export async function startAgent(
   ctx: ControlContext,
-  input: { project_id: string; machine_id?: string; account_id: string; prompt: string; task_id?: string; tab_name?: string },
+  input: { project_id: string; machine_id?: string; account_id?: string; model?: string; prompt: string; task_id?: string; tab_name?: string },
 ): Promise<StartAgentResult> {
   // the reminder is appended and re-checked (spec §8/D13): a prompt that only fits alone is refused
   // with the same too-long error, counting the reminder in what it reports.
   const prompt = checkPrompt(withLessonsReminder(checkPrompt(input.prompt)));
-  const { project, machine } = await ctx.scoped.projectMachineFor(input.project_id, input.machine_id);
-  const account = await accountOnMachine(ctx, input.account_id, machine);
+  const { project, machine, account, ai, note: placeNote } = await placeAgent(ctx, input);
   const { binary } = launcher(account.provider);
+  const model = input.model ?? modelFor(ai, account.provider);
+  // checked before the tab exists, like every other refusal
+  launchLine(account.provider, account.config_dir, prompt, null, model);
   if (!machine.capabilities.includes(binary)) {
     throw new ControlError(
       'TOOL_MISSING',
@@ -238,8 +304,8 @@ export async function startAgent(
   const keptTab = 'Veja a tela com read_screen ou feche a aba com close_tab.';
   const mcp = await tabMcp(ctx, machine, account.provider, tab);
   const line = mcp.installed
-    ? launchLine(account.provider, account.config_dir, prompt, { tabId: tab.tab_id, url: mcp.url })
-    : launchLine(account.provider, account.config_dir, prompt);
+    ? launchLine(account.provider, account.config_dir, prompt, { tabId: tab.tab_id, url: mcp.url }, model)
+    : launchLine(account.provider, account.config_dir, prompt, null, model);
   try {
     await sendTextToSession(machine, tab.tmux_session as string, line, true);
   } catch (e) {
@@ -265,7 +331,12 @@ export async function startAgent(
     command: binary,
     task_id: task?.id ?? null,
     previous_tab_id: task?.tab_id ?? null,
-    note: `O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou parar (num único subagente em segundo plano, que termina na primeira parada), e read_last_answer para a resposta dele (read_screen só para o que está na tela). Perguntas e permissões chegam como cards no chat. ${mcp.note}`,
+    account: { id: account.id, label: account.label },
+    model,
+    ...(model !== null && account.provider === 'claude' && !isAlias(model)
+      ? { warning: `O modelo ${model} não é um apelido (opus, sonnet, haiku): um CLI mais antigo nesta máquina pode não reconhecê-lo. Se a aba mostrar erro de modelo, use um apelido no setup do projeto.` }
+      : {}),
+    note: `O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou parar (num único subagente em segundo plano, que termina na primeira parada), e read_last_answer para a resposta dele (read_screen só para o que está na tela). Perguntas e permissões chegam como cards no chat. ${mcp.note}${placeNote ? ` ${placeNote}` : ''}`,
   };
 }
 
