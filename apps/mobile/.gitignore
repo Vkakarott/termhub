@@ -26,3 +26,6 @@ expo-env.d.ts
 
 # Local iOS release output (scripts/ios-release.sh)
 /build
+
+# The OTA code-signing certificate is public and must ship with every build (app.config.js)
+!certs/certificate.pem
