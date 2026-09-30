@@ -47,6 +47,10 @@ import {
   p256Jwk,
   progressEstimate,
   progressResponse,
+  projectAiBody,
+  projectAiOption,
+  projectAiResponse,
+  projectAiSchema,
   pullRequestBadge,
   pushTokenBody,
   sendAccepted,
@@ -56,6 +60,9 @@ import {
   tabQuestionSchema,
   tabQuestionScreenResponse,
   tabQuestionSuggestionSchema,
+  tabLimitAnswerBody,
+  tabLimitAnswerResponse,
+  tabLimitSchema,
   tabSuggestionSchema,
   tabSuggestionSendBody,
   tokenBody,
@@ -70,9 +77,11 @@ export const chatMessageSchema = chatMessage;
 /** Mirrors `ChatHostMachine` = `Pick<Machine, 'id' | 'name'>` (web types.ts). */
 const chatHostMachine = z.object({ id: z.string(), name: z.string() });
 
-/** Mirrors `ChatHostAccount` (web types.ts). */
+/** Mirrors `ChatHostAccount` (web types.ts). `via: 'project'` (TER-589) marks a project chat running on
+ * the project's configured account: optional, and `kind` keeps its three values, so an app that predates
+ * it still parses (`z.object` strips the unknown key). */
 const chatHostAccount = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('chosen'), id: z.string(), label: z.string() }),
+  z.object({ kind: z.literal('chosen'), id: z.string(), label: z.string(), via: z.literal('project').optional() }),
   z.object({ kind: z.literal('default') }),
   z.object({ kind: z.literal('lost') }),
 ]);
@@ -121,6 +130,9 @@ export const chatResponse = z.object({
   standing_grants: z.array(chatStandingGrantSchema).default([]),
   tab_questions: z.array(tabQuestionSchema).default([]),
   tab_suggestions: z.array(tabSuggestionSchema).default([]),
+  /** The usage-limit cards of the project's tabs (spec 2026-09-30 project AI accounts §7.2). Defaulted:
+   * an older server never sends the field. */
+  tab_limits: z.array(tabLimitSchema).default([]),
   subagents: z.array(subagentViewSchema).default([]),
   /** The answer rows still to be answered (spec 2026-09-29): what the screen shows as "pensando…"
    * when it opens in the middle of a run. Defaulted: an older server never sends the field. */
@@ -243,6 +255,15 @@ export type TLessonsResponse = z.infer<typeof lessonListSchema>;
 export type TLessonForgetResponse = z.infer<typeof lessonForgetSchema>;
 export type TTabSuggestion = z.infer<typeof tabSuggestionSchema>;
 export type TTabSuggestionSendBody = z.infer<typeof tabSuggestionSendBody>;
+// The project's AI accounts and models, and the usage-limit card (spec 2026-09-30 project AI accounts
+// §7.2, §8): `@termhub/mobile-api`'s schemas under this file's `T`-prefixed convention.
+export type TTabLimit = z.infer<typeof tabLimitSchema>;
+export type TTabLimitAnswerBody = z.infer<typeof tabLimitAnswerBody>;
+export type TTabLimitAnswerResponse = z.infer<typeof tabLimitAnswerResponse>;
+export type TProjectAi = z.infer<typeof projectAiSchema>;
+export type TProjectAiOption = z.infer<typeof projectAiOption>;
+export type TProjectAiResponse = z.infer<typeof projectAiResponse>;
+export type TProjectAiBody = z.infer<typeof projectAiBody>;
 export type TChatConversation = z.infer<typeof chatConversationSchema>;
 export type TChatResponse = z.infer<typeof chatResponse>;
 export type TMeResponse = z.infer<typeof meResponse>;

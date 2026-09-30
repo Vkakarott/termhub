@@ -21,6 +21,8 @@ import {
   standingKindOf,
   type StandingGrantKind,
   tabQuestionAnswerBody,
+  projectAiBody,
+  tabLimitAnswerBody,
   tabSuggestionSendBody,
   type PinDecision,
   type TChatAttachment,
@@ -31,12 +33,14 @@ import {
   type TChatMemory,
   type TChatProjectGrant,
   type TChatStandingGrant,
+  type TProjectAiOption,
   type TSubagentView,
+  type TTabLimit,
   type TTabQuestion,
   type TTabSuggestion,
 } from '../../contract';
 import type { MockRouter } from '../router';
-import { broadcast, countPinFailure, type MockAction, type MockAttachment, type MockConversation, type MockDecision, type MockDevice, type MockGrant, type MockLesson, type MockMessage, type MockNote, type MockProjectGrant, type MockStandingGrant, type MockSubagent, type MockState, type MockTabQuestion, type MockTabSuggestion, verifyAuth, WireError } from '../state';
+import { broadcast, countPinFailure, type MockAction, type MockAttachment, type MockConversation, type MockDecision, type MockDevice, type MockGrant, type MockLesson, type MockMessage, type MockNote, type MockProjectGrant, type MockStandingGrant, type MockSubagent, type MockState, type MockTabLimit, type MockTabQuestion, type MockTabSuggestion, verifyAuth, WireError } from '../state';
 import { pushConfirmationNotification, pushReplyNotification } from './notifications';
 
 const USER_ID = 'u1';
@@ -332,6 +336,39 @@ function createTabSuggestion(state: MockState, now: number, conversationId: stri
   return suggestion;
 }
 
+// --- usage-limit cards and the project's AI accounts (spec 2026-09-30 project AI accounts §7.2, §8) --
+
+function tabLimitView(l: MockTabLimit): TTabLimit {
+  const { conversation_id: _conversation, ...view } = l;
+  return view;
+}
+
+/** The canned card a `limite…` message makes the tab `api` raise: its account hit the limit on `jarvis`,
+ * which does not swap by itself, and the project has one more account there. */
+function createTabLimit(state: MockState, now: number, conversationId: string): MockTabLimit {
+  const limit: MockTabLimit = {
+    id: randomId(10),
+    conversation_id: conversationId,
+    tab_id: 't-api',
+    tab_name: 'api',
+    payload: { account: { id: 'acc-1', label: 'Claude Pedro' }, machine: { id: 'm-jarvis', name: 'jarvis' }, resets_at: new Date(now + 2 * 60 * 60_000).toISOString(), candidates: [{ id: 'acc-2', label: 'Claude Trabalho' }] },
+    status: 'open',
+    result: null,
+    created_at: new Date(now).toISOString(),
+    closed_at: null,
+  };
+  state.tabLimits.push(limit);
+  return limit;
+}
+
+/** What every project may list (`GET projects/:id/setup/ai`'s `available`): the accounts of the machines
+ * the fixtures link to every project. `acc-3` is a Codex login, so the phone shows both providers. */
+const PROJECT_AI_OPTIONS: TProjectAiOption[] = [
+  { id: 'acc-1', label: 'Claude Pedro', provider: 'claude', machine_id: 'm-jarvis', machine_name: 'jarvis', default: true },
+  { id: 'acc-2', label: 'Claude Trabalho', provider: 'claude', machine_id: 'm-jarvis', machine_name: 'jarvis', default: false },
+  { id: 'acc-3', label: 'Codex Pedro', provider: 'chatgpt', machine_id: 'm-jarvis', machine_name: 'jarvis', default: true },
+];
+
 // --- subagents panel (spec 2026-09-26 panel §4) -------------------------------------------------
 
 /** The wire shape of a subagent row (the server's `SubagentView`). */
@@ -355,7 +392,7 @@ function createSubagent(state: MockState, now: number, conversationId: string): 
 // --- the canned reply and its streaming (ruling 3) ----------------------------------------------
 
 interface AnswerOutcome {
-  kind: 'normal' | 'confirmation' | 'error' | 'tab_question' | 'tab_permission' | 'tab_suggestion' | 'subagent';
+  kind: 'normal' | 'confirmation' | 'error' | 'tab_question' | 'tab_permission' | 'tab_suggestion' | 'tab_limit' | 'subagent';
   text: string;
 }
 
@@ -369,6 +406,7 @@ function pickAnswer(text: string): AnswerOutcome {
   if (/pergunta/.test(text)) return { kind: 'tab_question', text: 'A aba api tem uma pergunta para você — responda no card.' };
   if (/permiss/.test(text)) return { kind: 'tab_permission', text: 'A aba api pede permissão — responda no card.' };
   if (/sugest/.test(text)) return { kind: 'tab_suggestion', text: 'A aba api sugere um próximo passo — veja o card.' };
+  if (/limite/.test(text)) return { kind: 'tab_limit', text: 'A aba api atingiu o limite de uso da conta — veja o card.' };
   if (/subagente/.test(text)) return { kind: 'subagent', text: 'Chamei uma subagente para isso — acompanhe no painel.' };
   if (/test|teste/.test(text)) return { kind: 'normal', text: 'Rodei `npm test` no jarvis: 1066 testes passaram, 137 pulados. Nada quebrou.' };
   if (/deploy/.test(text)) return { kind: 'normal', text: 'O último deploy foi há 2 h, verde. Quer que eu dispare outro?' };
@@ -510,6 +548,11 @@ function scheduleStream(o: StreamOptions): void {
       if (outcome.kind === 'tab_suggestion') {
         const suggestion = createTabSuggestion(o.state, o.now(), o.conversationId);
         broadcast(o.state, { type: 'tab_suggestion', user_id: USER_ID, conversation_id: o.conversationId, suggestion: tabSuggestionView(suggestion) });
+      }
+
+      if (outcome.kind === 'tab_limit') {
+        const limit = createTabLimit(o.state, o.now(), o.conversationId);
+        broadcast(o.state, { type: 'tab_limit', user_id: USER_ID, conversation_id: o.conversationId, notice: tabLimitView(limit) });
       }
 
       if (outcome.kind === 'subagent') {
@@ -725,6 +768,7 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
         standing_grants: activeStandingGrantsFor(state, projectId),
         tab_questions: state.tabQuestions.filter((q) => q.conversation_id === conversation.id).map(tabQuestionView),
         tab_suggestions: state.tabSuggestions.filter((s) => s.conversation_id === conversation.id).map(tabSuggestionView),
+        tab_limits: state.tabLimits.filter((l) => l.conversation_id === conversation.id).map(tabLimitView),
         subagents: state.subagents.filter((s) => s.conversation_id === conversation.id).map(subagentView),
         host: hostFor(conversation),
       },
@@ -1122,6 +1166,40 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
       broadcast(state, { type: 'tab_suggestion_closed', user_id: USER_ID, conversation_id: suggestion.conversation_id, suggestion: tabSuggestionView(suggestion) });
     }
     return { status: 200, body: { tab_suggestion: tabSuggestionView(suggestion) } };
+  });
+
+  /** A usage-limit card's answer (no PIN): 404 unknown, 409 once it is not open, 400 for an account that is
+   * not one of its candidates. The mock's swap always works: the card closes as `swapped`. */
+  router.route('POST', '/api/m/v1/chat/tab-limits/:id/answer', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'POST', htu: ctx.htu, now: ctx.now() });
+    const limit = state.tabLimits.find((l) => l.id === ctx.params.id);
+    if (!limit) throw new WireError(404, 'NOT_FOUND', 'Aviso não encontrado');
+    if (limit.status !== 'open') throw new WireError(409, 'CONFLICT', 'Este aviso já foi respondido ou expirou');
+    const { account_id } = tabLimitAnswerBody.parse(ctx.body);
+    if (account_id !== null && !limit.payload.candidates.some((c) => c.id === account_id)) throw new WireError(400, 'BAD_REQUEST', 'Essa conta não está entre as opções do aviso');
+    Object.assign(limit, account_id === null ? { status: 'dismissed', result: null } : { status: 'swapped', result: account_id }, { closed_at: new Date(ctx.now()).toISOString() });
+    const view = tabLimitView(limit);
+    broadcast(state, { type: 'tab_limit_closed', user_id: USER_ID, conversation_id: limit.conversation_id, notice: view });
+    return { status: 200, body: { tab_limit: view } };
+  });
+
+  router.route('GET', '/api/m/v1/projects/:id/setup/ai', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'GET', htu: ctx.htu, now: ctx.now() });
+    const id = ctx.params.id!;
+    if (!state.projects.has(id)) throw new WireError(404, 'NOT_FOUND', 'Projeto não encontrado');
+    return { status: 200, body: { ai: state.projectAi.get(id) ?? { accounts: [], models: { claude: null, chatgpt: null } }, available: PROJECT_AI_OPTIONS } };
+  });
+
+  /** Saves the project's accounts and models: 400 naming the first account it cannot list, nothing saved then. */
+  router.route('PUT', '/api/m/v1/projects/:id/setup/ai', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'PUT', htu: ctx.htu, now: ctx.now() });
+    const id = ctx.params.id!;
+    if (!state.projects.has(id)) throw new WireError(404, 'NOT_FOUND', 'Projeto não encontrado');
+    const { ai } = projectAiBody.parse(ctx.body);
+    const unknown = ai.accounts.find((a) => !PROJECT_AI_OPTIONS.some((o) => o.id === a));
+    if (unknown !== undefined) throw new WireError(400, 'BAD_REQUEST', `Conta de IA inexistente: ${unknown}`);
+    state.projectAi.set(id, ai);
+    return { status: 200, body: { ai, available: PROJECT_AI_OPTIONS } };
   });
 
   /**

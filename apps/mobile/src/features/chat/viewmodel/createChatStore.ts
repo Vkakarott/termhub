@@ -23,10 +23,11 @@ import { mmkvStateStorage } from '@/services/storage';
 import { applyEvent, applyStandingGrantEvent, droppedRows, mergeThread, settlePending, upsertTabQuestion } from '../model/events';
 import { belongsTo } from '../model/filter';
 import { CHAT_MSG } from '../model/messages';
+import { upsertTabLimit } from '../model/tab-limit-text';
 import { closeLive, emptyFold, pruneLive, seedLive, type LiveFold } from '../model/live';
 import type { PickedFile } from './attachments';
 import { createThrottledStorage } from './throttled-storage';
-import type { ChatAction, ChatConversation, ChatEvent, ChatGrant, ChatHostState, ChatMessage, ChatProjectGrant, ChatStandingGrant, SubagentView, TabQuestion, TabSuggestion } from '../model/types';
+import type { ChatAction, ChatConversation, ChatEvent, ChatGrant, ChatHostState, ChatMessage, ChatProjectGrant, ChatStandingGrant, SubagentView, TabLimit, TabQuestion, TabSuggestion } from '../model/types';
 import type { ReplyRef } from '../model/reply';
 
 /** `approve_tab` approves the card *and* trusts its tab for send_input ("Permitir sempre nesta aba");
@@ -61,6 +62,8 @@ export interface ConversationSlot {
   tabQuestions: TabQuestion[];
   /** The tabs' suggestions pushed into this conversation. */
   tabSuggestions: TabSuggestion[];
+  /** The usage-limit cards of the project's tabs (spec 2026-09-30 project AI accounts §7.2). */
+  tabLimits: TabLimit[];
   /** The subagents panel of this conversation, newest first (spec 2026-09-26 panel §4). */
   subagents: SubagentView[];
   /** Ids whose "Cancelar" came back with `subagent_cancel_failed`, or any other cancel failure (a
@@ -97,6 +100,10 @@ export interface ChatState {
   busySuggestionIds: string[];
   /** Why the last send or dismiss of each suggestion failed (pt-BR), by id. */
   suggestionErrors: Record<string, string>;
+  /** The usage-limit cards whose answer is in flight, one entry per card. */
+  busyLimitIds: string[];
+  /** Why the last answer of each usage-limit card failed (pt-BR), by id: a failed swap keeps the card open. */
+  limitErrors: Record<string, string>;
   hostOptions: THostOptionsResponse | null;
   /** The last failed action of the screen on show, in pt-BR. */
   error: string | null;
@@ -147,6 +154,9 @@ export interface ChatState {
   sendTabSuggestion(suggestionId: string, text: string): Promise<void>;
   /** "Dispensar": the card closes; the tab is not touched. */
   dismissTabSuggestion(suggestionId: string): Promise<void>;
+  /** A usage-limit card's answer — no PIN: swap the tab to `accountId`, or `null` for "Esperar". A failed
+   * swap (409) says why in the card, which stays open; the event (or a re-read) brings the closed card. */
+  answerTabLimit(limitId: string, accountId: string | null): Promise<void>;
   /** "Cancelar" on a subagent's row (spec 2026-09-26 panel §5.4) — no PIN. A 409 (already at rest, or
    * its process gone) re-reads the trail; any other failure marks that row `cancelFailed`. */
   cancelSubagent(subagentId: string): Promise<void>;
@@ -172,7 +182,7 @@ export interface ChatState {
 
 type Data = Omit<ChatState, { [K in keyof ChatState]: ChatState[K] extends (...args: never[]) => unknown ? K : never }[keyof ChatState]>;
 
-type PersistedSlot = Pick<ConversationSlot, 'conversation' | 'messages' | 'actions' | 'grants' | 'projectGrants' | 'standingGrants' | 'tabQuestions' | 'tabSuggestions' | 'subagents' | 'host'>;
+type PersistedSlot = Pick<ConversationSlot, 'conversation' | 'messages' | 'actions' | 'grants' | 'projectGrants' | 'standingGrants' | 'tabQuestions' | 'tabSuggestions' | 'tabLimits' | 'subagents' | 'host'>;
 type Persisted = { projects: TChatProjectItem[]; conversations: Record<string, PersistedSlot> };
 
 const initialData = (): Data => ({
@@ -189,12 +199,14 @@ const initialData = (): Data => ({
   questionErrors: {},
   busySuggestionIds: [],
   suggestionErrors: {},
+  busyLimitIds: [],
+  limitErrors: {},
   hostOptions: null,
   error: null,
   attachmentStatuses: {},
 });
 
-const emptySlot = (): ConversationSlot => ({ conversation: null, messages: [], actions: [], grants: [], projectGrants: [], standingGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [], host: null, loaded: false, error: null });
+const emptySlot = (): ConversationSlot => ({ conversation: null, messages: [], actions: [], grants: [], projectGrants: [], standingGrants: [], tabQuestions: [], tabSuggestions: [], tabLimits: [], subagents: [], cancelFailed: [], host: null, loaded: false, error: null });
 const keyOf = (projectId: string | null): string => projectId ?? '';
 const projectOf = (key: string): string | null => (key === '' ? null : key);
 
@@ -311,6 +323,7 @@ export function createChatStore(deps: ChatDeps) {
               standingGrants: res.standing_grants,
               tabQuestions: res.tab_questions,
               tabSuggestions: res.tab_suggestions,
+              tabLimits: res.tab_limits,
               subagents: res.subagents,
               host: res.host,
               loaded: true,
@@ -384,6 +397,7 @@ export function createChatStore(deps: ChatDeps) {
             projectGrants: current.projectGrants,
             tabQuestions: current.tabQuestions,
             tabSuggestions: current.tabSuggestions,
+            tabLimits: current.tabLimits,
             subagents: current.subagents,
             cancelFailed: current.cancelFailed,
           };
@@ -398,6 +412,7 @@ export function createChatStore(deps: ChatDeps) {
             slice.projectGrants !== before.projectGrants ||
             slice.tabQuestions !== before.tabQuestions ||
             slice.tabSuggestions !== before.tabSuggestions ||
+            slice.tabLimits !== before.tabLimits ||
             slice.subagents !== before.subagents ||
             slice.cancelFailed !== before.cancelFailed;
           if (liveChanged || slotChanged) {
@@ -415,6 +430,7 @@ export function createChatStore(deps: ChatDeps) {
                         projectGrants: slice.projectGrants,
                         tabQuestions: slice.tabQuestions,
                         tabSuggestions: slice.tabSuggestions,
+                        tabLimits: slice.tabLimits,
                         subagents: slice.subagents,
                         cancelFailed: slice.cancelFailed,
                       },
@@ -488,6 +504,30 @@ export function createChatStore(deps: ChatDeps) {
             if (isApiError(e, 'TAB_PROMPT_CHANGED')) void reread(key); // show how it ended
           } finally {
             if (gen === generation) set((s) => ({ busySuggestionIds: s.busySuggestionIds.filter((id) => id !== suggestionId) }));
+          }
+        };
+
+        /** A usage-limit card's answer, per card like a suggestion's: two cards may be answered at once, one
+         * card never twice; the event brings the closed card; a failure is that card's error, and a 409 (a
+         * failed swap, or a card that closed meanwhile) re-reads, so the card shows how it stands. */
+        const answerLimit = async (limitId: string, accountId: string | null): Promise<void> => {
+          const projectId = get().activeProject;
+          if (projectId === undefined || get().busyLimitIds.includes(limitId)) return;
+          const key = keyOf(projectId);
+          const gen = generation;
+          set((s) => ({ busyLimitIds: [...s.busyLimitIds, limitId], limitErrors: without(s.limitErrors, limitId) }));
+          try {
+            const limit = await api.answerTabLimit(session().auth(), limitId, accountId);
+            if (gen !== generation) return;
+            // The answer is the card as it now stands: shown at once, even with the socket down.
+            const slot = get().conversations[key];
+            if (slot?.tabLimits.some((l) => l.id === limit.id)) patchSlot(key, (current) => ({ tabLimits: upsertTabLimit(current.tabLimits, limit) }));
+          } catch (e) {
+            if (gen !== generation || isLocked(e) || session().handleApiError(e)) return;
+            set((s) => ({ limitErrors: { ...s.limitErrors, [limitId]: isApiError(e) ? e.message : CHAT_MSG.network } }));
+            if (isApiError(e) && e.status === 409) void reread(key);
+          } finally {
+            if (gen === generation) set((s) => ({ busyLimitIds: s.busyLimitIds.filter((id) => id !== limitId) }));
           }
         };
 
@@ -576,7 +616,7 @@ export function createChatStore(deps: ChatDeps) {
             closeSocket?.();
             closeSocket = null;
             readSeq.clear();
-            set({ connected: false, live: emptyFold(), activeProject: undefined, sending: false, decidingId: null, revokingId: null, answeringQuestionIds: [], questionErrors: {}, busySuggestionIds: [], suggestionErrors: {}, attachmentStatuses: {} });
+            set({ connected: false, live: emptyFold(), activeProject: undefined, sending: false, decidingId: null, revokingId: null, answeringQuestionIds: [], questionErrors: {}, busySuggestionIds: [], suggestionErrors: {}, busyLimitIds: [], limitErrors: {}, attachmentStatuses: {} });
           },
 
           async send(text, attachments = [], replyTo) {
@@ -827,6 +867,10 @@ export function createChatStore(deps: ChatDeps) {
             return actOnSuggestion(suggestionId, () => api.dismissTabSuggestion(session().auth(), suggestionId));
           },
 
+          answerTabLimit(limitId, accountId) {
+            return answerLimit(limitId, accountId);
+          },
+
           /**
            * "Cancelar" on a subagent's row (spec 2026-09-26 panel §5.4): a 409 (`SUBAGENT_NOT_RUNNING`
            * or `SUBAGENT_GONE` — already at rest, or its process gone) re-reads the trail, since the
@@ -908,7 +952,7 @@ export function createChatStore(deps: ChatDeps) {
               if (gen !== generation) return;
               set({ live: emptyFold() });
               // A reset ends the old conversation's grants too — not the standing ones, which outlive it.
-              patchSlot(key, () => ({ messages: [], actions: [], grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [] }));
+              patchSlot(key, () => ({ messages: [], actions: [], grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], tabLimits: [], subagents: [], cancelFailed: [] }));
               await reread(key);
             } catch (e) {
               fail(gen, e);
@@ -966,7 +1010,7 @@ export function createChatStore(deps: ChatDeps) {
             // A row still in flight, or one that failed, is this device's alone: not worth a restart.
             Object.entries(s.conversations).map(([key, c]) => [
               key,
-              { conversation: c.conversation, messages: c.messages.filter((m) => m.local === undefined), actions: c.actions, grants: c.grants, projectGrants: c.projectGrants, standingGrants: c.standingGrants, tabQuestions: c.tabQuestions, tabSuggestions: c.tabSuggestions, subagents: c.subagents, host: c.host },
+              { conversation: c.conversation, messages: c.messages.filter((m) => m.local === undefined), actions: c.actions, grants: c.grants, projectGrants: c.projectGrants, standingGrants: c.standingGrants, tabQuestions: c.tabQuestions, tabSuggestions: c.tabSuggestions, tabLimits: c.tabLimits, subagents: c.subagents, host: c.host },
             ]),
           ),
         }),

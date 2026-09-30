@@ -28,7 +28,9 @@ import {
   notesResponse,
   notificationsResponse,
   progressResponse,
+  projectAiResponse,
   sendAccepted,
+  tabLimitAnswerResponse,
   tabQuestionAutoAnswerCancelResponse,
   tabQuestionScreenResponse,
   tokenResponse,
@@ -40,6 +42,7 @@ import {
   type TMobileBatchDecisionBody,
   type TMobileDecisionBody,
   type TMobileMessageBody,
+  type TProjectAi,
   type TSetHostBody,
   type TTabQuestionAnswerBody,
   type TTabSuggestionSendBody,
@@ -268,6 +271,11 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
     sendTabSuggestion: (a: Auth, id: string, body: TTabSuggestionSendBody) =>
       empty('POST', `/api/m/v1/chat/tab-suggestions/${encodeURIComponent(id)}/send`, { token: a.accessToken, body }),
     dismissTabSuggestion: (a: Auth, id: string) => empty('POST', `/api/m/v1/chat/tab-suggestions/${encodeURIComponent(id)}/dismiss`, { token: a.accessToken, body: {} }),
+    answerTabLimit: (a: Auth, id: string, accountId: string | null) =>
+      call('POST', `/api/m/v1/chat/tab-limits/${encodeURIComponent(id)}/answer`, tabLimitAnswerResponse, { token: a.accessToken, body: { account_id: accountId } }).then((r) => r.tab_limit),
+    getProjectAi: (a: Auth, projectId: string) => call('GET', `/api/m/v1/projects/${encodeURIComponent(projectId)}/setup/ai`, projectAiResponse, { token: a.accessToken }),
+    saveProjectAi: (a: Auth, projectId: string, ai: TProjectAi) =>
+      call('PUT', `/api/m/v1/projects/${encodeURIComponent(projectId)}/setup/ai`, projectAiResponse, { token: a.accessToken, body: { ai } }),
     cancelSubagent: (a: Auth, id: string) =>
       call('POST', `/api/m/v1/chat/subagents/${encodeURIComponent(id)}/cancel`, cancelSubagentResponse, { token: a.accessToken }).then((r) => r.subagent),
     // The name and project ride in the query (the body is the file itself); `uploadCall` signs the proof

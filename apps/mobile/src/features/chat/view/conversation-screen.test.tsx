@@ -26,7 +26,7 @@ jest.mock('expo-router', () => ({
 
 import { useChatStore } from '@/features/chat/viewmodel/useChatStore';
 import { useSessionStore } from '@/features/session/viewmodel/useSessionStore';
-import type { TChatAction, TChatEvent, TChatGrant, TChatMessage, TChatProjectGrant, TChatResponse, TChatStandingGrant, TSubagentView, TTabQuestion, TTabSuggestion } from '@/services/api/contract';
+import type { TChatAction, TChatEvent, TChatGrant, TChatMessage, TChatProjectGrant, TChatResponse, TChatStandingGrant, TSubagentView, TTabLimit, TTabQuestion, TTabSuggestion } from '@/services/api/contract';
 import { ApiError } from '@/services/api/errors';
 import { enrolStores, stores } from '../../../../test/helpers/ui-stores';
 import { emptyFold, foldLive } from '../model/live';
@@ -63,7 +63,7 @@ function addRows(rows: ChatMessage[], live: TChatEvent[]) {
 /** Replaces one of the store's actions for a test. Not `jest.spyOn(getState(), …)`: zustand
  * replaces the state object on every `setState`, so a restored spy would linger on the new one. */
 const realActions = { ...stores.chat.getState() };
-function stubAction<K extends 'send' | 'decide' | 'decideMany' | 'reset' | 'setHost' | 'revokeGrant' | 'answerTabQuestion' | 'sendTabSuggestion' | 'dismissTabSuggestion' | 'retrySend' | 'cancelSubagent'>(name: K) {
+function stubAction<K extends 'send' | 'decide' | 'decideMany' | 'reset' | 'setHost' | 'revokeGrant' | 'answerTabQuestion' | 'sendTabSuggestion' | 'dismissTabSuggestion' | 'answerTabLimit' | 'retrySend' | 'cancelSubagent'>(name: K) {
   const fn = jest.fn(async () => undefined);
   useChatStore.setState({ [name]: fn } as Partial<ReturnType<typeof useChatStore.getState>>);
   return fn;
@@ -132,25 +132,29 @@ afterEach(() => {
     answerTabQuestion: realActions.answerTabQuestion,
     sendTabSuggestion: realActions.sendTabSuggestion,
     dismissTabSuggestion: realActions.dismissTabSuggestion,
+    answerTabLimit: realActions.answerTabLimit,
     retrySend: realActions.retrySend,
     cancelSubagent: realActions.cancelSubagent,
     questionErrors: {},
     suggestionErrors: {},
     answeringQuestionIds: [],
     busySuggestionIds: [],
+    limitErrors: {},
+    busyLimitIds: [],
   });
 });
 
 describe('Conversa', () => {
-  it('renders the thread: the person in plain text, the assistant as markdown and the title, with no host line while the host is ready', async () => {
+  it('renders the thread: the person in plain text, the assistant as markdown and the title; a ready project chat names its host but offers no machine picker', async () => {
     await render(<ConversationScreen />);
     expect(await screen.findByText(SEEDED_USER, undefined, LOAD)).toBeTruthy();
     const markdown = screen.getAllByTestId('markdown').map((node) => node.props.children);
     expect(markdown).toContain(SEEDED_ASSISTANT);
     expect(markdown).not.toContain(SEEDED_USER);
     expect(screen.getByText('termhub')).toBeTruthy();
-    // A ready host needs nothing from the person: where the chat runs is in Ajustes.
-    expect(screen.queryByText('Esta conversa roda na máquina jarvis, na conta padrão do Claude dela.')).toBeNull();
+    // A project chat's host line is the way to the project's accounts and model (TER-589); its machine is not picked here.
+    expect(screen.getByText('Esta conversa roda na máquina jarvis, na conta padrão do Claude dela.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Conta e modelo' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Trocar máquina ou conta' })).toBeNull();
   });
 
@@ -676,6 +680,72 @@ describe('Conversa', () => {
       return projectId === 'p-termhub' ? { ...res, tab_suggestions: suggestions } : res;
     });
   }
+
+  const OPEN_LIMIT: TTabLimit = {
+    id: 'l1',
+    tab_id: 't-api',
+    tab_name: 'api',
+    payload: { account: { id: 'acc-1', label: 'Claude Pedro' }, machine: { id: 'm-jarvis', name: 'jarvis' }, resets_at: null, candidates: [{ id: 'acc-2', label: 'Claude Trabalho' }] },
+    status: 'open',
+    result: null,
+    created_at: new Date().toISOString(),
+    closed_at: null,
+  };
+
+  /** Serves the open project's `GET chat` with these usage-limit cards. */
+  function serveLimits(limits: TTabLimit[]) {
+    const real = stores.api.chat.bind(stores.api);
+    jest.spyOn(stores.api, 'chat').mockImplementation(async (auth, projectId) => {
+      const res = await real(auth, projectId);
+      return projectId === 'p-termhub' ? { ...res, tab_limits: limits } : res;
+    });
+  }
+
+  it('renders a usage-limit card in the thread; its buttons answer it, and its error shows in it (TER-589)', async () => {
+    serveLimits([OPEN_LIMIT]);
+    const answer = stubAction('answerTabLimit');
+    await render(<ConversationScreen />);
+    expect(await screen.findByText('Limite de uso da conta', undefined, LOAD)).toBeTruthy();
+    expect(screen.getByText('A conta Claude Pedro da aba api atingiu o limite de uso (cota de tokens esgotada). A troca automática está desligada na máquina jarvis.')).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Trocar para Claude Trabalho' }));
+    expect(answer).toHaveBeenCalledWith('l1', 'acc-2');
+    await fireEvent.press(screen.getByRole('button', { name: 'Esperar' }));
+    expect(answer).toHaveBeenLastCalledWith('l1', null);
+    await act(async () => useChatStore.setState({ limitErrors: { l1: 'A máquina jarvis está offline' } }));
+    expect(within(screen.getByTestId('tab-limit-l1')).getByText('A máquina jarvis está offline')).toBeTruthy();
+  });
+
+  it('a closed usage-limit card says how it ended and offers nothing', async () => {
+    serveLimits([{ ...OPEN_LIMIT, status: 'swapped', result: 'acc-2' }]);
+    await render(<ConversationScreen />);
+    expect(await screen.findByText('Conta trocada para Claude Trabalho.', undefined, LOAD)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Esperar' })).toBeNull();
+  });
+
+  it("the project chat's host sheet names the project's account and leads to its accounts and model (TER-589)", async () => {
+    const real = stores.api.chat.bind(stores.api);
+    jest.spyOn(stores.api, 'chat').mockImplementation(async (auth, projectId) => {
+      const res = await real(auth, projectId);
+      if (projectId !== 'p-termhub' || res.host.kind !== 'ready') return res;
+      return { ...res, host: { ...res.host, account: { kind: 'chosen', id: 'acc-2', label: 'Claude Trabalho', via: 'project' } } };
+    });
+    await render(<ConversationScreen />);
+    expect(await screen.findByText('Esta conversa roda na máquina jarvis, na conta Claude Trabalho, definida pelo projeto.', undefined, LOAD)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Trocar máquina ou conta' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Conta e modelo' }));
+    expect(await screen.findByText('Conta definida pelo projeto: Claude Trabalho', undefined, LOAD)).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Contas e modelo do projeto' }));
+    expect(mockRouter.push).toHaveBeenCalledWith('/project-ai/p-termhub');
+  });
+
+  it('the account-wide chat keeps its host line hidden while ready, and never offers the project row', async () => {
+    mockId = 'general';
+    await render(<ConversationScreen />);
+    expect(await screen.findByText('Chat geral', undefined, LOAD)).toBeTruthy();
+    await waitFor(() => expect(useChatStore.getState().conversations['']?.loaded).toBe(true), LOAD);
+    expect(screen.queryByText(/Esta conversa roda na máquina/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Conta e modelo' })).toBeNull();
+  });
 
   it("renders a tab's suggestion; Enviar sends the edited text, Dispensar dismisses", async () => {
     serveSuggestions([OPEN_SUGGESTION]);

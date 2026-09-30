@@ -6,7 +6,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { b64url, utf8 } from '../../crypto/encoding';
 import type { P256Jwk } from '../../key/types';
 import { verifyProof } from '../dpop';
-import type { StandingGrantKind, TChatAction, TChatAttachment, TChatConversation, TChatDecision, TChatGrant, TChatMessage, TConciergeNote, TDeviceInfo, TLessonItem, TNotificationRow, TSubagentView, TTabQuestion, TTabSuggestion } from '../contract';
+import type { StandingGrantKind, TChatAction, TChatAttachment, TChatConversation, TChatDecision, TChatGrant, TChatMessage, TConciergeNote, TDeviceInfo, TLessonItem, TNotificationRow, TProjectAi, TSubagentView, TTabLimit, TTabQuestion, TTabSuggestion } from '../contract';
 
 /** Every non-2xx answer the mock throws (design spec ruling): mapped to the wire shape by
  * `transport.ts`. `error` is pt-BR text; `extra` carries `attempts_left` / `retry_after`, spread
@@ -174,6 +174,9 @@ export type MockSubagent = TSubagentView & { conversation_id: string };
 /** A tab's suggestion (spec 2026-09-25 tab suggestions): the wire shape plus the conversation it was pushed into. */
 export type MockTabSuggestion = TTabSuggestion & { conversation_id: string };
 
+/** A usage-limit card (spec 2026-09-30 project AI accounts §7.2): the wire shape plus the conversation it was pushed into. */
+export type MockTabLimit = TTabLimit & { conversation_id: string };
+
 /** An uploaded file (spec 2026-09-26): the wire shape plus what the server keeps beside it. */
 export interface MockAttachment extends TChatAttachment {
   conversation_id: string;
@@ -216,6 +219,11 @@ export interface MockState {
   tabQuestions: MockTabQuestion[];
   /** Oldest first; closed rows stay (a second send is a 409, as on the server). */
   tabSuggestions: MockTabSuggestion[];
+  /** Oldest first; closed rows stay (a second answer is a 409, as on the server). */
+  tabLimits: MockTabLimit[];
+  /** The projects' AI accounts and models (spec 2026-09-30 project AI accounts §8), by project id; a
+   * project with no entry has none chosen and no model set. */
+  projectAi: Map<string, TProjectAi>;
   /** Oldest first (push order); `GET chat` lists a conversation's own, `subagentView`'d. */
   subagents: MockSubagent[];
   attachments: Map<string, MockAttachment>;
@@ -264,6 +272,8 @@ export function createMockState(): MockState {
     standingGrants: [],
     tabQuestions: [],
     tabSuggestions: [],
+    tabLimits: [],
+    projectAi: new Map(),
     subagents: [],
     attachments: new Map(),
     transcriptions: new Map(),

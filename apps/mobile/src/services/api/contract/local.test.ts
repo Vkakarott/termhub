@@ -1,3 +1,4 @@
+import { projectAiResponse } from '@termhub/mobile-api';
 import { chatHostStateSchema, chatResponse, emptyResponse, errorBody } from './local';
 
 const conversation = {
@@ -18,7 +19,7 @@ const readyHost = {
   sessionAtStake: false,
 };
 
-const fixture = { conversation, messages: [], actions: [], grants: [], project_grants: [], standing_grants: [], tab_questions: [], tab_suggestions: [], subagents: [], open_answer_ids: [], host: readyHost };
+const fixture = { conversation, messages: [], actions: [], grants: [], project_grants: [], standing_grants: [], tab_questions: [], tab_suggestions: [], tab_limits: [], subagents: [], open_answer_ids: [], host: readyHost };
 
 describe('chatResponse', () => {
   it('parses a ready host', () => {
@@ -64,6 +65,25 @@ describe('chatResponse', () => {
     expect(chatResponse.parse(withoutTabSuggestions)).toEqual(fixture);
   });
 
+  it('defaults tab_limits to empty when an older server sends none (TER-589)', () => {
+    const { tab_limits: _tabLimits, ...withoutTabLimits } = fixture;
+    expect(chatResponse.parse(withoutTabLimits)).toEqual(fixture);
+  });
+
+  it('keeps the usage-limit cards the server lists (TER-589)', () => {
+    const limit = {
+      id: 'l1',
+      tab_id: 't1',
+      tab_name: 'api',
+      payload: { account: { id: 'a1', label: 'Pessoal' }, machine: { id: 'm1', name: 'jarvis' }, resets_at: null, candidates: [{ id: 'a2', label: 'Trabalho' }] },
+      status: 'open' as const,
+      result: null,
+      created_at: '2026-09-30T10:00:00.000Z',
+      closed_at: null,
+    };
+    expect(chatResponse.parse({ ...fixture, tab_limits: [limit] }).tab_limits).toEqual([limit]);
+  });
+
   it('defaults subagents to empty when an older server sends none (spec 2026-09-26 panel §4)', () => {
     const { subagents: _subagents, ...withoutSubagents } = fixture;
     expect(chatResponse.parse(withoutSubagents)).toEqual(fixture);
@@ -77,6 +97,24 @@ describe('chatHostStateSchema', () => {
     expect(chatHostStateSchema.safeParse({ kind: 'not_chosen', machines: [{ id: 'm1', name: 'jarvis' }], sessionAtStake: true }).success).toBe(true);
     expect(chatHostStateSchema.safeParse({ kind: 'offline', machine: { id: 'm1', name: 'jarvis' } }).success).toBe(true);
     expect(chatHostStateSchema.safeParse({ kind: 'agent_too_old', machine: { id: 'm1', name: 'jarvis' }, version: '1.2.0' }).success).toBe(true);
+  });
+
+  it("keeps a chosen account's via: 'project', and parses one without it (TER-589)", () => {
+    const viaProject = { ...readyHost, account: { kind: 'chosen' as const, id: 'a1', label: 'Trabalho', via: 'project' as const } };
+    expect(chatHostStateSchema.parse(viaProject)).toEqual(viaProject);
+    const chosen = { ...readyHost, account: { kind: 'chosen' as const, id: 'a1', label: 'Trabalho' } };
+    expect(chatHostStateSchema.parse(chosen)).toEqual(chosen);
+    expect(chatHostStateSchema.safeParse({ ...readyHost, account: { kind: 'chosen', id: 'a1', label: 'x', via: 'nope' } }).success).toBe(false);
+  });
+});
+
+describe('projectAiResponse', () => {
+  it('parses the accounts, the models and the available options', () => {
+    const body = {
+      ai: { accounts: ['a1'], models: { claude: 'opus', chatgpt: null } },
+      available: [{ id: 'a1', label: 'Pessoal', provider: 'claude' as const, machine_id: 'm1', machine_name: 'jarvis', default: true }],
+    };
+    expect(projectAiResponse.parse(body)).toEqual(body);
   });
 });
 

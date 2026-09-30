@@ -1,15 +1,17 @@
 // Copied verbatim from apps/web/src/lib/chat-timeline.ts (design spec §6, "Chat logic" row); only
 // the import of the shared types was adapted — `./types` here re-exports the contract's own types
 // under the web's names (see `types.ts`), instead of the web's own `lib/types.ts`. Delete this copy
-// once `@termhub/mobile-api` exports it (design spec §6).
-import type { ChatAction, ChatMessage, TabQuestion, TabSuggestion } from './types';
+// once `@termhub/mobile-api` exports it (design spec §6). The usage-limit cards (TER-589) follow the web's
+// own `chatTimeline`, which takes them the same way.
+import type { ChatAction, ChatMessage, TabLimit, TabQuestion, TabSuggestion } from './types';
 
 export type ChatEntry =
   | { kind: 'message'; at: string; message: ChatMessage }
   | { kind: 'action'; at: string; action: ChatAction }
   | { kind: 'action_group'; at: string; actions: ChatAction[] }
   | { kind: 'tab_question'; at: string; question: TabQuestion }
-  | { kind: 'tab_suggestion'; at: string; suggestion: TabSuggestion };
+  | { kind: 'tab_suggestion'; at: string; suggestion: TabSuggestion }
+  | { kind: 'tab_limit'; at: string; limit: TabLimit };
 
 /** Where a card sits in the thread (spec 2026-09-30 §2.2): when it was brought back to the end of the
  * thread, else when it was created. Both the order and the window rule below use it. */
@@ -21,7 +23,7 @@ const cardAt = (card: { created_at: string; surfaced_at?: string | null }): stri
  * `messages` and `actions` are React state, re-fetched on every load and reconnect, and sorting
  * them in place would be a re-render bug that only shows up under StrictMode.
  */
-export function chatTimeline(messages: ChatMessage[], actions: ChatAction[], tabQuestions: TabQuestion[] = [], tabSuggestions: TabSuggestion[] = []): ChatEntry[] {
+export function chatTimeline(messages: ChatMessage[], actions: ChatAction[], tabQuestions: TabQuestion[] = [], tabSuggestions: TabSuggestion[] = [], tabLimits: TabLimit[] = []): ChatEntry[] {
   /**
    * `GET /api/chat` reads two independent windows: the newest 200 messages and the newest 200
    * actions. Only gated writes ever land in the action trail, so past 200 messages the message
@@ -38,6 +40,7 @@ export function chatTimeline(messages: ChatMessage[], actions: ChatAction[], tab
   // A tab's question card follows the same window rule as a gate card: it belongs next to the thread around it.
   const visibleQuestions = oldestMessageAt === null ? tabQuestions : tabQuestions.filter((q) => cardAt(q) >= oldestMessageAt);
   const visibleSuggestions = oldestMessageAt === null ? tabSuggestions : tabSuggestions.filter((s) => cardAt(s) >= oldestMessageAt);
+  const visibleLimits = oldestMessageAt === null ? tabLimits : tabLimits.filter((l) => cardAt(l) >= oldestMessageAt);
 
   // Actions first, deliberately: a stable sort with no tiebreak would just preserve this
   // concatenation order, so putting actions ahead of messages here means the "message before
@@ -48,11 +51,12 @@ export function chatTimeline(messages: ChatMessage[], actions: ChatAction[], tab
     ...messages.map((message): ChatEntry => ({ kind: 'message', at: message.created_at, message })),
     ...visibleQuestions.map((question): ChatEntry => ({ kind: 'tab_question', at: cardAt(question), question })),
     ...visibleSuggestions.map((suggestion): ChatEntry => ({ kind: 'tab_suggestion', at: cardAt(suggestion), suggestion })),
+    ...visibleLimits.map((limit): ChatEntry => ({ kind: 'tab_limit', at: cardAt(limit), limit })),
   ];
 
   return entries.sort((a, b) => {
     if (a.at !== b.at) return a.at < b.at ? -1 : 1;
-    // A card (a gate card, a tab's question or suggestion) reads after the message of the same instant; two cards keep their order.
+    // A card (a gate card, a tab's question, suggestion or usage limit) reads after the message of the same instant; two cards keep their order.
     if (a.kind === 'message' && b.kind !== 'message') return -1;
     if (b.kind === 'message' && a.kind !== 'message') return 1;
     return 0;

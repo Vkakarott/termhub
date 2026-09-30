@@ -1,13 +1,13 @@
 import { applyEvent, mergeMessage, mergeThread, type EventSlice } from './events';
 import { applyLive, emptyFold, foldLive } from './live';
-import type { ChatAction, ChatEvent, ChatMessage, SubagentView, TabQuestion, TabSuggestion } from './types';
+import type { ChatAction, ChatEvent, ChatMessage, SubagentView, TabLimit, TabQuestion, TabSuggestion } from './types';
 
 const at = '2026-09-24T12:00:00.000Z';
 const base = { user_id: 'u1', conversation_id: 'c1' };
 const row = (id: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({ id, conversation_id: 'c1', role: 'assistant', text: '', usage: null, error_code: null, created_at: at, ...extra });
 const action = (id: string, status: ChatAction['status'] = 'pending'): ChatAction => ({ id, tool: 't', args: {}, class: 'write', status, machine_id: null, project_id: null, tab_id: null, grant_id: null, summary: 's', created_at: at });
 const delta = (messageId: string, text: string): ChatEvent => ({ type: 'delta', ...base, message_id: messageId, delta: text });
-const empty: EventSlice = { messages: [], actions: [], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [] };
+const empty: EventSlice = { messages: [], actions: [], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], tabLimits: [], subagents: [], cancelFailed: [] };
 const att = { id: 'att1', name: 'relatorio.pdf', mime: 'application/pdf', kind: 'pdf' as const, bytes: 10, status: 'pending' as const, error_code: null, meta: null, created_at: at };
 const subagent = (over: Partial<SubagentView> & { id: string }): SubagentView => ({ description: 'Buscar CI', subagent_type: null, status: 'running', started_at: at, ended_at: null, ...over });
 
@@ -282,7 +282,7 @@ it('a decision only settles a pending card: a card that already ran is never mov
 // Rewritten on purpose (spec 2026-09-29 §5): `run_finished` with an id used to leave the slice
 // alone; it now closes the row in `live`. The thread itself still does not change.
 it('a run_finished event neither crashes nor changes the thread; with an id it closes the row in live', () => {
-  const thread: EventSlice = { messages: [row('m1', { text: 'oi' })], actions: [action('a1')], live: foldLive([delta('m1', 'oi')]), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [] };
+  const thread: EventSlice = { messages: [row('m1', { text: 'oi' })], actions: [action('a1')], live: foldLive([delta('m1', 'oi')]), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], tabLimits: [], subagents: [], cancelFailed: [] };
   const finished: ChatEvent = { type: 'run_finished', ...base, message_id: 'm1', ok: true, error_code: null };
   const failed: ChatEvent = { type: 'run_finished', ...base, message_id: null, ok: false, error_code: 'HOST_GONE' };
   const closed = applyEvent(thread, finished);
@@ -296,7 +296,7 @@ it('a run_finished event neither crashes nor changes the thread; with an id it c
 
 describe('tab grants', () => {
   const grant = { id: 'g1', tab_id: 't1', tool: 'send_input', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z', tab_name: 'api' };
-  const slice: EventSlice = { messages: [], actions: [action('a1')], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [] };
+  const slice: EventSlice = { messages: [], actions: [action('a1')], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], tabLimits: [], subagents: [], cancelFailed: [] };
 
   it('a grant event adds it; a second grant for the same tab replaces the first', () => {
     const added = applyEvent(slice, { type: 'grant', ...base, grant });
@@ -332,7 +332,7 @@ describe('tab grants', () => {
 
 describe('project grants', () => {
   const pg = { id: 'pg1', project_id: 'p1', project_name: 'termhub', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z', scope: 'board' as const };
-  const slice: EventSlice = { messages: [], actions: [action('a1')], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [] };
+  const slice: EventSlice = { messages: [], actions: [action('a1')], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], tabLimits: [], subagents: [], cancelFailed: [] };
 
   it('a project_grant event adds it; a second grant for the same project replaces the first', () => {
     const added = applyEvent(slice, { type: 'project_grant', ...base, grant: pg });
@@ -364,6 +364,26 @@ it('tab suggestion events upsert the card by id', () => {
   expect(opened).toEqual({ ...empty, tabSuggestions: [s] });
   const sent = { ...s, status: 'answered', answer: { text: 'commit it' } } as TabSuggestion;
   expect(applyEvent(opened, { type: 'tab_suggestion_closed', ...base, suggestion: sent }).tabSuggestions).toEqual([sent]);
+});
+
+it('usage-limit events upsert the card by id, and leave the rest of the slice alone (TER-589)', () => {
+  const l: TabLimit = {
+    id: 'l1',
+    tab_id: 't1',
+    tab_name: 'api',
+    payload: { account: { id: 'a1', label: 'Pessoal' }, machine: { id: 'm1', name: 'jarvis' }, resets_at: null, candidates: [{ id: 'a2', label: 'Trabalho' }] },
+    status: 'open',
+    result: null,
+    created_at: at,
+    closed_at: null,
+  };
+  const opened = applyEvent(empty, { type: 'tab_limit', ...base, notice: l });
+  expect(opened).toEqual({ ...empty, tabLimits: [l] });
+  const other = { ...l, id: 'l2' };
+  const both = applyEvent(opened, { type: 'tab_limit', ...base, notice: other });
+  expect(both.tabLimits).toEqual([l, other]);
+  const swapped: TabLimit = { ...l, status: 'swapped', result: 'a2', closed_at: at };
+  expect(applyEvent(both, { type: 'tab_limit_closed', ...base, notice: swapped }).tabLimits).toEqual([swapped, other]);
 });
 
 describe('attachment_status', () => {

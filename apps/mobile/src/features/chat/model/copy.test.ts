@@ -1,5 +1,5 @@
 import type { ChatErrorCode, ChatHostState } from './types';
-import { errorSentence, failureSentence, hostLine, isChatErrorCode } from './copy';
+import { accountFromProject, errorSentence, failureSentence, hostAccountLine, hostLine, isChatErrorCode } from './copy';
 
 const KNOWN_CODES: ChatErrorCode[] = ['RUNNER_FAILED', 'TOKEN_FAILED', 'CLI_MISSING', 'CLI_REJECTED', 'MISSING_SESSION', 'RUN_FAILED', 'KILLED', 'HOST_GONE', 'AGENT_TOO_OLD', 'HOST_BUSY', 'USAGE_LIMIT', 'MODEL_UNAVAILABLE', 'AUTH_FAILED'];
 
@@ -39,6 +39,16 @@ describe('hostLine', () => {
   it('names the machine and the chosen account when ready', () => {
     const host: ChatHostState = { kind: 'ready', machine: { id: 'm1', name: 'jarvis' }, configDir: null, account: { kind: 'chosen', id: 'a1', label: 'trabalho' }, sessionAtStake: false };
     expect(hostLine(host)).toEqual({ text: 'Esta conversa roda na máquina jarvis, na conta trabalho.', tone: 'ok' });
+  });
+
+  it("says the account was set by the project when the host's account comes from it (TER-589)", () => {
+    const host: ChatHostState = { kind: 'ready', machine: { id: 'm1', name: 'jarvis' }, configDir: null, account: { kind: 'chosen', id: 'a1', label: 'trabalho', via: 'project' }, sessionAtStake: false };
+    expect(hostLine(host)).toEqual({ text: 'Esta conversa roda na máquina jarvis, na conta trabalho, definida pelo projeto.', tone: 'ok' });
+    expect(hostAccountLine(host)).toBe('Conta definida pelo projeto: trabalho');
+    expect(accountFromProject(host)).toBe(true);
+    const chosen: ChatHostState = { ...host, account: { kind: 'chosen', id: 'a1', label: 'trabalho' } };
+    expect(hostAccountLine(chosen)).toBe('Esta conversa roda na máquina jarvis, na conta trabalho.');
+    expect(accountFromProject(chosen)).toBe(false);
   });
 
   it('names the machine default login when the account is the machine default', () => {

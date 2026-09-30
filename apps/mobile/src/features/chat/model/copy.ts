@@ -74,7 +74,21 @@ export function failureSentence(code: string | null): string {
  * chosen account no longer applies to this machine, and the default is what is actually running —
  * the separate sentence about the account being lost is not part of this line. */
 function accountClause(account: Extract<ChatHostState, { kind: 'ready' }>['account']): string {
+  if (account.kind === 'chosen' && account.via === 'project') return `na conta ${account.label}, definida pelo projeto`;
   return account.kind === 'chosen' ? `na conta ${account.label}` : 'na conta padrão do Claude dela';
+}
+
+/** Whether a project chat runs on the account its project chose (TER-589): the account is the project's
+ * to change, so no picker is offered for it. */
+export function accountFromProject(host: ChatHostState): boolean {
+  return host.kind === 'ready' && host.account.kind === 'chosen' && host.account.via === 'project';
+}
+
+/** The host sheet's line about the account (spec 2026-09-30 project AI accounts §8): the project's own
+ * account when it chose one, else where the chat runs (`hostLine`). */
+export function hostAccountLine(host: ChatHostState): string {
+  if (host.kind === 'ready' && host.account.kind === 'chosen' && host.account.via === 'project') return `Conta definida pelo projeto: ${host.account.label}`;
+  return hostLine(host).text;
 }
 
 export interface HostLine {

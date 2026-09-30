@@ -28,11 +28,14 @@ import type {
   TNotesResponse,
   TNotificationsResponse,
   TProgressResponse,
+  TProjectAi,
+  TProjectAiResponse,
   TSendAccepted,
   TSetHostBody,
   TSubagentView,
   TTabQuestionAnswerBody,
   TTabQuestionAutoAnswerCancelResponse,
+  TTabLimit,
   TTabQuestionScreenResponse,
   TTabSuggestionSendBody,
   TTokenBody,
@@ -102,10 +105,21 @@ export interface MobileApi {
   sendTabSuggestion(auth: Auth, suggestionId: string, body: TTabSuggestionSendBody): Promise<void>;
   /** "Dispensar": closes the card, the tab is not touched. Idempotent; 404 unknown. */
   dismissTabSuggestion(auth: Auth, suggestionId: string): Promise<void>;
+  /** A usage-limit card's answer (spec 2026-09-30 project AI accounts §7.2) — no PIN: the account to swap
+   * the tab to, or `null` for "Esperar". Answers the card as it now stands. 409 with a pt-BR `error` when
+   * the swap failed (the card stays open), 404 unknown. */
+  answerTabLimit(auth: Auth, limitId: string, accountId: string | null): Promise<TTabLimit>;
   /** "Cancelar" on a subagent's row (spec 2026-09-26 panel §5.4) — no PIN. Answers the row now
    * `stopping`; the panel's own update arrives over the socket. 404 unknown, 409 `SUBAGENT_NOT_RUNNING`
    * (already at rest) or `SUBAGENT_GONE` (its process is no longer around to ask). */
   cancelSubagent(auth: Auth, subagentId: string): Promise<TSubagentView>;
+
+  // the project's AI accounts and models (spec 2026-09-30 project AI accounts §8)
+  /** The project's accounts (ids, priority order) and default models, with every account its linked
+   * machines offer. 404 outside the person's scope. */
+  getProjectAi(auth: Auth, projectId: string): Promise<TProjectAiResponse>;
+  /** Saves them; answers the same shape. 400 with a pt-BR `error` for an account or model the server refuses. */
+  saveProjectAi(auth: Auth, projectId: string, ai: TProjectAi): Promise<TProjectAiResponse>;
 
   // attachments (spec 2026-09-26 §5.3, §5.6)
   /** Streams the file as the raw body; `onProgress` is 0..1. 415 ATTACHMENT_TYPE, 413 ATTACHMENT_TOO_LARGE / ATTACHMENT_QUOTA. */
