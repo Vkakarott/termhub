@@ -9,7 +9,7 @@ const PROVIDERS = [
 type ProviderKey = (typeof PROVIDERS)[number]['key'];
 
 /** The value the server accepts (same rule as the server's MODEL_RE): no leading `-`, nothing the shell reads. */
-const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
+const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:\[\]\-]{0,99}$/;
 const isAlias = (m: string) => /^(opus|sonnet|haiku)(\[[a-z0-9]+\])?$/.test(m);
 const OTHER = '__other__';
 
