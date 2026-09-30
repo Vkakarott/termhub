@@ -34,6 +34,7 @@ jest.mock('expo-secure-store', () => require('./fakes/secure-store'));
 jest.mock('expo-device', () => require('./fakes/expo-device'));
 jest.mock('expo-application', () => ({ nativeApplicationVersion: '0.1.0', nativeBuildVersion: '1' }));
 jest.mock('expo-local-authentication', () => require('./fakes/local-auth'));
+jest.mock('expo-notifications', () => require('./fakes/expo-notifications'));
 jest.mock('expo-constants', () => ({ __esModule: true, default: { expoConfig: { scheme: 'termhub' } } }));
 jest.mock('@pagopa/io-react-native-crypto', () => ({
   generate: jest.fn(),

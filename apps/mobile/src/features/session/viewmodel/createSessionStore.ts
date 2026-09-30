@@ -131,19 +131,23 @@ export function createSessionStore(deps: SessionDeps) {
           set({ phase: 'locked', busy: false, error: null, attemptsLeft: null });
         };
 
+        /** One push-token registration, fire-and-forget: it must never block the flow (P§9). Mock
+         * mode sends a fake token (a real one means nothing to the mock); otherwise the phone's own,
+         * when it has one. */
+        const registerPush = async (token: string) => {
+          const pushToken = api.mode === 'mock' ? `ExponentPushToken[mock-${get().deviceId}]` : await deps.pushToken?.();
+          if (pushToken) await api.setPushToken({ accessToken: token }, pushToken);
+        };
+
         /** A new session (activation or unlock): the token, `unlocked`, a wake-up for a chat socket
-         * that backed off while locked, and — in mock mode only, the fake token means nothing to a
-         * real server — one push-token registration, fire-and-forget: it must never block the flow (P§9). */
+         * that backed off while locked, and the push-token registration. */
         const startSession = (token: string, secret: Uint8Array, expiresInS: number) => {
           accessToken = token;
           pinSecret = secret;
           tokenIssued(expiresInS);
           set({ phase: 'unlocked', lockedUntil: null, attemptsLeft: null, error: null, busy: false });
           socketWake.emit();
-          if (api.mode === 'mock') {
-            const deviceId = get().deviceId;
-            api.setPushToken({ accessToken: token }, `ExponentPushToken[mock-${deviceId}]`).catch(() => undefined);
-          }
+          registerPush(token).catch(() => undefined);
         };
 
         /** The end of a failed action started at generation `gen`: ignored when a relock or wipe

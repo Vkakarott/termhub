@@ -628,6 +628,32 @@ it('outside mock mode, no fake Expo token is ever sent', async () => {
   expect(push).not.toHaveBeenCalled();
 });
 
+it('outside mock mode, the phone’s own Expo token is registered at every session start, when it has one', async () => {
+  const pushToken = jest.fn(async (): Promise<string | null> => 'ExponentPushToken[real]');
+  const ctx = setup(undefined, 'http', pushToken);
+  const push = jest.spyOn(ctx.api, 'setPushToken').mockResolvedValue(undefined);
+  await enrol(ctx);
+  await flush();
+  expect(push).toHaveBeenCalledTimes(1);
+  expect(push).toHaveBeenLastCalledWith({ accessToken: expect.any(String) }, 'ExponentPushToken[real]');
+
+  // no token (a simulator, a refused permission): nothing is sent, and the session still starts
+  pushToken.mockResolvedValueOnce(null);
+  const store = ctx.make();
+  await store.getState().unlock(PIN);
+  await flush();
+  expect(store.getState().phase).toBe('unlocked');
+  expect(push).toHaveBeenCalledTimes(1);
+
+  // a failing token lookup never blocks the flow either
+  pushToken.mockRejectedValueOnce(new Error('no permission'));
+  const third = ctx.make();
+  await third.getState().unlock(PIN);
+  await flush();
+  expect(third.getState().phase).toBe('unlocked');
+  expect(push).toHaveBeenCalledTimes(1);
+});
+
 it('in mock mode, after activation and after every unlock, setPushToken is called once with a fake Expo token', async () => {
   const ctx = setup();
   const push = jest.spyOn(ctx.api, 'setPushToken');

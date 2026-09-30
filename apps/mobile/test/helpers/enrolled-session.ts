@@ -13,8 +13,8 @@ export const PIN = '123456';
 export type SessionStore = ReturnType<typeof createSessionStore>;
 
 /** `mode` is the api's own mode: `mock` (the default here, like the app's default build) sends
- * the fake Expo push token; `http` never does. */
-export function setupSession(start = START, mode: 'mock' | 'http' = 'mock') {
+ * the fake Expo push token; `http` sends `pushToken`'s, when given. */
+export function setupSession(start = START, mode: 'mock' | 'http' = 'mock', pushToken?: () => Promise<string | null>) {
   const clock = { value: start };
   const now = () => clock.value;
   const transport = createMockTransport({ latency: [0, 0], now });
@@ -31,7 +31,7 @@ export function setupSession(start = START, mode: 'mock' | 'http' = 'mock') {
     tokenStale: () => store!.getState().tokenStale(),
   });
   const localAuth = { available: jest.fn(async () => true), authenticate: jest.fn(async () => true) };
-  const make = () => createSessionStore({ api, key, vault, now, mockControls: transport.controls, localAuth });
+  const make = () => createSessionStore({ api, key, vault, now, mockControls: transport.controls, localAuth, pushToken });
   store = make();
   return { clock, transport, controls: transport.controls, api, key, localAuth, store, make };
 }

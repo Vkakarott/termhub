@@ -177,12 +177,14 @@ export class MobilePushService {
     };
   }
 
-  /** The history row first — it exists even when sending fails — then the push. */
+  /** The history row first — it exists even when sending fails — then the push, which carries the
+   * row's id as `notification_id` so a tap on it can mark that row read. */
   private async deliver(userId: string, kind: Kind, text: PushText, data: Record<string, unknown>, devices: Device[], collapseId?: string): Promise<void> {
-    await this.deps.repos.userNotifications.create({ user_id: userId, kind, title: text.title, body: text.body, data });
+    const row = await this.deps.repos.userNotifications.create({ user_id: userId, kind, title: text.title, body: text.body, data });
     const targets = devices.filter((d): d is Device & { push_token: string } => !!d.push_token);
     if (targets.length === 0) return;
-    const messages: PushMessage[] = targets.map((d) => ({ to: d.push_token, title: text.title, body: text.body, data, ...(collapseId ? { collapseId } : {}) }));
+    const pushData = { ...data, notification_id: row.id };
+    const messages: PushMessage[] = targets.map((d) => ({ to: d.push_token, title: text.title, body: text.body, data: pushData, ...(collapseId ? { collapseId } : {}) }));
     let results: { to: string; error?: string }[];
     try {
       results = await this.deps.sender.send(messages);

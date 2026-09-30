@@ -19,6 +19,12 @@ npm workspaces: `apps/server` (`@termhub/server`), `apps/web` (`@termhub/web`), 
 - Never assume the maintainer's setup. jarvis is the termhub server but also the maintainer's work computer, so nothing may assume the server machine is dedicated to termhub. Likewise, do not assume the termhub MCP is loaded in every session, that Claude accounts live in `~/.claude` or `~/.claude_pedrogoiania`, or that machines have names like `hulk`.
 - Specs, plans and PR descriptions carry a short **Impact on other users** section: what changes for someone who did not ask for this, and whether it is the default or opt-in (and at which level: user, project or machine). When nothing changes for them, say so in one line instead of dropping the section.
 
+## Mobile (EAS)
+
+- `apps/mobile` is linked to the EAS project `0614ffa1-2d38-4d03-beb9-c3e0dd8a8d24`, owned by the **`engenharia-inversa`** Expo account (`owner` and `extra.eas.projectId` in `app.json`). Do not change `owner` back to a personal account: EAS refuses any command whose `owner` does not match the project's.
+- On the developer's Mac, the session saved by `eas login` belongs to another account, used for a different app. Do not `eas logout` / `eas login` over it. Run EAS commands for termhub with the `engenharia-inversa` robot token (`hulk - macmini`) instead, which EAS reads from `EXPO_TOKEN` in preference to the saved session. It is kept in the macOS Keychain, and the user has a shell alias for it (`eas-pedro`). Aliases do not expand in non-interactive shells, so from a script or an agent run: `EXPO_TOKEN="$(security find-generic-password -s expo-token-pedrogoiania -w)" eas <command>`. Check with `eas whoami`, which should print the robot. Never print, log or commit the token.
+- OTA updates do not go through EAS Update; they go through the self-hosted xprem server (see `apps/mobile/app.config.js` and the mobile README).
+
 ## Verifying before pushing
 
 - The host that holds this checkout (jarvis) has no Node. Run typecheck/build through Docker, and only push if it passes:

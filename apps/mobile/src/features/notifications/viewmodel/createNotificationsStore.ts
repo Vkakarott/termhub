@@ -50,6 +50,10 @@ export interface NotificationsState {
   /** Marks one row read on the server, then locally — `unread` never drops below 0. Never
    * throws: a failure ends up in `error` (or the session store, for a session-ending one). */
   markRead(id: string): Promise<void>;
+  /** The row a tapped push names (`data.notification_id`), read on the server even when this list
+   * does not hold it yet — the push usually arrived while the app was closed — then page 1 again,
+   * so the row and `unread` come back as the server now has them. Never throws, like `markRead`. */
+  markPushRead(id: string): Promise<void>;
 }
 
 type Data = Omit<NotificationsState, { [K in keyof NotificationsState]: NotificationsState[K] extends (...args: never[]) => unknown ? K : never }[keyof NotificationsState]>;
@@ -116,6 +120,18 @@ export function createNotificationsStore(deps: NotificationsDeps) {
               items: s.items.map((r) => (r.id === id ? { ...r, read_at: new Date(now()).toISOString() } : r)),
               unread: Math.max(0, s.unread - 1),
             }));
+          },
+
+          async markPushRead(id) {
+            if (get().items.some((r) => r.id === id)) return get().markRead(id);
+            const gen = generation;
+            try {
+              await api.markRead(session().auth(), id);
+            } catch (e) {
+              return fail(gen, e);
+            }
+            if (gen !== generation) return;
+            await get().load();
           },
         };
       },

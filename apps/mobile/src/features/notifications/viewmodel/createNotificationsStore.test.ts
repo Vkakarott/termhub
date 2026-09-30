@@ -113,6 +113,30 @@ it('markRead marks the row read, calls the API and decrements unread, never belo
   expect(store.getState().unread).toBe(0);
 });
 
+it('markPushRead reads a row the list does not hold yet on the server, then reloads page 1', async () => {
+  const { store, api } = await setup();
+  const markRead = jest.spyOn(api, 'markRead').mockResolvedValue(undefined);
+  const notifications = jest.spyOn(api, 'notifications');
+  expect(store.getState().items).toHaveLength(0);
+
+  await store.getState().markPushRead('n-from-push');
+  expect(markRead).toHaveBeenCalledWith(expect.anything(), 'n-from-push');
+  expect(notifications).toHaveBeenCalledTimes(1);
+  expect(store.getState().items).toHaveLength(1);
+});
+
+it('markPushRead on a row already listed is a plain markRead, with no reload', async () => {
+  const { store, api } = await setup();
+  await store.getState().load();
+  const id = store.getState().items[0]!.id;
+  const notifications = jest.spyOn(api, 'notifications');
+
+  await store.getState().markPushRead(id);
+  expect(store.getState().items[0]!.read_at).not.toBeNull();
+  expect(store.getState().unread).toBe(0);
+  expect(notifications).not.toHaveBeenCalled();
+});
+
 it('markRead on a synthetic local: row only marks it read here, with no API call', async () => {
   const { store, events, api } = await setup();
   await store.getState().load();
