@@ -38,7 +38,14 @@ export type ChatFrame =
   /** A subagent used a termhub MCP tool (how a gated proposal is traced back to the subagent that made it). */
   | { type: 'subagent_tool'; parent_tool_use_id: string; tool_use_id: string; tool: string }
   /** A control request completed or failed. */
-  | { type: 'control_response'; request_id: string; ok: boolean };
+  | { type: 'control_response'; request_id: string; ok: boolean }
+  /** Why the turn failed, in the CLI's own words (`error` on its synthetic assistant message, TER-588):
+   *  the `result` that follows only says `is_error`. Only the failures the person can act on are named. */
+  | { type: 'api_error'; reason: ChatFailureReason }
+  /** The account hit its usage limit (`rate_limit_event` rejected); `resets_at` is ISO, or null when not said. */
+  | { type: 'usage_limit'; resets_at: string | null }
+  /** Where this run's session lives on the machine (`<config dir>/projects/<cwd slug>`), from `init`. */
+  | { type: 'session_dir'; dir: string };
 
 /**
  * Every label a runner may end a failed run with: the container's `FailureReason`, the protocol's
@@ -51,7 +58,9 @@ export type ChatFrame =
 // `reset` (a tcp channel's local socket reset) is included only to keep this list covering the
 // protocol's whole `closedReason` set per PROTOCOL_REASONS_COVERED below — a chat run's pty/claude
 // channel never actually reports it.
-const REASONS = ['missing_session', 'cli_rejected', 'run_failed', 'cli_missing', 'killed', 'host_gone', 'agent_too_old', 'host_busy', 'reset'] as const;
+// `usage_limit`, `model_unavailable` and `auth_failed` are read from the CLI's stream by `parseFrame`
+// (TER-588): the CLI reports them on stdout with an empty stderr, so no runner can name them.
+const REASONS = ['missing_session', 'cli_rejected', 'run_failed', 'cli_missing', 'killed', 'host_gone', 'agent_too_old', 'host_busy', 'reset', 'usage_limit', 'model_unavailable', 'auth_failed'] as const;
 
 /** Written exactly once: the type and the runtime check below are both derived from `REASONS`, so a
  *  label added to the list cannot be accepted by one and dropped by the other — the silent drift this
@@ -131,6 +140,20 @@ const positive = (v: unknown): number | undefined => (count(v) > 0 ? (v as numbe
 
 const toReason = (raw: unknown): ChatFailureReason | undefined => (typeof raw === 'string' && KNOWN.has(raw) ? (raw as ChatFailureReason) : undefined);
 
+/** The CLI's `error` on a synthetic assistant message (Claude Code 2.1.285) → the reason stored for the
+ *  turn. Anything else (`server_error`, `invalid_request`, `billing_error`, …) stays `run_failed`. */
+const API_ERRORS: Record<string, ChatFailureReason> = { rate_limit: 'usage_limit', model_not_found: 'model_unavailable', authentication_failed: 'auth_failed' };
+/** A `result` with no assistant frame before it: its HTTP status is all there is. */
+const STATUS_REASONS: Record<number, ChatFailureReason> = { 429: 'usage_limit', 401: 'auth_failed' };
+
+/** `<dir>/projects/<slug>/memory/` → `<dir>/projects/<slug>`: absolute, or nothing. */
+function sessionDirOf(auto: unknown): string | undefined {
+  if (typeof auto !== 'string' || !auto.startsWith('/') || /[\0-\x1f]/.test(auto)) return undefined;
+  const parts = auto.replace(/\/+$/, '').split('/');
+  if (parts.length < 5 || parts.at(-1) !== 'memory' || parts.at(-3) !== 'projects' || parts.some((s) => s === '..')) return undefined;
+  return parts.slice(0, -1).join('/');
+}
+
 /** `mcp__termhub__list_tabs` -> `list_tabs`; anything else is kept as it came. */
 const toolName = (raw: string) => (raw.startsWith('mcp__termhub__') ? raw.slice('mcp__termhub__'.length) : raw);
 
@@ -165,6 +188,10 @@ export function parseFrame(line: string): ChatFrame | null {
     return null;
   }
   if (type === 'assistant') {
+    if (typeof f.error === 'string') {
+      const reason = API_ERRORS[f.error];
+      return reason ? { type: 'api_error', reason } : null;
+    }
     const content = (f.message as { content?: unknown[] } | undefined)?.content ?? [];
     for (const block of content as { type?: string; id?: string; name?: string; input?: unknown }[]) {
       if (block.type === 'tool_use' && block.id && block.name) return { type: 'action', tool: toolName(block.name), tool_use_id: block.id, args: block.input ?? {} };
@@ -196,6 +223,15 @@ export function parseFrame(line: string): ChatFrame | null {
     const meta = (f.compact_metadata ?? {}) as { pre_tokens?: unknown; post_tokens?: unknown };
     return { type: 'compacted', tokens_before: positive(meta.pre_tokens), tokens: positive(meta.post_tokens) };
   }
+  if (type === 'rate_limit_event') {
+    const info = (f.rate_limit_info ?? {}) as { status?: unknown; resetsAt?: unknown };
+    if (info.status !== 'rejected') return null;
+    return { type: 'usage_limit', resets_at: count(info.resetsAt) > 0 ? new Date((info.resetsAt as number) * 1000).toISOString() : null };
+  }
+  if (type === 'system' && f.subtype === 'init') {
+    const dir = sessionDirOf((f.memory_paths as { auto?: unknown } | undefined)?.auto);
+    return dir ? { type: 'session_dir', dir } : null;
+  }
   if (type === 'system' && f.subtype === 'background_tasks_changed') return { type: 'background', count: Array.isArray(f.tasks) ? f.tasks.length : 0 };
   if (type === 'result') {
     // A `result` frame is not by itself an answer: `is_error` marks a run that ended badly (max
@@ -203,7 +239,9 @@ export function parseFrame(line: string): ChatFrame | null {
     // — often an empty one, which the page then showed as "pensando…" forever.
     // The session id is kept: the run failed, but the session it ran in is still on disk with the
     // whole conversation in it, and the next message must resume that thread.
-    if (f.is_error === true) return { type: 'error', message: 'run ended with is_error', reason: 'run_failed', session_id: typeof f.session_id === 'string' ? f.session_id : undefined, turn_ended: true };
+    // Its reason is only the status code's guess: the assistant frame before it (`api_error`) names the
+    // failure, and the consumers let that win.
+    if (f.is_error === true) return { type: 'error', message: 'run ended with is_error', reason: (typeof f.api_error_status === 'number' && STATUS_REASONS[f.api_error_status]) || 'run_failed', session_id: typeof f.session_id === 'string' ? f.session_id : undefined, turn_ended: true };
     const context = contextUsage(f);
     return { type: 'done', session_id: typeof f.session_id === 'string' ? f.session_id : undefined, usage: f.usage, ...(context ? { context } : {}) };
   }
