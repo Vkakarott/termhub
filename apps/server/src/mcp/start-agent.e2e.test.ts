@@ -168,7 +168,9 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
     }
     process.env.PATH = path;
     process.env.HOME = homeEnv;
-    rmSync(home, { recursive: true, force: true });
+    // kill-server returns before the panes' shells are gone, and a shell exiting writes its history
+    // into this $HOME: under a loaded suite that lands mid-removal (ENOTEMPTY), so retry briefly.
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   beforeEach(() => {
