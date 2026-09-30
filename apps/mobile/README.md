@@ -129,13 +129,17 @@ JS-only changes reach installed builds over the air, through the self-hosted [xp
 - **JS-only change** for the version testers already have: publish, and the next cold start downloads it in the background; it runs from the launch after that.
 - **Native change** (a new native module, a config plugin, an `app.json` field that prebuild reads, an Expo SDK bump): bump `expo.version` and ship a new binary (TestFlight / App Distribution). Its updates then go out under the new version, and older binaries keep their own line.
 
-To publish, from the same commit as the build plus the JS changes, with an API token of the termhub app (dashboard → API tokens):
+**Publishing is automated.** The "Publish mobile OTA" workflow (`.github/workflows/publish-mobile-ota.yml`, on the jarvis runner) publishes on every push to `main` that touches `apps/mobile/**` or `packages/mobile-api/**`. It skips a push that changes `app.json`, `app.config.js` or this `package.json` without bumping `expo.version` (the run summary says so): for a JS-only change it was too cautious about, run it by hand with `gh workflow run "Publish mobile OTA" --ref main -f message="what changed"`.
+
+By hand, from a clean working tree on the Mac (eoas refuses a dirty one, so an update always matches a commit):
 
 ```bash
-EOO_TOKEN=… npm run release:ota -w @termhub/mobile                      # message: last commit subject
-EOO_TOKEN=… npm run release:ota -w @termhub/mobile -- -m "what changed"
-EOO_TOKEN=… npm run release:ota -w @termhub/mobile -- --rollout-percentage 20
+npm run release:ota -w @termhub/mobile                                  # message: last commit subject
+npm run release:ota -w @termhub/mobile -- -m "what changed"
+npm run release:ota -w @termhub/mobile -- --rollout-percentage 20
 ```
+
+The token is a publishing API key of the termhub app on xprem: `EOO_TOKEN` when set, otherwise the macOS Keychain item `xprem-token-termhub`; CI uses the `XPREM_TOKEN` repository secret. Keys are listed, created and revoked with the xprem MCP (`get_api_keys`, `create_api_key`, `revoke_api_key`) or in the dashboard.
 
 The script bakes in the same `EXPO_PUBLIC_*` values as the store builds and runs `eoas publish --branch production --platform all`. A rollout is then widened, ended or reverted in the dashboard; a bad update is reverted by republishing an earlier one or with a rollback to the embedded bundle (dashboard, or `republish_update` / `rollback_branch` in the MCP).
 
