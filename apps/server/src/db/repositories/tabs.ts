@@ -1,6 +1,6 @@
 import type { PrismaClient } from '../prisma.js';
 import { newId } from '../../lib/ids.js';
-import { HISTORY_ROWS, decideWait, rearmOf, type HistoryRow, type Rearm } from '../../monitor/wait-decision.js';
+import { HISTORY_ROWS, decideWait, rearmOf, type HistoryRow, type Rearm, type SubagentRef } from '../../monitor/wait-decision.js';
 import { mapTab, mapTabEvent, type Tab, type TabActivity, type TabEvent, type TabKind, type TabState } from './types.js';
 
 /** A flood of hook events cannot grow the log without bound: only this many are kept per tab. */
@@ -22,6 +22,13 @@ function eventName(meta: unknown): string | null {
 
 /** A subagent's event carries `subagent: true` in its meta (monitor/state.ts). */
 const isSubagentEvent = (meta: unknown): boolean => metaOf(meta).subagent === true;
+
+/** The subagent an event's meta names (`agent_id` when the hook script sent one), or null for the main thread. */
+function subagentOf(meta: unknown): SubagentRef | null {
+  if (!isSubagentEvent(meta)) return null;
+  const id = metaOf(meta).agent_id;
+  return { id: typeof id === 'string' && id ? id : null };
+}
 
 /** The final message of the agent's last turn in a tab, as its hooks delivered it (spec 2026-09-30 last
  *  answer). `stale`: a turn started after it, so it is an earlier turn's. */
@@ -187,14 +194,14 @@ export class TabsRepository {
       const current = await tx.tab.findUnique({ where: { id: tabId }, select: { state: true, stateAt: true, stateSeenAt: true, stateText: true, activity: true } });
       const rows = await tx.tabEvent.findMany({ where: { tabId }, orderBy: { createdAt: 'desc' }, take: HISTORY_ROWS, select: { kind: true, createdAt: true, meta: true } });
       const previous = rows[0];
-      const history: HistoryRow[] = rows.map((r) => ({ kind: r.kind as TabState, event: eventName(r.meta), ageMs: at.getTime() - r.createdAt.getTime(), backgroundTasks: hasBackgroundTasks(r.meta) }));
+      const history: HistoryRow[] = rows.map((r) => ({ kind: r.kind as TabState, event: eventName(r.meta), ageMs: at.getTime() - r.createdAt.getTime(), backgroundTasks: hasBackgroundTasks(r.meta), subagent: subagentOf(r.meta) }));
       const now = {
         state: (current?.state ?? null) as TabState | null,
         seen: !!current?.stateSeenAt && !!current.stateAt && current.stateSeenAt >= current.stateAt,
         hasActivity: !!current?.activity,
         seenAgeMs: current?.stateSeenAt ? at.getTime() - current.stateSeenAt.getTime() : null,
       };
-      const incoming = { kind: event.kind, name: eventName(event.meta), continuesWait: !!event.continuesWait, keepsWaitText: !!event.keepsWaitText };
+      const incoming = { kind: event.kind, name: eventName(event.meta), continuesWait: !!event.continuesWait, keepsWaitText: !!event.keepsWaitText, subagent: subagentOf(event.meta) };
       const outcome = decideWait(now, history, incoming);
       if (outcome.action === 'drop') {
         return [null, await tx.tab.findUniqueOrThrow({ where: { id: tabId } }), null] as const;

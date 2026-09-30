@@ -4,7 +4,7 @@ import { HISTORY_ROWS, REORDER_WINDOW_MS, decideWait, rearmOf, type HistoryRow, 
 const current = (over: Partial<WaitCurrent> = {}): WaitCurrent => ({ state: null, seen: false, hasActivity: false, seenAgeMs: null, ...over });
 const event = (over: Partial<WaitEvent> = {}): WaitEvent => ({ kind: 'waiting_input', name: 'Stop', continuesWait: false, keepsWaitText: false, ...over });
 /** One event row. `ageMs` is how long ago it was written; the history is newest first. */
-const row = (kind: HistoryRow['kind'], name: string | null, ageMs = 1_000, backgroundTasks = false): HistoryRow => ({ kind, event: name, ageMs, backgroundTasks });
+const row = (kind: HistoryRow['kind'], name: string | null, ageMs = 1_000, backgroundTasks = false, subagent: HistoryRow['subagent'] = null): HistoryRow => ({ kind, event: name, ageMs, backgroundTasks, subagent });
 
 /** Claude's idle_prompt: the one event that is only a reminder. */
 const reminder = event({ name: 'Notification', continuesWait: true, keepsWaitText: true });
@@ -272,5 +272,49 @@ describe('decideWait — Codex: one finished turn, one alert (spec 2026-09-29 co
 
   it('records a PreToolUse on a waiting_input tab (a new turn, not a tail)', () => {
     expect(decideWait(current({ state: 'waiting_input' }), [row('waiting_input', 'Stop', 200)], event({ kind: 'working', name: 'PreToolUse' }))).toEqual(NEW);
+  });
+});
+
+describe('decideWait — a subagent in the background never takes the tab out of its main thread\'s wait (TER-615)', () => {
+  /** A subagent's tool call: `id` is its agent id, null when an older hook script sent only the flag. */
+  const subagentTool = (id: string | null = 'a1', name = 'PreToolUse') => event({ kind: 'working', name, subagent: { id } });
+  const DROP: WaitOutcome = { action: 'drop', reason: 'subagent_during_wait' };
+
+  it('drops a subagent tool call that lands after the Stop of a turn that left it running', () => {
+    const history = [row('waiting_input', 'Stop', 500, true), row('working', 'UserPromptSubmit', 30_000)];
+    expect(decideWait(current({ state: 'waiting_input' }), history, subagentTool())).toEqual(DROP);
+    expect(decideWait(current({ state: 'waiting_input' }), history, subagentTool(null))).toEqual(DROP);
+    // and after the idle_prompt that reminds of the same wait
+    expect(decideWait(current({ state: 'waiting_input', seen: true }), [row('waiting_input', 'Notification'), ...history], subagentTool())).toEqual(DROP);
+  });
+
+  it('drops it while the main thread asks a question or waits for a permission (the hulk case: SubagentHandback after the question)', () => {
+    const history = [row('waiting_permission', 'Notification', 15_000), row('working', 'PreToolUse', 21_000), row('working', 'UserPromptSubmit', 60_000)];
+    expect(decideWait(current({ state: 'waiting_permission' }), history, subagentTool(null))).toEqual(DROP);
+    const mainDialog = [row('waiting_permission', 'Notification', 1_000), row('waiting_permission', 'PermissionRequest', 1_500)];
+    expect(decideWait(current({ state: 'waiting_permission' }), mainDialog, subagentTool('a1'))).toEqual(DROP);
+  });
+
+  it('records the tool call that follows that same subagent\'s own permission prompt (the person approved it)', () => {
+    const own = [row('waiting_permission', 'Notification', 1_000), row('waiting_permission', 'PermissionRequest', 1_500, false, { id: 'a1' }), row('waiting_input', 'Stop', 9_000, true)];
+    expect(decideWait(current({ state: 'waiting_permission' }), own, subagentTool('a1'))).toEqual(NEW);
+    // an older script names nobody: the flag alone is enough to pair them
+    const flagOnly = [row('waiting_permission', 'PermissionRequest', 1_500, false, { id: null })];
+    expect(decideWait(current({ state: 'waiting_permission' }), flagOnly, subagentTool(null))).toEqual(NEW);
+    expect(decideWait(current({ state: 'waiting_permission' }), flagOnly, subagentTool('a1'))).toEqual(NEW);
+  });
+
+  it('drops a tool call of another subagent than the one whose prompt is open', () => {
+    const other = [row('waiting_permission', 'PermissionRequest', 1_500, false, { id: 'a2' })];
+    expect(decideWait(current({ state: 'waiting_permission' }), other, subagentTool('a1'))).toEqual(DROP);
+  });
+
+  it('leaves a subagent\'s own wait and every main-thread event alone', () => {
+    const history = [row('waiting_input', 'Stop', 500, true)];
+    expect(decideWait(current({ state: 'waiting_input' }), history, event({ kind: 'waiting_permission', name: 'PermissionRequest', subagent: { id: 'a1' } }))).toEqual(NEW);
+    expect(decideWait(current({ state: 'waiting_input' }), history, event({ kind: 'working', name: 'UserPromptSubmit' }))).toEqual(NEW);
+    expect(decideWait(current({ state: 'waiting_input' }), history, event({ kind: 'working', name: 'PreToolUse' }))).toEqual(NEW);
+    // a working tab takes the subagent's tool call as it always did
+    expect(decideWait(current({ state: 'working' }), [row('working', 'UserPromptSubmit')], subagentTool())).toEqual(NEW);
   });
 });

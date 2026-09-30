@@ -441,6 +441,19 @@ describe('ingestHookEvent — an event the repository dropped', () => {
     expect(note).not.toHaveBeenCalled();
     expect(schedule).not.toHaveBeenCalled();
   });
+  it('a subagent tool call dropped while the tab waits still closes that subagent\'s own card (TER-615)', async () => {
+    publish.mockClear();
+    note.mockClear();
+    const current = tab({ state: 'waiting_input' });
+    const { r } = repos(current);
+    (r.tabs.recordEvent as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ tab: current, event: null, rearm: null });
+
+    const res = await ingestHookEvent(r, log, { machineId: 'm1', tool: 'claude', session: 'th-t1', event: { hook_event_name: 'PreToolUse', tool_name: 'Bash', subagent: true, agent_id: 'a1' } });
+
+    expect(res).toEqual({ ok: false, reason: 'ignored' });
+    expect(publish).not.toHaveBeenCalled();
+    expect(note).toHaveBeenCalledWith(r, log, current, expect.objectContaining({ meta: expect.objectContaining({ subagent: true, agent_id: 'a1' }) }), undefined);
+  });
 });
 
 describe('ingestHookEvent — a seen wait that alerts again', () => {
