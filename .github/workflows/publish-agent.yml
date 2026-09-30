@@ -19,6 +19,14 @@ permissions:
   contents: write # the tag this workflow creates after a publish from main
   id-token: write
 
+# Two pushes to main a minute apart both passed `decide` before either had published, and the
+# second publish failed with "You cannot publish over the previously published versions" (run
+# 36671373847): the publish job takes minutes, and npm takes a while to show a new version. One
+# run at a time, never cancelled (a cancelled run could stop halfway through a publish).
+concurrency:
+  group: publish-agent
+  cancel-in-progress: false
+
 jobs:
   # ── Is this version still missing from npm? ────────────────────────
   decide:
@@ -77,14 +85,29 @@ jobs:
         run: |
           npm pack -w @termhub/agent --pack-destination /tmp >/dev/null
           tar -xOf /tmp/termhub-agent-*.tgz package/package.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const b=JSON.parse(s).bin||{};if(b["termhub-agent"]!=="dist/cli.js"){console.error("bin missing in tarball:",b);process.exit(1)}console.log("bin ok:",b)})'
+      # `decide` may have looked before npm showed a version another run had just published: that
+      # version being there already is the outcome we wanted, not a failure. Any other error fails.
       - name: Publicar (trusted publishing / OIDC)
+        id: publish
         env:
           NODE_AUTH_TOKEN: ''
-        run: npm publish -w @termhub/agent --access public --provenance
+        run: |
+          if out=$(npm publish -w @termhub/agent --access public --provenance 2>&1); then
+            printf '%s\n' "$out"
+            echo 'published=true' >> "$GITHUB_OUTPUT"
+          elif printf '%s' "$out" | grep -qE 'EPUBLISHCONFLICT|cannot publish over the previously published'; then
+            printf '%s\n' "$out"
+            echo "@termhub/agent@${{ needs.decide.outputs.version }} já estava no npm; nada a publicar"
+            echo 'published=false' >> "$GITHUB_OUTPUT"
+          else
+            printf '%s\n' "$out"
+            exit 1
+          fi
       # Keeps the tag history even when the release came from a bump on main. A tag pushed with
-      # GITHUB_TOKEN does not start another run, so this cannot loop back into itself.
+      # GITHUB_TOKEN does not start another run, so this cannot loop back into itself. Only after a
+      # publish of this run: the run that published the version already pushed its tag.
       - name: Marcar a versão publicada (agent-vX.Y.Z)
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && steps.publish.outputs.published == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.decide.outputs.version }}
