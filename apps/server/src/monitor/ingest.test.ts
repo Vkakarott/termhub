@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Tab } from '../db/repositories/types.js';
+import { STATE_TEXT_MAX } from './state.js';
 
 const publish = vi.fn();
 vi.mock('./bus.js', () => ({ monitorBus: { publish: (...a: unknown[]) => publish(...a) } }));
@@ -328,5 +329,39 @@ describe('ingestHookEvent — a seen wait that alerts again', () => {
     const { r } = repos(tab({ state: 'working' }));
     await ingestHookEvent(r, { info, debug: vi.fn(), warn: vi.fn() } as never, { machineId: 'm1', tool: 'claude', session: 'th-t1', event: { hook_event_name: 'Stop', last_assistant_message: 'Pronto.' } });
     expect(info.mock.calls.some((c) => c[1] === 'monitor: seen wait re-armed')).toBe(false);
+  });
+});
+
+describe('ingestHookEvent — the last answer reaches the repository (spec 2026-09-30 last answer, issue #160 item 5)', () => {
+  const long = 'segredo.'.repeat(1250); // 10 000 characters
+  const hook = (tool: 'claude' | 'codex' | 'cursor', event: Record<string, unknown>) => ({ machineId: 'm1', tool, session: 'th-t1', event });
+
+  it.each([
+    ['claude Stop', 'claude', { hook_event_name: 'Stop', last_assistant_message: long }],
+    ['codex Stop', 'codex', { hook_event_name: 'Stop', last_assistant_message: long }],
+    ['codex notify', 'codex', { type: 'agent-turn-complete', 'last-assistant-message': long }],
+    ['cursor afterAgentResponse', 'cursor', { hook_event_name: 'afterAgentResponse', text: long }],
+  ] as const)('%s: recordEvent gets the whole answer and the capped text; neither is logged', async (_label, tool, event) => {
+    const spy = { info: vi.fn(), debug: vi.fn(), warn: vi.fn() };
+    const { r, recordEvent } = repos(tab({ state: 'working' }));
+    await ingestHookEvent(r, spy as never, hook(tool, event));
+    expect(recordEvent).toHaveBeenCalledTimes(1);
+    const passed = recordEvent.mock.calls[0]![1] as { answer?: string; text?: string | null };
+    expect(passed.answer).toBe(long);
+    expect(passed.answer).toHaveLength(10_000);
+    expect(passed.text).toHaveLength(STATE_TEXT_MAX);
+    expect(passed.text!.endsWith('…')).toBe(true);
+    expect(spy.info).toHaveBeenCalledWith(expect.objectContaining({ answerLen: 10_000 }), 'monitor: tab state');
+    expect(JSON.stringify([spy.info.mock.calls, spy.debug.mock.calls, spy.warn.mock.calls])).not.toContain('segredo');
+  });
+
+  it.each([
+    ['claude idle_prompt', { hook_event_name: 'Notification', notification_type: 'idle_prompt', message: long }],
+    ['claude StopFailure', { hook_event_name: 'StopFailure', error: 'rate_limit', last_assistant_message: long }],
+  ] as const)('%s: recordEvent gets no answer key', async (_label, event) => {
+    const { r, recordEvent } = repos(tab({ state: 'waiting_input' }));
+    await ingestHookEvent(r, log, hook('claude', event));
+    expect(recordEvent).toHaveBeenCalledTimes(1);
+    expect(recordEvent.mock.calls[0]![1]).not.toHaveProperty('answer');
   });
 });
