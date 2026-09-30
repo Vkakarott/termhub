@@ -1622,3 +1622,41 @@ describe('run state (spec 2026-09-29 §5)', () => {
     expect(chat.getState().live.deltas.size).toBe(0);
   });
 });
+
+describe('replies (TER-447)', () => {
+  it('send carries the reference: on the optimistic row, in the body, and on the stored message', async () => {
+    const { chat, api } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    const original = slot(chat, 'p-termhub').messages.find((m) => m.role === 'assistant' && m.text)!;
+    const ref = { id: original.id, role: 'assistant' as const, excerpt: 'Abri a aba' };
+    const sent = jest.spyOn(api, 'sendMessage');
+    const sending = chat.getState().send('faz de novo', [], ref);
+    expect(slot(chat, 'p-termhub').messages.at(-1)).toMatchObject({ text: 'faz de novo', local: 'sending', reply_to: ref });
+    expect(await sending).toBe(true);
+    expect(sent).toHaveBeenCalledWith(expect.anything(), { text: 'faz de novo', project_id: 'p-termhub', reply_to_id: original.id });
+    await jest.advanceTimersByTimeAsync(2000);
+    const stored = slot(chat, 'p-termhub').messages.find((m) => m.text === 'faz de novo')!;
+    expect(stored.local).toBeUndefined();
+    expect(stored.reply_to?.id).toBe(original.id);
+  });
+
+  it('a plain send has no reply_to_id, and a failed reply is retried as the same reply', async () => {
+    const { chat, api } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    const original = slot(chat, 'p-termhub').messages.find((m) => m.role === 'assistant' && m.text)!;
+    const sent = jest.spyOn(api, 'sendMessage').mockRejectedValueOnce(new ApiError(409, 'HOST_OFFLINE', 'A máquina do chat está offline.'));
+    await expect(chat.getState().send('faz de novo', [], { id: original.id, role: 'assistant', excerpt: 'x' })).resolves.toBe(false);
+    const failed = slot(chat, 'p-termhub').messages.at(-1)!;
+    await expect(chat.getState().retrySend(failed.id)).resolves.toBe(true);
+    expect(sent).toHaveBeenLastCalledWith(expect.anything(), { text: 'faz de novo', project_id: 'p-termhub', reply_to_id: original.id });
+    await chat.getState().send('oi');
+    expect(sent).toHaveBeenLastCalledWith(expect.anything(), { text: 'oi', project_id: 'p-termhub' });
+  });
+
+  it('the mock refuses a reply to a message it does not have, with the server\'s sentence', async () => {
+    const { chat } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    await expect(chat.getState().send('faz de novo', [], { id: 'nope', role: 'assistant', excerpt: 'x' })).resolves.toBe(false);
+    expect(chat.getState().error).toBe('A mensagem citada não está mais disponível. Cancele a citação e envie de novo.');
+  });
+});

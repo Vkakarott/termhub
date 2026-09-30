@@ -6,6 +6,10 @@
 // time out on a slow CI runner. 2^10 keeps the derivation real but cheap (see `scryptLog2N`).
 process.env.TERMHUB_SCRYPT_LOG2N = '10';
 
+// The gesture handler's own jest setup (its native module has no binding here), and haptics as spies.
+require('react-native-gesture-handler/jestSetup');
+jest.mock('expo-haptics', () => ({ impactAsync: jest.fn(async () => undefined), ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' } }));
+
 // Safe-area insets have no native side under jest.
 jest.mock('react-native-safe-area-context', () => {
   const { View } = require('react-native');

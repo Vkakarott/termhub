@@ -14,6 +14,7 @@ import {
   mobileBatchDecisionBody,
   mobileDecisionBody,
   mobileMessageBody,
+  replyExcerpt,
   resetBody,
   projectFavoriteBody,
   setHostBody,
@@ -136,6 +137,15 @@ function bindAttachments(state: MockState, conversationId: string, ids: string[]
   if (!ok) throw new WireError(409, 'ATTACHMENT_UNAVAILABLE', 'Um dos anexos não está mais disponível.');
   for (const a of rows as MockAttachment[]) a.message_id = messageId;
   return rows as MockAttachment[];
+}
+
+/** The server's rule for `reply_to_id` (TER-447): a message of this conversation with words or files. */
+function replyTargetOf(state: MockState, conversationId: string, id: string | undefined): NonNullable<MockMessage['reply_to']> | null {
+  if (id === undefined) return null;
+  const row = state.messages.get(conversationId)?.find((m) => m.id === id);
+  const names = (row?.attachments ?? []).map((a) => a.name);
+  if (!row || (!row.text && names.length === 0)) throw new WireError(409, 'REPLY_UNAVAILABLE', 'A mensagem citada não está mais disponível. Cancele a citação e envie de novo.');
+  return { id: row.id, role: row.role, excerpt: replyExcerpt(row.text, names) };
 }
 
 function findAttachment(state: MockState, id: string): MockAttachment {
@@ -428,6 +438,8 @@ interface StreamOptions {
   assistantMessageId: string;
   userText: string;
   attachments: MockAttachment[];
+  /** What the message answers (TER-447), already cut like the server's snapshot. */
+  replyTo: NonNullable<MockMessage['reply_to']> | null;
 }
 
 /** The `202` reply's follow-up: a `setTimeout` chain so every event is its own macrotask — user
@@ -449,6 +461,7 @@ function scheduleStream(o: StreamOptions): void {
       error_code: null,
       created_at: new Date(o.now()).toISOString(),
       attachments: o.attachments.map(attachmentView),
+      ...(o.replyTo ? { reply_to: o.replyTo } : {}),
     };
     o.state.messages.get(o.conversationId)?.push(userMessage);
     broadcast(o.state, { type: 'message', user_id: USER_ID, conversation_id: o.conversationId, message: userMessage });
@@ -759,6 +772,7 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     const project = projectId ? state.projects.get(projectId) : undefined;
     const userMessageId = randomId(10);
     const assistantMessageId = randomId(10);
+    const replyTo = replyTargetOf(state, conversation.id, body.reply_to_id);
     const attachments = bindAttachments(state, conversation.id, body.attachment_ids ?? [], userMessageId);
 
     scheduleStream({
@@ -772,6 +786,7 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
       assistantMessageId,
       userText: body.text,
       attachments,
+      replyTo,
     });
 
     return { status: 202, body: { conversation_id: conversation.id, user_message_id: userMessageId, assistant_message_id: assistantMessageId } };
