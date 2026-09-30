@@ -105,8 +105,8 @@ it('a Codex reply card asks for an answer: empty input, Enviar disabled while bl
   expect(onSend).toHaveBeenCalledWith('sim');
 });
 
-it('a closed Codex reply card keeps the closed title', () => {
+it('a closed Codex reply card says the tab asked and the person answered', () => {
   render(<TabSuggestionCard suggestion={open({ status: 'answered', answer: { text: 'sim' }, payload: { text: '', agent: 'codex' } })} busy={false} onSend={vi.fn()} onDismiss={vi.fn()} />);
-  expect(screen.getByText('«api» sugere:')).toBeInTheDocument();
+  expect(screen.getByText('«api» perguntou; você respondeu:')).toBeInTheDocument();
   expect(screen.getByText('sim')).toBeInTheDocument();
 });

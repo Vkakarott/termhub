@@ -373,7 +373,7 @@ describe('a question that came from Codex', () => {
     const onAnswer = vi.fn();
     const q = permission({ payload: { tool_name: 'Bash', agent: 'codex', question: 'Rodar <b>npm test</b>?\nem /tmp' } } as Partial<TabQuestion>);
     const { container } = render(<TabQuestionCard question={q} answering={false} onAnswer={onAnswer} />);
-    expect(screen.getByText('O Codex pede permissão')).toBeInTheDocument();
+    expect(screen.getByText('A aba «api» pede permissão (o Codex)')).toBeInTheDocument();
     expect(screen.getByText(/Rodar <b>npm test<\/b>\?/)).toHaveClass('whitespace-pre-wrap');
     expect(container.querySelector('b')).toBeNull();
     expect(screen.getByText(/«Bash»/)).toBeInTheDocument();
@@ -382,7 +382,7 @@ describe('a question that came from Codex', () => {
   });
   it('a Codex permission without a question shows just the title and the tool', () => {
     render(<TabQuestionCard question={permission({ payload: { tool_name: 'Bash', agent: 'codex' } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
-    expect(screen.getByText('O Codex pede permissão')).toBeInTheDocument();
+    expect(screen.getByText('A aba «api» pede permissão (o Codex)')).toBeInTheDocument();
     expect(screen.getByText(/«Bash»/)).toBeInTheDocument();
   });
   it('a choice card names the Codex in its title', () => {

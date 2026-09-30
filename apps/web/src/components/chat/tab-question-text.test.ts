@@ -123,7 +123,8 @@ describe('Codex titles', () => {
   it('names the Codex on a choice and a permission card, and only then', () => {
     expect(choiceTitle(q('choice', 'codex'))).toBe('A aba «api» perguntou (o Codex)');
     expect(choiceTitle(q('choice'))).toBe('A aba «api» perguntou');
-    expect(permissionTitle(q('permission', 'codex'))).toBe('O Codex pede permissão');
+    expect(permissionTitle(q('permission', 'codex'))).toBe('A aba «api» pede permissão (o Codex)');
+    expect(permissionTitle({ ...q('permission', 'codex'), tab_name: null } as TabQuestion)).toBe('Uma aba pede permissão (o Codex)');
     expect(permissionTitle(q('permission'))).toBe('A aba «api» pede permissão para usar «Bash»');
   });
 });

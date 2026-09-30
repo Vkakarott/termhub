@@ -16,6 +16,11 @@ export const suggestionTitle = (s: TabSuggestion): string => {
     const who = s.payload.agent === 'codex' ? 'o Codex perguntou:' : 'o Claude Code sugere:';
     return s.tab_name ? `«${s.tab_name}» terminou — ${who}` : `Uma aba terminou — ${who}`;
   }
+  if (s.payload.agent === 'codex') {
+    // A Codex reply card asked; the chat's answer (sent, or claimed and failed) is what the card shows under it.
+    const asked = s.tab_name ? `«${s.tab_name}» perguntou` : 'Uma aba perguntou';
+    return s.status === 'answered' || s.status === 'failed' ? `${asked}; você respondeu:` : `${asked}:`;
+  }
   return s.tab_name ? `«${s.tab_name}» sugere:` : 'Uma aba sugere:';
 };
 

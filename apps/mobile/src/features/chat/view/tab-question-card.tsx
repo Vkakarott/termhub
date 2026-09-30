@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 import type { TTabQuestionAnswerBody } from '@/services/api/contract';
 import { AppText, Button } from '@/ui';
-import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerDescription, choiceAnswerLabel, choiceTitle, formatCountdown, permissionTitle, statusLabel, suggestionLine, suggestionSourceSentence, tabLabel } from '../model/tab-question-text';
+import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerDescription, choiceAnswerLabel, choiceTitle, formatCountdown, permissionTitle, statusLabel, suggestionLine, suggestionSourceSentence } from '../model/tab-question-text';
 import type { TabQuestion, TabQuestionSuggestionItem } from '../model/types';
 
 type Props = {
@@ -289,7 +289,7 @@ function PermissionBody({ question, busy, onAnswer, loadScreen }: Props & { ques
       {codex ? (
         <View className="gap-1">
           {question.payload.question ? <AppText>{question.payload.question}</AppText> : null}
-          <AppText variant="muted">{`${tabLabel(question)} · «${question.payload.tool_name}»`}</AppText>
+          <AppText variant="muted">{`«${question.payload.tool_name}»`}</AppText>
         </View>
       ) : null}
       {open && excerpt !== null ? <Button label="Tela da aba" variant="ghost" onPress={() => setShowing((v) => !v)} /> : null}

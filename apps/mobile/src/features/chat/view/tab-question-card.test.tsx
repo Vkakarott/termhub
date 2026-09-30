@@ -299,9 +299,9 @@ describe('TabQuestionCard: a question that came from Codex', () => {
   it('a permission card says the Codex asks, shows the question as plain text and keeps the tool as secondary text', async () => {
     const onAnswer = jest.fn();
     await render(<TabQuestionCard question={PERMISSION} busy={false} onAnswer={onAnswer} loadScreen={async () => null} />);
-    expect(screen.getByText('O Codex pede permissão')).toBeTruthy();
+    expect(screen.getByText('A aba «api» pede permissão (o Codex)')).toBeTruthy();
     expect(screen.getByText('Rodar <b>npm test</b>?')).toBeTruthy();
-    expect(screen.getByText('A aba «api» · «Bash»')).toBeTruthy();
+    expect(screen.getByText('«Bash»')).toBeTruthy();
     await fireEvent.press(screen.getByRole('button', { name: 'Permitir' }));
     expect(onAnswer).toHaveBeenCalledWith('q1', { allow: true });
   });

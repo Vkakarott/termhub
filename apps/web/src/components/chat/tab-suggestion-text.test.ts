@@ -36,10 +36,18 @@ describe('suggestionTitle', () => {
 
 describe('a Codex reply card', () => {
   const codex = (over: Partial<TabSuggestion> = {}) => s({ payload: { text: '', context: 'Quer que eu siga?', agent: 'codex' }, ...over });
-  it('says the Codex asked, open; the closed title is unchanged', () => {
+  it('says the Codex asked, open; once answered from the chat, that the person answered', () => {
     expect(suggestionTitle(codex())).toBe('«api» terminou — o Codex perguntou:');
     expect(suggestionTitle(codex({ tab_name: null }))).toBe('Uma aba terminou — o Codex perguntou:');
-    expect(suggestionTitle(codex({ status: 'answered' }))).toBe('«api» sugere:');
+    expect(suggestionTitle(codex({ status: 'answered' }))).toBe('«api» perguntou; você respondeu:');
+    expect(suggestionTitle(codex({ status: 'answered', tab_name: null }))).toBe('Uma aba perguntou; você respondeu:');
+    expect(suggestionTitle(codex({ status: 'failed' }))).toBe('«api» perguntou; você respondeu:');
+  });
+  it('a Codex question closed without a chat answer says only that it asked', () => {
+    for (const status of ['dismissed', 'answered_in_tab', 'expired'] as const) {
+      expect(suggestionTitle(codex({ status }))).toBe('«api» perguntou:');
+      expect(suggestionTitle(codex({ status, tab_name: null }))).toBe('Uma aba perguntou:');
+    }
   });
   it('asks for an answer instead of saying none is needed', () => {
     expect(suggestionHint(codex())).toBe('Responda aqui ou na aba.');
