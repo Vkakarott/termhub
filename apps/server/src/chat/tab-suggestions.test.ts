@@ -23,7 +23,7 @@ const opened = (over: Partial<TabQuestion> = {}): TabQuestion => ({
   status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z', suggestion: null, ...over,
 });
 
-function fakeRepos(opts: { tab?: object | undefined; conversation?: object | null } = {}) {
+function fakeRepos(opts: { tab?: object | undefined; conversation?: object | null; codexReplies?: boolean } = {}) {
   const t = 'tab' in opts ? opts.tab : tab;
   const conversation = opts.conversation === undefined ? { id: 'c1', user_id: 'u1' } : (opts.conversation ?? undefined);
   return {
@@ -32,6 +32,7 @@ function fakeRepos(opts: { tab?: object | undefined; conversation?: object | nul
     chat: { findLatestActiveForProject: vi.fn(async () => conversation) },
     machines: { findById: vi.fn(async () => machine) },
     tabQuestions: { open: vi.fn(async () => ({ question: opened(), closed: [] as TabQuestion[] })) },
+    users: { chatCodexReplies: vi.fn(async () => opts.codexReplies ?? true) },
   };
 }
 const asRepos = (r: ReturnType<typeof fakeRepos>) => r as unknown as Repositories;
@@ -327,6 +328,13 @@ describe('openCodexReply', () => {
     const moved = fakeRepos({ tab: { ...codexTab, state: 'working' } });
     await openCodexReply(asRepos(moved), log(), 't1', ask);
     expect(moved.tabQuestions.open).not.toHaveBeenCalled();
+  });
+
+  it('opens nothing while the owner has the Codex reply switch off (the default)', async () => {
+    const r = fakeRepos({ tab: codexTab, codexReplies: false });
+    await openCodexReply(asRepos(r), log(), 't1', ask);
+    expect(r.users.chatCodexReplies).toHaveBeenCalledWith('u1');
+    expect(r.tabQuestions.open).not.toHaveBeenCalled();
   });
 
   it('never throws; logs the code only', async () => {

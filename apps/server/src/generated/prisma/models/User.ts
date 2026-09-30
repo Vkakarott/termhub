@@ -43,6 +43,7 @@ export type UserMinAggregateOutputType = {
   reviewEnabledBy: string | null
   chatSuggestions: boolean | null
   chatAutodecide: boolean | null
+  chatCodexReplies: boolean | null
 }
 
 export type UserMaxAggregateOutputType = {
@@ -64,6 +65,7 @@ export type UserMaxAggregateOutputType = {
   reviewEnabledBy: string | null
   chatSuggestions: boolean | null
   chatAutodecide: boolean | null
+  chatCodexReplies: boolean | null
 }
 
 export type UserCountAggregateOutputType = {
@@ -85,6 +87,7 @@ export type UserCountAggregateOutputType = {
   reviewEnabledBy: number
   chatSuggestions: number
   chatAutodecide: number
+  chatCodexReplies: number
   _all: number
 }
 
@@ -108,6 +111,7 @@ export type UserMinAggregateInputType = {
   reviewEnabledBy?: true
   chatSuggestions?: true
   chatAutodecide?: true
+  chatCodexReplies?: true
 }
 
 export type UserMaxAggregateInputType = {
@@ -129,6 +133,7 @@ export type UserMaxAggregateInputType = {
   reviewEnabledBy?: true
   chatSuggestions?: true
   chatAutodecide?: true
+  chatCodexReplies?: true
 }
 
 export type UserCountAggregateInputType = {
@@ -150,6 +155,7 @@ export type UserCountAggregateInputType = {
   reviewEnabledBy?: true
   chatSuggestions?: true
   chatAutodecide?: true
+  chatCodexReplies?: true
   _all?: true
 }
 
@@ -244,6 +250,7 @@ export type UserGroupByOutputType = {
   reviewEnabledBy: string | null
   chatSuggestions: boolean
   chatAutodecide: boolean
+  chatCodexReplies: boolean
   _count: UserCountAggregateOutputType | null
   _min: UserMinAggregateOutputType | null
   _max: UserMaxAggregateOutputType | null
@@ -286,6 +293,7 @@ export type UserWhereInput = {
   reviewEnabledBy?: Prisma.StringNullableFilter<"User"> | string | null
   chatSuggestions?: Prisma.BoolFilter<"User"> | boolean
   chatAutodecide?: Prisma.BoolFilter<"User"> | boolean
+  chatCodexReplies?: Prisma.BoolFilter<"User"> | boolean
   roleRef?: Prisma.XOR<Prisma.RoleNullableScalarRelationFilter, Prisma.RoleWhereInput> | null
   sessions?: Prisma.SessionListRelationFilter
   machines?: Prisma.MachineListRelationFilter
@@ -324,6 +332,7 @@ export type UserOrderByWithRelationInput = {
   reviewEnabledBy?: Prisma.SortOrderInput | Prisma.SortOrder
   chatSuggestions?: Prisma.SortOrder
   chatAutodecide?: Prisma.SortOrder
+  chatCodexReplies?: Prisma.SortOrder
   roleRef?: Prisma.RoleOrderByWithRelationInput
   sessions?: Prisma.SessionOrderByRelationAggregateInput
   machines?: Prisma.MachineOrderByRelationAggregateInput
@@ -365,6 +374,7 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   reviewEnabledBy?: Prisma.StringNullableFilter<"User"> | string | null
   chatSuggestions?: Prisma.BoolFilter<"User"> | boolean
   chatAutodecide?: Prisma.BoolFilter<"User"> | boolean
+  chatCodexReplies?: Prisma.BoolFilter<"User"> | boolean
   roleRef?: Prisma.XOR<Prisma.RoleNullableScalarRelationFilter, Prisma.RoleWhereInput> | null
   sessions?: Prisma.SessionListRelationFilter
   machines?: Prisma.MachineListRelationFilter
@@ -403,6 +413,7 @@ export type UserOrderByWithAggregationInput = {
   reviewEnabledBy?: Prisma.SortOrderInput | Prisma.SortOrder
   chatSuggestions?: Prisma.SortOrder
   chatAutodecide?: Prisma.SortOrder
+  chatCodexReplies?: Prisma.SortOrder
   _count?: Prisma.UserCountOrderByAggregateInput
   _max?: Prisma.UserMaxOrderByAggregateInput
   _min?: Prisma.UserMinOrderByAggregateInput
@@ -430,6 +441,7 @@ export type UserScalarWhereWithAggregatesInput = {
   reviewEnabledBy?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
   chatSuggestions?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
   chatAutodecide?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
+  chatCodexReplies?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
 }
 
 export type UserCreateInput = {
@@ -450,6 +462,7 @@ export type UserCreateInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -488,6 +501,7 @@ export type UserUncheckedCreateInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -524,6 +538,7 @@ export type UserUpdateInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -562,6 +577,7 @@ export type UserUncheckedUpdateInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -599,6 +615,7 @@ export type UserCreateManyInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
 }
 
 export type UserUpdateManyMutationInput = {
@@ -619,6 +636,7 @@ export type UserUpdateManyMutationInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
 }
 
 export type UserUncheckedUpdateManyInput = {
@@ -640,6 +658,7 @@ export type UserUncheckedUpdateManyInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
 }
 
 export type UserCountOrderByAggregateInput = {
@@ -661,6 +680,7 @@ export type UserCountOrderByAggregateInput = {
   reviewEnabledBy?: Prisma.SortOrder
   chatSuggestions?: Prisma.SortOrder
   chatAutodecide?: Prisma.SortOrder
+  chatCodexReplies?: Prisma.SortOrder
 }
 
 export type UserMaxOrderByAggregateInput = {
@@ -682,6 +702,7 @@ export type UserMaxOrderByAggregateInput = {
   reviewEnabledBy?: Prisma.SortOrder
   chatSuggestions?: Prisma.SortOrder
   chatAutodecide?: Prisma.SortOrder
+  chatCodexReplies?: Prisma.SortOrder
 }
 
 export type UserMinOrderByAggregateInput = {
@@ -703,6 +724,7 @@ export type UserMinOrderByAggregateInput = {
   reviewEnabledBy?: Prisma.SortOrder
   chatSuggestions?: Prisma.SortOrder
   chatAutodecide?: Prisma.SortOrder
+  chatCodexReplies?: Prisma.SortOrder
 }
 
 export type UserListRelationFilter = {
@@ -1045,6 +1067,7 @@ export type UserCreateWithoutRoleRefInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectCreateNestedManyWithoutOwnerInput
@@ -1081,6 +1104,7 @@ export type UserUncheckedCreateWithoutRoleRefInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -1147,6 +1171,7 @@ export type UserScalarWhereInput = {
   reviewEnabledBy?: Prisma.StringNullableFilter<"User"> | string | null
   chatSuggestions?: Prisma.BoolFilter<"User"> | boolean
   chatAutodecide?: Prisma.BoolFilter<"User"> | boolean
+  chatCodexReplies?: Prisma.BoolFilter<"User"> | boolean
 }
 
 export type UserCreateWithoutSessionsInput = {
@@ -1167,6 +1192,7 @@ export type UserCreateWithoutSessionsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectCreateNestedManyWithoutOwnerInput
@@ -1204,6 +1230,7 @@ export type UserUncheckedCreateWithoutSessionsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
   integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
@@ -1255,6 +1282,7 @@ export type UserUpdateWithoutSessionsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUpdateManyWithoutOwnerNestedInput
@@ -1292,6 +1320,7 @@ export type UserUncheckedUpdateWithoutSessionsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
   integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1327,6 +1356,7 @@ export type UserCreateWithoutMachinesInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   projects?: Prisma.ProjectCreateNestedManyWithoutOwnerInput
@@ -1364,6 +1394,7 @@ export type UserUncheckedCreateWithoutMachinesInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
   integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
@@ -1415,6 +1446,7 @@ export type UserUpdateWithoutMachinesInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   projects?: Prisma.ProjectUpdateManyWithoutOwnerNestedInput
@@ -1452,6 +1484,7 @@ export type UserUncheckedUpdateWithoutMachinesInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
   integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1487,6 +1520,7 @@ export type UserCreateWithoutProjectsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -1524,6 +1558,7 @@ export type UserUncheckedCreateWithoutProjectsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
@@ -1575,6 +1610,7 @@ export type UserUpdateWithoutProjectsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -1612,6 +1648,7 @@ export type UserUncheckedUpdateWithoutProjectsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1647,6 +1684,7 @@ export type UserCreateWithoutIntegrationsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -1684,6 +1722,7 @@ export type UserUncheckedCreateWithoutIntegrationsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -1735,6 +1774,7 @@ export type UserUpdateWithoutIntegrationsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -1772,6 +1812,7 @@ export type UserUncheckedUpdateWithoutIntegrationsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1807,6 +1848,7 @@ export type UserCreateWithoutUploadsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -1844,6 +1886,7 @@ export type UserUncheckedCreateWithoutUploadsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -1895,6 +1938,7 @@ export type UserUpdateWithoutUploadsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -1932,6 +1976,7 @@ export type UserUncheckedUpdateWithoutUploadsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1967,6 +2012,7 @@ export type UserCreateWithoutApiTokensInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -2004,6 +2050,7 @@ export type UserUncheckedCreateWithoutApiTokensInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -2055,6 +2102,7 @@ export type UserUpdateWithoutApiTokensInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -2092,6 +2140,7 @@ export type UserUncheckedUpdateWithoutApiTokensInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -2127,6 +2176,7 @@ export type UserCreateWithoutChatConversationsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -2164,6 +2214,7 @@ export type UserUncheckedCreateWithoutChatConversationsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -2215,6 +2266,7 @@ export type UserUpdateWithoutChatConversationsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -2252,6 +2304,7 @@ export type UserUncheckedUpdateWithoutChatConversationsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -2287,6 +2340,7 @@ export type UserCreateWithoutChatAttachmentsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -2324,6 +2378,7 @@ export type UserUncheckedCreateWithoutChatAttachmentsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -2375,6 +2430,7 @@ export type UserUpdateWithoutChatAttachmentsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -2412,6 +2468,7 @@ export type UserUncheckedUpdateWithoutChatAttachmentsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -2447,6 +2504,7 @@ export type UserCreateWithoutStandingGrantsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -2484,6 +2542,7 @@ export type UserUncheckedCreateWithoutStandingGrantsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -2535,6 +2594,7 @@ export type UserUpdateWithoutStandingGrantsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -2572,6 +2632,7 @@ export type UserUncheckedUpdateWithoutStandingGrantsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -2607,6 +2668,7 @@ export type UserCreateWithoutChatDecisionsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -2644,6 +2706,7 @@ export type UserUncheckedCreateWithoutChatDecisionsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -2695,6 +2758,7 @@ export type UserUpdateWithoutChatDecisionsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -2732,6 +2796,7 @@ export type UserUncheckedUpdateWithoutChatDecisionsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -2767,6 +2832,7 @@ export type UserCreateWithoutMemoryItemsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -2804,6 +2870,7 @@ export type UserUncheckedCreateWithoutMemoryItemsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -2844,6 +2911,7 @@ export type UserCreateWithoutVerifiedMemoryItemsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -2881,6 +2949,7 @@ export type UserUncheckedCreateWithoutVerifiedMemoryItemsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -2932,6 +3001,7 @@ export type UserUpdateWithoutMemoryItemsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -2969,6 +3039,7 @@ export type UserUncheckedUpdateWithoutMemoryItemsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -3015,6 +3086,7 @@ export type UserUpdateWithoutVerifiedMemoryItemsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -3052,6 +3124,7 @@ export type UserUncheckedUpdateWithoutVerifiedMemoryItemsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -3087,6 +3160,7 @@ export type UserCreateWithoutProjectGroupsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -3124,6 +3198,7 @@ export type UserUncheckedCreateWithoutProjectGroupsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -3175,6 +3250,7 @@ export type UserUpdateWithoutProjectGroupsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -3212,6 +3288,7 @@ export type UserUncheckedUpdateWithoutProjectGroupsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -3247,6 +3324,7 @@ export type UserCreateWithoutDeviceRequestsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -3284,6 +3362,7 @@ export type UserUncheckedCreateWithoutDeviceRequestsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -3335,6 +3414,7 @@ export type UserUpdateWithoutDeviceRequestsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -3372,6 +3452,7 @@ export type UserUncheckedUpdateWithoutDeviceRequestsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -3407,6 +3488,7 @@ export type UserCreateWithoutDevicesInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -3444,6 +3526,7 @@ export type UserUncheckedCreateWithoutDevicesInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -3495,6 +3578,7 @@ export type UserUpdateWithoutDevicesInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -3532,6 +3616,7 @@ export type UserUncheckedUpdateWithoutDevicesInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -3567,6 +3652,7 @@ export type UserCreateWithoutNotificationsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -3604,6 +3690,7 @@ export type UserUncheckedCreateWithoutNotificationsInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -3655,6 +3742,7 @@ export type UserUpdateWithoutNotificationsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -3692,6 +3780,7 @@ export type UserUncheckedUpdateWithoutNotificationsInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -3727,6 +3816,7 @@ export type UserCreateManyRoleRefInput = {
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
 }
 
 export type UserUpdateWithoutRoleRefInput = {
@@ -3747,6 +3837,7 @@ export type UserUpdateWithoutRoleRefInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUpdateManyWithoutOwnerNestedInput
@@ -3783,6 +3874,7 @@ export type UserUncheckedUpdateWithoutRoleRefInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -3819,6 +3911,7 @@ export type UserUncheckedUpdateManyWithoutRoleRefInput = {
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
   chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatCodexReplies?: Prisma.BoolFieldUpdateOperationsInput | boolean
 }
 
 
@@ -4006,6 +4099,7 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   reviewEnabledBy?: boolean
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
   sessions?: boolean | Prisma.User$sessionsArgs<ExtArgs>
   machines?: boolean | Prisma.User$machinesArgs<ExtArgs>
@@ -4045,6 +4139,7 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   reviewEnabledBy?: boolean
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
 
@@ -4067,6 +4162,7 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   reviewEnabledBy?: boolean
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
 
@@ -4089,9 +4185,10 @@ export type UserSelectScalar = {
   reviewEnabledBy?: boolean
   chatSuggestions?: boolean
   chatAutodecide?: boolean
+  chatCodexReplies?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "avatarUrl" | "nickname" | "cityShortUrlPartner" | "cityShortUrlCustom" | "passwordHash" | "googleId" | "role" | "roleId" | "invitedAt" | "lastLoginAt" | "createdAt" | "reviewEnabledUntil" | "reviewEnabledBy" | "chatSuggestions" | "chatAutodecide", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "avatarUrl" | "nickname" | "cityShortUrlPartner" | "cityShortUrlCustom" | "passwordHash" | "googleId" | "role" | "roleId" | "invitedAt" | "lastLoginAt" | "createdAt" | "reviewEnabledUntil" | "reviewEnabledBy" | "chatSuggestions" | "chatAutodecide" | "chatCodexReplies", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
   sessions?: boolean | Prisma.User$sessionsArgs<ExtArgs>
@@ -4187,6 +4284,10 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
      * concierge can only suggest, never schedule an automatic answer.
      */
     chatAutodecide: boolean
+    /**
+     * "Responder perguntas do Codex pelo chat": off by default, the Codex reply card opens only for users who opt in.
+     */
+    chatCodexReplies: boolean
   }, ExtArgs["result"]["user"]>
   composites: {}
 }
@@ -4645,6 +4746,7 @@ export interface UserFieldRefs {
   readonly reviewEnabledBy: Prisma.FieldRef<"User", 'String'>
   readonly chatSuggestions: Prisma.FieldRef<"User", 'Boolean'>
   readonly chatAutodecide: Prisma.FieldRef<"User", 'Boolean'>
+  readonly chatCodexReplies: Prisma.FieldRef<"User", 'Boolean'>
 }
     
 

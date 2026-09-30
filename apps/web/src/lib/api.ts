@@ -315,8 +315,8 @@ export const api = {
   chatMemory: () => request<ChatMemory>('GET', '/chat/memory'),
   /** A plain boolean is the same as `{ enabled: boolean }` (the pre-D8 shape every caller still
    *  uses); `{ enabled?, autodecide? }` is the D8 shape for "Responder sozinho quando houver
-   *  precedente" — the server refuses a body with neither key. */
-  setChatMemory: (body: boolean | { enabled?: boolean; autodecide?: boolean }) =>
+   *  precedente" — the server refuses a body with no key. `codex_replies` is the opt-in for the Codex reply card. */
+  setChatMemory: (body: boolean | { enabled?: boolean; autodecide?: boolean; codex_replies?: boolean }) =>
     request<ChatMemory>('PATCH', '/chat/memory', typeof body === 'boolean' ? { enabled: body } : body),
   /** "Anotações do concierge" (spec D12/§8): newest first, 50 per page, keyset `cursor` like `chatDecisions`. */
   chatNotes: (cursor?: string | null) => {

@@ -1137,6 +1137,8 @@ export interface ChatDecision {
 export interface ChatMemory {
   enabled: boolean;
   autodecide: boolean;
+  /** "Responder perguntas do Codex pelo chat": off by default; independent of embeddings. */
+  codex_replies: boolean;
   available: boolean;
   count: number;
   notes: number;

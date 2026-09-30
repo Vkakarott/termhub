@@ -40,6 +40,8 @@ function fakeRepos() {
       setChatSuggestions: vi.fn(async () => undefined),
       chatAutodecide: vi.fn(async () => false),
       setChatAutodecide: vi.fn(async () => undefined),
+      chatCodexReplies: vi.fn(async () => false),
+      setChatCodexReplies: vi.fn(async () => undefined),
     },
     tabQuestions: {
       cancelScheduledForUser: vi.fn(async (_userId: string) => [] as { id: string }[]),
@@ -169,7 +171,7 @@ describe.each(['web', 'mobile'] as const)('%s chat memory routes', (kind) => {
     repos.memoryItems.countNotesSince.mockResolvedValueOnce(2);
     const res = await build(kind, repos).inject({ method: 'GET', url: '/chat/memory' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ enabled: true, autodecide: true, available: false, count: 7, notes: 2 });
+    expect(res.json()).toEqual({ enabled: true, autodecide: true, codex_replies: false, available: false, count: 7, notes: 2 });
     expect(repos.memoryItems.countNotesSince).toHaveBeenCalledWith('u1', new Date(0));
   });
 
@@ -181,7 +183,7 @@ describe.each(['web', 'mobile'] as const)('%s chat memory routes', (kind) => {
     expect(res.statusCode).toBe(200);
     expect(repos.users.setChatSuggestions).toHaveBeenCalledWith('u1', false);
     expect(repos.users.setChatAutodecide).not.toHaveBeenCalled();
-    expect(res.json()).toEqual({ enabled: false, autodecide: false, available: false, count: 3, notes: 0 });
+    expect(res.json()).toEqual({ enabled: false, autodecide: false, codex_replies: false, available: false, count: 3, notes: 0 });
   });
 
   it('PATCH /memory sets autodecide and leaves the suggestion switch alone', async () => {
@@ -192,6 +194,17 @@ describe.each(['web', 'mobile'] as const)('%s chat memory routes', (kind) => {
     expect(repos.users.setChatAutodecide).toHaveBeenCalledWith('u1', true);
     expect(repos.users.setChatSuggestions).not.toHaveBeenCalled();
     expect(res.json()).toMatchObject({ autodecide: true });
+  });
+
+  it('PATCH /memory sets the Codex reply switch and leaves the others alone', async () => {
+    const repos = fakeRepos();
+    repos.users.chatCodexReplies.mockResolvedValueOnce(true);
+    const res = await build(kind, repos).inject({ method: 'PATCH', url: '/chat/memory', payload: { codex_replies: true } });
+    expect(res.statusCode).toBe(200);
+    expect(repos.users.setChatCodexReplies).toHaveBeenCalledWith('u1', true);
+    expect(repos.users.setChatSuggestions).not.toHaveBeenCalled();
+    expect(repos.users.setChatAutodecide).not.toHaveBeenCalled();
+    expect(res.json()).toMatchObject({ codex_replies: true });
   });
 
   it('PATCH /memory with autodecide: false cancels the user\'s running countdowns and republishes those cards', async () => {

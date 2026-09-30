@@ -163,4 +163,14 @@ export class UsersRepository {
   async setChatAutodecide(userId: string, enabled: boolean): Promise<void> {
     await this.db.user.update({ where: { id: userId }, data: { chatAutodecide: enabled } });
   }
+
+  /** "Responder perguntas do Codex pelo chat": false when the row is missing too — opt-in, off by default. */
+  async chatCodexReplies(userId: string): Promise<boolean> {
+    const u = await this.db.user.findUnique({ where: { id: userId }, select: { chatCodexReplies: true } });
+    return u?.chatCodexReplies ?? false;
+  }
+
+  async setChatCodexReplies(userId: string, enabled: boolean): Promise<void> {
+    await this.db.user.update({ where: { id: userId }, data: { chatCodexReplies: enabled } });
+  }
 }

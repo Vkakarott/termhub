@@ -114,7 +114,8 @@ const endsWithQuestion = (context: string): boolean => /[?？]$/.test(context.sp
  * A Codex `Stop` whose message ends in a question (Codex has no dimmed suggestion to read): a
  * `suggestion` row with an empty text and the cleaned message as its context opens in the owner's
  * latest active conversation, so the person can answer from the chat. Called after `noteHookEvent`
- * (a Stop closes the open cards); the paired `notify` does not close it. Never throws; logs ids and counts only.
+ * (a Stop closes the open cards); the paired `notify` does not close it. Only for an owner who opted in
+ * (`chatCodexReplies`, off by default). Never throws; logs ids and counts only.
  */
 export async function openCodexReply(repos: Repositories, log: Log, tabId: string, message: string | null): Promise<void> {
   try {
@@ -125,6 +126,8 @@ export async function openCodexReply(repos: Repositories, log: Log, tabId: strin
     const owner = (await repos.projects.findById(tab.project_id))?.owner_id;
     const conversation = owner ? await repos.chat.findLatestActiveForProject(tab.project_id, owner) : undefined;
     if (!conversation) return;
+    // Opt-in: the prose reply card only opens for an owner who turned "Responder perguntas do Codex pelo chat" on.
+    if (!(await repos.users.chatCodexReplies(owner!))) return;
     const { question, closed } = await repos.tabQuestions.open({ tab_id: tab.id, project_id: tab.project_id, conversation_id: conversation.id, kind: 'suggestion', payload: { text: '', context, agent: 'codex' }, tool_use_id: null, agent_id: null });
     await publishTabQuestions(repos, 'tab_question_closed', closed);
     if (question) {
