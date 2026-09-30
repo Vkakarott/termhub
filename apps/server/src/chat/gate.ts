@@ -22,6 +22,7 @@ const readTools = new Set([
   'list_ai_accounts',
   'find',
   'read_screen',
+  'read_last_answer',
   'wait_for_state',
   'list_tasks',
   'list_tickets',

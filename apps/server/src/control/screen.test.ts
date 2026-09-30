@@ -7,20 +7,21 @@ import { AgentOfflineError, agents } from '../agent/registry.js';
 import { toHttpError } from '../agent/errors.js';
 import { AgentTimeoutError } from '../agent/connection.js';
 import type { Repositories } from '../db/repositories/index.js';
+import type { LastAnswer } from '../db/repositories/tabs.js';
 import type { Machine, Project, Tab } from '../db/repositories/types.js';
 import { monitorBus } from '../monitor/bus.js';
 import { Scoped } from '../auth/scope.js';
 import type { ControlContext } from './context.js';
-import { readScreen, waitForState } from './screen.js';
+import { FULL_SCREEN_NOTE, NO_ANSWER_NOTE, readLastAnswer, readScreen, waitForState } from './screen.js';
 
 const m1 = { id: 'm1', owner_id: 'u1', type: 'agent' } as Machine;
 const p1 = { id: 'p1', owner_id: 'u1' } as Project;
 const baseTab = (over: Partial<Tab> = {}): Tab =>
   ({ id: 't1', project_id: 'p1', machine_id: 'm1', name: 't1', kind: 'terminal', tmux_session: 'th-t1', simulator_udid: null, position: 0, state: 'working', state_text: null, state_tool: 'claude', state_at: '2026-09-19T10:00:00.000Z', state_seen_at: null, created_at: '', ...over }) as Tab;
 
-function ctx(tab: Tab | undefined = baseTab()): ControlContext {
+function ctx(tab: Tab | undefined = baseTab(), answer: LastAnswer | null = null): ControlContext {
   const repos = {
-    tabs: { findById: vi.fn(async (id: string) => (tab && id === tab.id ? tab : undefined)) },
+    tabs: { findById: vi.fn(async (id: string) => (tab && id === tab.id ? tab : undefined)), readLastAnswer: vi.fn(async () => answer) },
     projects: { findById: vi.fn(async (id: string) => (id === 'p1' ? p1 : undefined)) },
     projectMachines: { find: vi.fn(async () => ({ id: 'l1', project_id: 'p1', machine_id: 'm1', cwd: '/p1', position: 0, created_at: '' })) },
     machines: { findById: vi.fn(async (id: string) => (id === 'm1' ? m1 : undefined)) },
@@ -47,7 +48,7 @@ describe('readScreen', () => {
   it('captures the default 200 lines, styled, and clamps to 2000', async () => {
     vi.mocked(captureStyledScreen).mockResolvedValue({ text: '$ ls\nREADME.md\n', styled: true });
     const r = await readScreen(ctx(), { tab_id: 't1' });
-    expect(r).toEqual({ tab_id: 't1', lines: 200, text: '$ ls\nREADME.md\n', styled: true });
+    expect(r).toEqual({ tab_id: 't1', lines: 200, text: '$ ls\nREADME.md\n', styled: true, note: FULL_SCREEN_NOTE });
     expect(captureStyledScreen).toHaveBeenCalledWith(m1, 'th-t1', 200);
     await readScreen(ctx(), { tab_id: 't1', lines: 99999 });
     expect(vi.mocked(captureStyledScreen).mock.calls[1]![2]).toBe(2000);
@@ -108,6 +109,91 @@ describe('readScreen', () => {
     const timeout = toHttpError(new AgentTimeoutError('agent rpc timeout: tmux.capture'));
     vi.mocked(captureStyledScreen).mockRejectedValueOnce(timeout);
     await expect(readScreen(ctx(), { tab_id: 't1' })).rejects.toBe(timeout);
+  });
+});
+
+describe('readLastAnswer', () => {
+  const stored = { text: 'a'.repeat(30_000), at: '2026-09-30T03:00:00.000Z', tool: 'claude', stale: false };
+
+  it('answers the first page of the stored answer with its fields, and does not need the machine', async () => {
+    vi.spyOn(agents, 'awaitAgent').mockResolvedValue(false);
+    const r = await readLastAnswer(ctx(baseTab({ state: 'waiting_input' }), stored), { tab_id: 't1' });
+    expect(r).toEqual({ tab_id: 't1', source: 'hook', tool: 'claude', at: stored.at, text: 'a'.repeat(20_000), offset: 0, next_offset: 20_000, chars: 30_000, cut: false, stale: false, state: 'waiting_input', state_at: '2026-09-19T10:00:00.000Z' });
+  });
+
+  it('pages with offset and max_chars, clamps max_chars, and answers empty past the end', async () => {
+    const c = ctx(baseTab(), stored);
+    expect(await readLastAnswer(c, { tab_id: 't1', offset: 20_000 })).toMatchObject({ text: 'a'.repeat(10_000), offset: 20_000, next_offset: null });
+    expect(await readLastAnswer(c, { tab_id: 't1', offset: 0, max_chars: 100 })).toMatchObject({ text: 'a'.repeat(100), next_offset: 100 });
+    // longer than ANSWER_MAX_CHARS, so an unclamped max_chars would answer it whole
+    expect(await readLastAnswer(ctx(baseTab(), { ...stored, text: 'a'.repeat(70_000) }), { tab_id: 't1', max_chars: 999_999 })).toMatchObject({ text: 'a'.repeat(60_000), next_offset: 60_000, chars: 70_000 });
+    expect(await readLastAnswer(c, { tab_id: 't1', offset: 40_000 })).toMatchObject({ text: '', offset: 40_000, next_offset: null, chars: 30_000 });
+  });
+
+  it('never splits a surrogate pair at a page boundary: the page ends before it and the next one starts on it', async () => {
+    const c = ctx(baseTab(), { ...stored, text: `${'a'.repeat(19_999)}😀${'b'.repeat(100)}` });
+    const first = await readLastAnswer(c, { tab_id: 't1' });
+    expect(first).toMatchObject({ text: 'a'.repeat(19_999), offset: 0, next_offset: 19_999, chars: 20_101 });
+    expect(await readLastAnswer(c, { tab_id: 't1', offset: 19_999 })).toMatchObject({ text: `😀${'b'.repeat(100)}`, next_offset: null });
+    // a page of one unit on a pair would end empty and never move: it takes the whole pair instead
+    expect(await readLastAnswer(c, { tab_id: 't1', offset: 19_999, max_chars: 1 })).toMatchObject({ text: '😀', next_offset: 20_001 });
+  });
+
+  it('pages an answer with an emoji at a page boundary and one at the very end: no lone surrogate, and the pages joined are the answer', async () => {
+    // 99 + 2 + 97 + 2 units: with pages of 100 the first emoji straddles 99/100 and the last one 198/199
+    const text = `${'a'.repeat(99)}😀${'b'.repeat(97)}🎉`;
+    const c = ctx(baseTab(), { ...stored, text });
+    const isHigh = (u: number) => u >= 0xd800 && u <= 0xdbff;
+    const isLow = (u: number) => u >= 0xdc00 && u <= 0xdfff;
+    const pages: string[] = [];
+    let offset: number | null = 0;
+    while (offset !== null) {
+      const r = await readLastAnswer(c, { tab_id: 't1', offset, max_chars: 100 });
+      if (r.text === null) throw new Error('no answer');
+      expect(r.text.length).toBeGreaterThan(0);
+      expect(isLow(r.text.charCodeAt(0))).toBe(false);
+      expect(isHigh(r.text.charCodeAt(r.text.length - 1))).toBe(false);
+      pages.push(r.text);
+      offset = r.next_offset;
+    }
+    expect(pages).toEqual(['a'.repeat(99), `😀${'b'.repeat(97)}`, '🎉']);
+    expect(pages.join('')).toBe(text);
+  });
+
+  it('says when the stored answer was cut, and passes stale through', async () => {
+    const r = await readLastAnswer(ctx(baseTab(), { ...stored, text: `${'b'.repeat(99_999)}…`, stale: true }), { tab_id: 't1' });
+    expect(r).toMatchObject({ chars: 100_000, cut: true, stale: true });
+  });
+
+  it('a tab with no answer gets the note', async () => {
+    expect(await readLastAnswer(ctx(baseTab(), null), { tab_id: 't1' })).toEqual({ tab_id: 't1', text: null, note: NO_ANSWER_NOTE });
+  });
+
+  it('404 for a missing tab and for a tab outside the scope', async () => {
+    // ctx(undefined, …) would fall back to the default tab: an unknown id is the missing tab
+    await expect(readLastAnswer(ctx(baseTab(), stored), { tab_id: 'nope' })).rejects.toMatchObject({ statusCode: 404 });
+    const c = ctx(baseTab(), stored);
+    (c.repos.projectMachines.find as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    await expect(readLastAnswer(c, { tab_id: 't1' })).rejects.toMatchObject({ statusCode: 404 });
+  });
+});
+
+describe('readScreen and full-screen agents', () => {
+  beforeEach(() => vi.mocked(captureStyledScreen).mockResolvedValue({ text: 'x\n', styled: true }));
+
+  it.each(['claude', 'codex', 'cursor'])('adds the note when the last tool is %s', async (tool) => {
+    expect((await readScreen(ctx(baseTab({ state_tool: tool })), { tab_id: 't1' })).note).toBe(FULL_SCREEN_NOTE);
+  });
+
+  it('adds the note for a tab with no monitor state at all', async () => {
+    expect((await readScreen(ctx(baseTab({ state: null, state_tool: null })), { tab_id: 't1' })).note).toBe(FULL_SCREEN_NOTE);
+  });
+
+  it('adds no note for a shell with a state, nor on the plain path', async () => {
+    // 'termhub' is the tool a web reply writes on a tab with a state and no tool (routes/tabs.ts); nothing else but the hook tools is ever written
+    expect(await readScreen(ctx(baseTab({ state: 'idle', state_tool: 'termhub' })), { tab_id: 't1' })).not.toHaveProperty('note');
+    vi.mocked(captureScreen).mockResolvedValue('x\n');
+    expect(await readScreen(ctx(baseTab({ state_tool: 'claude' })), { tab_id: 't1' }, { plain: true })).not.toHaveProperty('note');
   });
 });
 
