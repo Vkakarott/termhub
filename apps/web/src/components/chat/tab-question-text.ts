@@ -1,7 +1,7 @@
 import type { ChoiceAnswer, TabQuestion, TabQuestionItem, TabQuestionSuggestionItem } from '../../lib/types';
 
 /** What `409 TAB_PROMPT_CHANGED` reads as on a card. */
-export const PROMPT_CHANGED_TEXT = 'A pergunta mudou na aba';
+export const PROMPT_CHANGED_TEXT = 'A aba já não mostra esta pergunta: nada foi enviado.';
 
 /** Why an answer did not reach the tab, by the code the server stored. */
 const FAILURE_TEXT: Record<string, string> = {
