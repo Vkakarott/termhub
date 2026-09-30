@@ -7,16 +7,17 @@
   "scripts": {
     "build:contract": "npm run build -w @termhub/mobile-api",
     "prestart": "npm run build:contract",
-    "start": "expo start --dev-client",
+    "start": "DISABLE_CODE_SIGNING=1 expo start --dev-client",
     "prebuild": "expo prebuild",
-    "ios": "expo run:ios",
-    "android": "expo run:android",
+    "ios": "DISABLE_CODE_SIGNING=1 expo run:ios",
+    "android": "DISABLE_CODE_SIGNING=1 expo run:android",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "jest",
     "test:watch": "jest --watch",
     "doctor": "expo-doctor",
     "release:ios": "bash scripts/ios-release.sh",
-    "release:android": "bash scripts/android-release.sh"
+    "release:android": "bash scripts/android-release.sh",
+    "release:ota": "bash scripts/ota-publish.sh"
   },
   "dependencies": {
     "@noble/curves": "^2.4.0",
@@ -45,6 +46,7 @@
     "expo-status-bar": "~57.0.1",
     "expo-symbols": "~57.0.3",
     "expo-system-ui": "~57.0.4",
+    "expo-updates": "~57.0.24",
     "nativewind": "^4.2.7",
     "react": "19.2.3",
     "react-native": "0.86.3",

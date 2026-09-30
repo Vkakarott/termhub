@@ -120,6 +120,31 @@ Prerequisites: the Android SDK (`ANDROID_HOME`), JDK 17, Node 22, and a Google a
 
 The APK is signed with the keystore Expo's template generates into `android/app/debug.keystore`, the same file on every prebuild, so a tester's phone takes each build as an update of the last one. That is enough for App Distribution, not for Google Play: a Play release needs an upload key of its own, kept out of the repository.
 
+## OTA updates
+
+JS-only changes reach installed builds over the air, through the self-hosted [xprem](https://github.com/mercuretechnologies/xprem) server at `https://ota.engenhariainversa.com.br` (dashboard at `/dashboard`), with `expo-updates` in the app and the `eoas` CLI to publish. `app.config.js` adds the `updates` config on top of `app.json`.
+
+**One line of updates per app version.** `runtimeVersion` uses the `appVersion` policy, so the runtime version is `expo.version`: a 0.3.2 binary asks only for `0.3.2` updates and never gets a bundle published from 0.3.3 code. Every build points at the `production` channel, which maps to the `production` branch; the branch holds one line per runtime version (`get_runtime_versions` in the xprem MCP, or Branches in the dashboard).
+
+- **JS-only change** for the version testers already have: publish, and the next cold start downloads it in the background; it runs from the launch after that.
+- **Native change** (a new native module, a config plugin, an `app.json` field that prebuild reads, an Expo SDK bump): bump `expo.version` and ship a new binary (TestFlight / App Distribution). Its updates then go out under the new version, and older binaries keep their own line.
+
+**Publishing is automated.** The "Publish mobile OTA" workflow (`.github/workflows/publish-mobile-ota.yml`, on the jarvis runner) publishes on every push to `main` that touches `apps/mobile/**` or `packages/mobile-api/**`. It skips a push that changes `app.json`, `app.config.js` or this `package.json` without bumping `expo.version` (the run summary says so): for a JS-only change it was too cautious about, run it by hand with `gh workflow run "Publish mobile OTA" --ref main -f message="what changed"`.
+
+By hand, from a clean working tree on the Mac (eoas refuses a dirty one, so an update always matches a commit):
+
+```bash
+npm run release:ota -w @termhub/mobile                                  # message: last commit subject
+npm run release:ota -w @termhub/mobile -- -m "what changed"
+npm run release:ota -w @termhub/mobile -- --rollout-percentage 20
+```
+
+The token is a publishing API key of the termhub app on xprem: `EOO_TOKEN` when set, otherwise the macOS Keychain item `xprem-token-termhub`; CI uses the `XPREM_TOKEN` repository secret. Keys are listed, created and revoked with the xprem MCP (`get_api_keys`, `create_api_key`, `revoke_api_key`) or in the dashboard.
+
+The script bakes in the same `EXPO_PUBLIC_*` values as the store builds and runs `eoas publish --branch production --platform all`. A rollout is then widened, ended or reverted in the dashboard; a bad update is reverted by republishing an earlier one or with a rollback to the embedded bundle (dashboard, or `republish_update` / `rollback_branch` in the MCP).
+
+Manifests are code-signed: the server holds the app's private key, and `certs/certificate.pem` (public, committed) goes into every build. `expo start` cannot sign development manifests without the private key, so `npm start`, `npm run ios` and `npm run android` set `DISABLE_CODE_SIGNING=1`; the release scripts leave it unset. A development build loads its JS from Metro, not from the OTA server.
+
 ## Firebase
 
 Both apps (`dev.termhub.app`) are registered in the Firebase project `apptermhub`; `google-services.json` (Android) and `GoogleService-Info.plist` (iOS) are committed next to `app.json` (they identify the app, they are not secrets). `@react-native-firebase/app` and `@react-native-firebase/analytics` are installed for Firebase App Distribution and Analytics: `src/services/analytics.ts` logs a `screen_view` per expo-router route pattern (`/chat/[id]`, never the resolved id).
