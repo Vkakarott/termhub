@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeMessage, mergeThread } from './chat-merge';
+import { droppedRows, mergeMessage, mergeThread } from './chat-merge';
 import type { ChatAttachment, ChatMessage } from './types';
 
 const row = (id: string, over: Partial<ChatMessage> = {}): ChatMessage => ({ id, conversation_id: 'c1', role: 'assistant', text: '', error_code: null, created_at: '2026-09-29T10:00:00.000Z', ...over }) as ChatMessage;
@@ -67,27 +67,45 @@ describe('mergeMessage', () => {
 describe('mergeThread', () => {
   it('keeps the final row the screen holds over the empty one of an older snapshot', () => {
     const current = [row('a1', { text: 'pronto' })];
-    expect(mergeThread(current, [row('a1')], NONE)).toBe(current);
+    expect(mergeThread(current, [row('a1')], NONE, NONE)).toBe(current);
   });
 
   it('leaves out a row the screen saw removed', () => {
-    expect(mergeThread([], [row('a1'), row('a2')], new Set(['a1'])).map((m) => m.id)).toEqual(['a2']);
+    expect(mergeThread([], [row('a1'), row('a2')], new Set(['a1']), NONE).map((m) => m.id)).toEqual(['a2']);
   });
 
-  it('drops a row the snapshot lacks, unless it is newer than the snapshot', () => {
+  it('drops a row the snapshot lacks, unless its message arrived while the read was in flight', () => {
     const current = [row('old', { created_at: '2026-09-29T09:00:00.000Z' }), row('a1'), row('new', { created_at: '2026-09-29T11:00:00.000Z' })];
-    expect(mergeThread(current, [row('a1')], NONE).map((m) => m.id)).toEqual(['a1', 'new']);
+    expect(mergeThread(current, [row('a1')], NONE, new Set(['new'])).map((m) => m.id)).toEqual(['a1', 'new']);
+    expect(mergeThread(current, [row('a1')], NONE, NONE).map((m) => m.id)).toEqual(['a1']);
+  });
+
+  it('drops a deleted answer even though it is newer than every row the snapshot lists', () => {
+    const current = [row('q1', { role: 'user', text: 'oi', created_at: '2026-09-29T10:00:00.000Z' }), row('a1', { created_at: '2026-09-29T10:00:00.004Z' })];
+    expect(mergeThread(current, [current[0]], NONE, NONE).map((m) => m.id)).toEqual(['q1']);
+  });
+
+  it('never keeps a removed row, even one that arrived during the read', () => {
+    expect(mergeThread([row('a1')], [], new Set(['a1']), new Set(['a1']))).toEqual([]);
   });
 
   it('takes the snapshot for every other row, in the snapshot order', () => {
     const current = [row('a1'), row('a2')];
-    const next = mergeThread(current, [row('a1', { text: 'agora' }), row('a2')], NONE);
+    const next = mergeThread(current, [row('a1', { text: 'agora' }), row('a2')], NONE, NONE);
     expect(next.map((m) => m.text)).toEqual(['agora', '']);
     expect(next[1]).toBe(current[1]);
   });
 
   it('answers the very same list when nothing changed', () => {
     const current = [row('a1', { text: 'x' }), row('a2')];
-    expect(mergeThread(current, [row('a1', { text: 'x' }), row('a2')], NONE)).toBe(current);
+    expect(mergeThread(current, [row('a1', { text: 'x' }), row('a2')], NONE, NONE)).toBe(current);
+  });
+});
+
+describe('droppedRows', () => {
+  it('names the rows of the thread the snapshot lacks and that did not arrive during the read', () => {
+    const current = [row('q1', { role: 'user', text: 'oi' }), row('a1'), row('a2')];
+    expect(droppedRows(current, [current[0]], new Set(['a2']))).toEqual(['a1']);
+    expect(droppedRows(current, current, NONE)).toEqual([]);
   });
 });

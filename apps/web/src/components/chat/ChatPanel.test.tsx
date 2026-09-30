@@ -1367,9 +1367,71 @@ describe('which answers are being written (spec 2026-09-29 §5)', () => {
     mount();
     await screen.findByText('pergunta');
     expect(chatMock).toHaveBeenCalledTimes(1);
+    // Another conversation's failure is not this screen's to say or to re-read.
+    act(() => onEvent({ type: 'run_finished', message_id: null, ok: false, error_code: 'SETUP_FAILED', conversation_id: 'c9' }));
+    expect(chatMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(SETUP_FAILED)).toBeNull();
+    let reread!: (value: unknown) => void;
+    chatMock.mockImplementationOnce(() => new Promise((resolve) => (reread = resolve)));
     act(() => onEvent({ type: 'run_finished', message_id: null, ok: false, error_code: 'SETUP_FAILED', conversation_id: 'c1' }));
-    await waitFor(() => expect(chatMock).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText(SETUP_FAILED)).toBeInTheDocument();
+    expect(chatMock).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      reread(thread([q('q1', 'pergunta', 0)], []));
+    });
+    // Still said once the re-read has landed: the read never clears it.
+    expect(screen.getByText(SETUP_FAILED)).toBeInTheDocument();
+    expect(screen.getByText('pergunta')).toBeInTheDocument();
+  });
+
+  it('a deleted newest answer leaves on the next re-read, even with no message_removed', async () => {
+    chatMock.mockResolvedValueOnce(thread([q('q1', 'pergunta', 0), a('a1', 1)], ['a1']));
+    mount();
+    await screen.findByText(/pensando/i);
+    expect(screen.getByRole('button', { name: 'Nova conversa' })).toBeDisabled();
+    // The server deleted a1 (a missed message_removed, or a server that predates it) and re-read shows q1 alone.
+    chatMock.mockResolvedValue(thread([q('q1', 'pergunta', 0)], []));
+    await act(async () => {
+      await onReconnect();
+    });
+    expect(screen.queryByText(/pensando/i)).toBeNull();
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Nova conversa' })).toBeEnabled();
+    // Closed for good: a late start of that row does not bring a started mark back.
+    act(() => onEvent({ type: 'run_started', message_id: 'a1', conversation_id: 'c1' }));
+    expect(screen.getByRole('button', { name: 'Nova conversa' })).toBeEnabled();
+  });
+
+  it('the first read keeps what an untagged event streamed before it (a server with no conversation tags)', async () => {
+    let resolveLoad!: (value: unknown) => void;
+    chatMock.mockImplementationOnce(() => new Promise((resolve) => (resolveLoad = resolve)));
+    mount();
+    act(() => onEvent({ type: 'delta', message_id: 'a1', delta: 'começo da resposta' }));
+    await act(async () => {
+      resolveLoad(thread([q('q1', 'pergunta', 0), a('a1', 1)]));
+    });
+    expect(await screen.findByText('começo da resposta')).toBeInTheDocument();
+  });
+
+  it('keeps a row whose message arrived while the re-read was in flight', async () => {
+    chatMock.mockResolvedValueOnce(thread([q('q1', 'um', 0), a('a1', 1, 'resposta um')], []));
+    mount();
+    await screen.findByText('resposta um');
+    let reread!: (value: unknown) => void;
+    chatMock.mockImplementationOnce(() => new Promise((resolve) => (reread = resolve)));
+    let pending!: Promise<void>;
+    act(() => {
+      pending = onReconnect();
+    });
+    act(() => {
+      onEvent({ type: 'message', conversation_id: 'c1', message: q('q2', 'dois', 2) });
+      onEvent({ type: 'message', conversation_id: 'c1', message: a('a2', 3) });
+    });
+    await act(async () => {
+      reread(thread([q('q1', 'um', 0), a('a1', 1, 'resposta um')], []));
+      await pending;
+    });
+    expect(screen.getByText('dois')).toBeInTheDocument();
+    expect(screen.getByText(/pensando/i)).toBeInTheDocument();
   });
 
   it('another conversation replaces the thread', async () => {

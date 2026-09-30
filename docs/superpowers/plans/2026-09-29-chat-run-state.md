@@ -768,6 +768,12 @@ git commit -m "Chat: a decision answers when its run starts" -m "The web's decis
 - Consumes: the events of Task 1 and `open_answer_ids` of Task 2. The page must also work against a server that sends neither.
 - Produces: nothing other tasks use.
 
+**Changed after the review of Task 4:** rule 3 of a re-read does not compare `created_at`. A row
+the snapshot lacks is kept only when its `message` event reached the screen while that read was in
+flight, and the rows a merge drops are closed in the fold. `mergeThread` takes the set of ids that
+arrived during the read in place of the comparison. Where the snippets of this task compare
+`created_at` with the newest row of the snapshot, use that set.
+
 - [ ] **Step 1: Types**
 
 `apps/web/src/lib/types.ts`, in `ChatEvent`:
@@ -1192,6 +1198,12 @@ git commit -m "Web: the chat shows what the server says is being answered" -m "A
 **Interfaces:**
 - Consumes: `chatEventSchema` with the two events (Task 1, through `@termhub/mobile-api`), `open_answer_ids` (Task 2).
 - Produces: nothing other tasks use.
+
+**Changed after the review of Task 4:** rule 3 of a re-read does not compare `created_at`. A row
+the snapshot lacks is kept only when its `message` event reached the screen while that read was in
+flight, and the rows a merge drops are closed in the fold. `mergeThread` takes the set of ids that
+arrived during the read in place of the comparison. Where the snippets of this task compare
+`created_at` with the newest row of the snapshot, use that set.
 
 - [ ] **Step 1: The contract**
 

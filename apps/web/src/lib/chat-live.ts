@@ -27,6 +27,9 @@ export interface LiveFold {
   seed(ids: readonly string[]): boolean;
   /** Forgets everything: the panel shows another conversation now. */
   clear(): void;
+  /** Closes rows a re-read dropped from the thread (the server deleted them), without marking them
+   *  removed. `true` when a row held here went. */
+  closeRows(ids: readonly string[]): boolean;
   /** The row had its final `message`, its `run_finished` or was removed: nothing opens it again. */
   isClosed(messageId: string): boolean;
   /** The ids of the rows the server deleted. A new set each time one is added. */
@@ -69,6 +72,12 @@ export function createLiveFold(): LiveFold {
     seed(ids) {
       let changed = false;
       for (const id of ids) changed = start(id) || changed;
+      if (changed) fold.version += 1;
+      return changed;
+    },
+    closeRows(ids) {
+      let changed = false;
+      for (const id of ids) changed = close(id) || changed;
       if (changed) fold.version += 1;
       return changed;
     },
@@ -141,10 +150,10 @@ export function createLiveFold(): LiveFold {
 
 /**
  * The fold as React state: one fold per mounted panel, a `version` that moves on every change (so the
- * panel re-renders and reads the rows it needs through `fold.get`), and a `push`, a `seed` and a `clear`
- * that never change identity, so the handlers that call them can be memoised.
+ * panel re-renders and reads the rows it needs through `fold.get`), and a `push`, a `seed`, a `clear`
+ * and a `closeRows` that never change identity, so the handlers that call them can be memoised.
  */
-export function useChatLive(): { fold: LiveFold; version: number; push(ev: ChatEvent): void; seed(ids: readonly string[]): void; clear(): void } {
+export function useChatLive(): { fold: LiveFold; version: number; push(ev: ChatEvent): void; seed(ids: readonly string[]): void; clear(): void; closeRows(ids: readonly string[]): void } {
   const [fold] = useState(createLiveFold);
   const [version, setVersion] = useState(0);
   const push = useCallback(
@@ -163,5 +172,11 @@ export function useChatLive(): { fold: LiveFold; version: number; push(ev: ChatE
     fold.clear();
     setVersion(fold.version);
   }, [fold]);
-  return { fold, version, push, seed, clear };
+  const closeRows = useCallback(
+    (ids: readonly string[]) => {
+      if (fold.closeRows(ids)) setVersion(fold.version);
+    },
+    [fold],
+  );
+  return { fold, version, push, seed, clear, closeRows };
 }

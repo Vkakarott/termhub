@@ -16,7 +16,7 @@ import { patchMessageAttachment } from '../../lib/attachments';
 import { useChatStream } from '../../lib/chat';
 import { compactDoneText, compactFailedText, isCompactCommand, isCompactShortcut } from '../../lib/chat-context';
 import { useChatLive } from '../../lib/chat-live';
-import { mergeMessage, mergeThread } from '../../lib/chat-merge';
+import { droppedRows, mergeMessage, mergeThread } from '../../lib/chat-merge';
 import { chatTimeline, groupPendingActions } from '../../lib/chat-timeline';
 import { activeGrantsLabel } from './grant-list-text';
 import { isGrantActive } from './grant-time';
@@ -225,22 +225,39 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
    * `fold.get` while rendering. `seed` marks the answers `GET /api/chat` lists as open; `clear` forgets
    * everything when another conversation takes the screen.
    */
-  const { fold, version, push, seed, clear } = useChatLive();
+  const { fold, version, push, seed, clear, closeRows } = useChatLive();
   /** The conversation whose thread is on screen, as `load` last read it: a re-read of the same one merges. */
   const shown = useRef<string | null>(null);
+  /**
+   * One set per read of the conversation in flight, filled with the ids whose `message` event reached
+   * the panel meanwhile: those rows are newer than the snapshot, and a row it lacks is kept only if it
+   * is one of them. Two reads can overlap (a reconnect and a send), so each has its own set.
+   */
+  const reads = useRef(new Set<Set<string>>());
+  /** The thread as last committed: what a re-read compares with to know which rows it drops. */
+  const thread = useRef<ChatMessage[]>([]);
+  useLayoutEffect(() => {
+    thread.current = messages;
+  }, [messages]);
 
   const load = useCallback(async () => {
     // No project = the account-wide chat: called with no argument, because the response must be
     // `request<...>('GET', '/chat')` exactly — a server that predates project chats knows nothing else.
-    const { conversation, messages, open_answer_ids, actions, host, grants, project_grants, standing_grants, tab_questions, tab_suggestions, subagents, compacting } = projectId ? await api.chat(projectId) : await api.chat();
+    const arrived = new Set<string>();
+    reads.current.add(arrived);
+    const { conversation, messages, open_answer_ids, actions, host, grants, project_grants, standing_grants, tab_questions, tab_suggestions, subagents, compacting } = await (projectId ? api.chat(projectId) : api.chat()).finally(() => reads.current.delete(arrived));
     // The same conversation: the snapshot merges into the thread, so a row that ended or was removed
-    // while this read was in flight is not brought back. Another one (a reset, another project)
-    // replaces the thread, and what was known about the old rows goes with it.
+    // while this read was in flight is not brought back, and a row the server deleted leaves and is
+    // closed (its started mark must not outlive it). Another one (a reset, another project) replaces
+    // the thread, and what was known about the old rows goes with it. On the very first read the fold
+    // holds only what this conversation streamed (tagged events wait in `early`), so it is kept.
+    const first = shown.current === null;
     const same = shown.current === conversation.id;
     shown.current = conversation.id;
-    if (!same) clear();
+    if (!same && !first) clear();
     const removed = fold.removed();
-    setMessages((prev) => (same ? mergeThread(prev, messages, removed) : messages));
+    if (same) closeRows(droppedRows(thread.current, messages, arrived));
+    setMessages((prev) => (same ? mergeThread(prev, messages, removed, arrived) : messages));
     // An older server sends no list: nothing is seeded, and an empty row counts as started only on a sign of life.
     seed(open_answer_ids ?? []);
     setActions(actions ?? []);
@@ -256,7 +273,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
     setCompacting(compacting === true);
     setConversationId(conversation.id);
     setLoaded(true);
-  }, [projectId, fold, seed, clear]);
+  }, [projectId, fold, seed, clear, closeRows]);
 
   useEffect(() => {
     // A project deleted in another tab, or any other read failure, must not leave an unhandled
@@ -279,8 +296,11 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   const applyOwn = useCallback(
     (e: ChatEvent) => {
       push(e);
-      if (e.type === 'message') setMessages((prev) => mergeMessage(prev, e.message));
-      else if (e.type === 'message_removed') setMessages((prev) => (prev.some((m) => m.id === e.message_id) ? prev.filter((m) => m.id !== e.message_id) : prev));
+      if (e.type === 'message') {
+        // Newer than every read in flight: none of them may drop it for lacking it.
+        for (const arrived of reads.current) arrived.add(e.message.id);
+        setMessages((prev) => mergeMessage(prev, e.message));
+      } else if (e.type === 'message_removed') setMessages((prev) => (prev.some((m) => m.id === e.message_id) ? prev.filter((m) => m.id !== e.message_id) : prev));
       else if (e.type === 'run_finished' && e.message_id === null && !e.ok) {
         // The run could not even be attempted, and nobody awaits it any more: this is where it is said.
         setError(SETUP_FAILED_TEXT);

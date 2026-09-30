@@ -21,7 +21,10 @@ The server publishes `message_removed` at every deletion of an answer row. The w
 from the thread and remembers the id (`removed()` in `apps/web/src/lib/chat-live.ts`), and a re-read
 of the same conversation goes through `mergeThread` (`apps/web/src/lib/chat-merge.ts`): a removed row
 is left out, a row the snapshot lacks is dropped unless it is newer, and a final row never goes back to
-empty. `answering` looks at every started empty row, not only the newest.
+empty. "Newer" means its `message` event reached the page while the read was in flight, not a later
+`created_at`: an answer is always newer than its question, so a comparison with the snapshot's newest
+row kept a deleted answer; the rows a merge drops are also closed in the fold. `answering` looks at
+every started empty row, not only the newest.
 
 Rule of thumb: a comment that says what another component does on an event is a claim to test in that
 component, not in the one that publishes.

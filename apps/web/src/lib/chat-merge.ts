@@ -33,16 +33,29 @@ export function mergeMessage(list: readonly ChatMessage[], msg: ChatMessage): Ch
 }
 
 /**
- * A re-read of the same conversation into the thread on screen (spec 2026-09-29 §5), what the phone's
- * `mergeThread` does: a row the screen holds as final keeps its version over the snapshot's empty one;
- * a row the screen saw removed is left out; a row the snapshot lacks goes, unless it is newer than the
- * snapshot's newest row (its `message` event landed while the read was in flight); every other row is
- * the snapshot's. The very same `current` back when nothing changed.
+ * The rows of the thread on screen that a re-read of the same conversation drops: the snapshot lacks
+ * them and their `message` event did not reach the screen while the read was in flight. The server
+ * deleted them (an answer that never started, a `message_removed` missed while the socket was down,
+ * a server that predates that event), so nothing will ever answer them: the caller closes them.
  */
-export function mergeThread(current: readonly ChatMessage[], server: readonly ChatMessage[], removed: ReadonlySet<string>): ChatMessage[] {
+export function droppedRows(current: readonly ChatMessage[], server: readonly ChatMessage[], arrived: ReadonlySet<string>): string[] {
+  const ids = new Set(server.map((m) => m.id));
+  return current.filter((m) => !ids.has(m.id) && !arrived.has(m.id)).map((m) => m.id);
+}
+
+/**
+ * A re-read of the same conversation into the thread on screen (spec 2026-09-29 §5): a row the screen
+ * holds as final keeps its version over the snapshot's empty one; a row the screen saw removed is left
+ * out; a row the snapshot lacks goes, unless its `message` event reached the screen while the read was
+ * in flight (`arrived`) — it is newer than the snapshot, not deleted; every other row is the
+ * snapshot's. The very same `current` back when nothing changed.
+ *
+ * Not a comparison of `created_at` with the snapshot's newest row: an answer is always newer than its
+ * question, so a deleted answer would pass it and stay on screen for good.
+ */
+export function mergeThread(current: readonly ChatMessage[], server: readonly ChatMessage[], removed: ReadonlySet<string>, arrived: ReadonlySet<string>): ChatMessage[] {
   const listed = server.filter((m) => !removed.has(m.id));
   const ids = new Set(listed.map((m) => m.id));
-  const newest = listed.reduce((max, m) => (m.created_at > max ? m.created_at : max), '');
   const byId = new Map(current.map((m) => [m.id, m]));
   const merged = listed.map((m) => {
     const old = byId.get(m.id);
@@ -50,7 +63,7 @@ export function mergeThread(current: readonly ChatMessage[], server: readonly Ch
     if (isAnswered(old) && isEmptyAnswer(m)) return old;
     return same(old, m) ? old : m;
   });
-  const newer = current.filter((m) => !ids.has(m.id) && !removed.has(m.id) && m.created_at > newest);
+  const newer = current.filter((m) => !ids.has(m.id) && !removed.has(m.id) && arrived.has(m.id));
   const next = [...merged, ...newer];
   return next.length === current.length && next.every((m, i) => m === current[i]) ? (current as ChatMessage[]) : next;
 }

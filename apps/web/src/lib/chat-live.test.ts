@@ -51,6 +51,36 @@ describe('createLiveFold', () => {
     expect(fold.get('m1')).toEqual({ text: '', tools: [], started: true });
   });
 
+  it('a reset hands out the same empty tools array every time, so a memoised row can bail out', () => {
+    const fold = createLiveFold();
+    fold.apply(action('m1', 'Bash'));
+    fold.apply({ type: 'reset', message_id: 'm1' });
+    const empty = fold.get('m1')!.tools;
+    fold.apply(action('m1', 'Read'));
+    fold.apply({ type: 'reset', message_id: 'm1' });
+    expect(fold.get('m1')!.tools).toBe(empty);
+    fold.apply(action('m2', 'Bash'));
+    fold.apply({ type: 'reset', message_id: 'm2' });
+    expect(fold.get('m2')!.tools).toBe(empty);
+  });
+
+  it('closeRows closes the rows a re-read dropped, without marking them removed', () => {
+    const fold = createLiveFold();
+    fold.apply({ type: 'run_started', message_id: 'm1' });
+    const removed = fold.removed();
+    expect(fold.closeRows(['m1', 'm2'])).toBe(true);
+    expect(fold.version).toBe(2);
+    expect(fold.get('m1')).toBeUndefined();
+    expect(fold.isClosed('m1')).toBe(true);
+    expect(fold.isClosed('m2')).toBe(true);
+    expect(fold.removed()).toBe(removed);
+    expect(fold.seed(['m1'])).toBe(false);
+    // Nothing held a row: closed all the same, and nothing to re-render.
+    expect(fold.closeRows(['m3'])).toBe(false);
+    expect(fold.isClosed('m3')).toBe(true);
+    expect(fold.version).toBe(2);
+  });
+
   it('a reset of an id it never saw changes nothing and creates nothing', () => {
     const fold = createLiveFold();
     expect(fold.apply({ type: 'reset', message_id: 'nobody' })).toBe(false);
@@ -173,5 +203,11 @@ describe('useChatLive', () => {
     expect(result.current.fold.get('m1')).toBeUndefined();
     expect(result.current.seed).toBe(seed);
     expect(result.current.clear).toBe(clear);
+    const { closeRows } = result.current;
+    act(() => seed(['m2']));
+    act(() => closeRows(['m2']));
+    expect(result.current.version).toBe(4);
+    expect(result.current.fold.get('m2')).toBeUndefined();
+    expect(result.current.closeRows).toBe(closeRows);
   });
 });
