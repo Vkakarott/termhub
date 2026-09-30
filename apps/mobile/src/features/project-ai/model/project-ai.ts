@@ -20,7 +20,7 @@ export interface ProjectAiDraft {
 }
 
 /** The server's model rule (`apps/server`'s setup schema): a CLI model id or alias. */
-export const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
+export const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:\[\]\-]{0,99}$/;
 
 export const PROVIDERS: readonly Provider[] = ['claude', 'chatgpt'];
 /** The Claude aliases every CLI version resolves itself, in the order the screen offers them. */
