@@ -141,8 +141,9 @@ export class TabsRepository {
    * follows the same decision: a continuation with no text of its own, or whose own text is only a
    * reminder (`keepsWaitText`), keeps the wait's text.
    *
-   * A dropped event (a Cursor session start that arrived after its own prompt) writes no row and
-   * changes nothing: `event` is null and the tab is the row as it was.
+   * A dropped event (a Cursor session start that arrived after its own prompt, a Codex PostToolUse
+   * that trails the Esc which ended its turn) writes no row and changes nothing: `event` is null and
+   * the tab is the row as it was.
    *
    * `rearm` is for the log: the wait alerts although the person had seen the one before it and
    * asked for nothing since.

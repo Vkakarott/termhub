@@ -23,6 +23,15 @@ const PROMPT_EVENTS: ReadonlySet<string> = new Set(['UserPromptSubmit', 'beforeS
 /** Events that say the tool's session ended. */
 const SESSION_END_EVENTS: ReadonlySet<string> = new Set(['SessionEnd', 'sessionEnd']);
 
+/**
+ * A Codex turn that ends normally fires both its `Stop` hook and `notify` (`agent-turn-complete`): one
+ * finished turn, reported twice. Each name maps to its partner (spec 2026-09-29 codex monitor hooks D4).
+ */
+const TURN_END_PARTNER: ReadonlyMap<string, string> = new Map([
+  ['Stop', 'agent-turn-complete'],
+  ['agent-turn-complete', 'Stop'],
+]);
+
 /** How many event rows, newest first, the decision reads. */
 export const HISTORY_ROWS = 10;
 
@@ -62,7 +71,7 @@ export interface WaitEvent {
 }
 
 export type WaitOutcome =
-  | { action: 'drop'; reason: 'session_start_during_turn' }
+  | { action: 'drop'; reason: 'session_start_during_turn' | 'post_tool_after_interrupt' }
   /**
    * `carry`: the person had seen the wait this one follows. `born`: a wait with nothing new in it,
    * seen from its first moment. `none`: a request the person has not seen.
@@ -112,7 +121,21 @@ export function decideWait(current: WaitCurrent, history: HistoryRow[], event: W
     return { action: 'drop', reason: 'session_start_during_turn' };
   }
 
+  // Codex: an Esc denied an approval, and the tool's PostToolUse arrives after the Interrupt that
+  // already ended the turn. It is that turn's tail, not a new one (a new turn starts with a prompt or
+  // a PreToolUse). After an approval the tab is waiting_permission, and the PostToolUse is recorded.
+  if (event.kind === 'working' && event.name === 'PostToolUse' && current.state === 'waiting_input') {
+    return { action: 'drop', reason: 'post_tool_after_interrupt' };
+  }
+
   if (!isWait(event.kind)) return NEW;
+
+  // Codex's Stop and its notify are one finished turn, in either order. Only across the two names:
+  // two notifies in a row (a machine whose hooks are not trusted) are two turns, two waits.
+  const partner = event.name === null ? undefined : TURN_END_PARTNER.get(event.name);
+  if (partner && event.kind === 'waiting_input' && current.state === 'waiting_input' && last?.event === partner && last.ageMs <= REORDER_WINDOW_MS) {
+    return { action: 'record', seen: current.seen ? 'carry' : 'none', continuing: true };
+  }
 
   if (event.continuesWait && event.kind === 'waiting_input' && current.state === 'waiting_input') {
     return { action: 'record', seen: current.seen ? 'carry' : 'none', continuing: true };
