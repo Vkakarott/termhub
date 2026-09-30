@@ -71,6 +71,28 @@ describe('AutoSwapSettings', () => {
     expect(screen.queryByLabelText('Trocar de conta sozinho quando o Claude atingir o limite em jarvis')).toBeNull();
   });
 
+  // TER-587: the machine's default login (no config dir) is a Claude account even when nobody registered
+  // it, so one registered account in another config dir already makes two.
+  it('lists a machine with Claude and one account in another config dir, and says the default login is not registered', () => {
+    const jarvis = { ...machine('m2', 'jarvis', true), capabilities: ['tmux', 'claude'] };
+    render(<AutoSwapSettings machines={[jarvis]} accounts={[{ ...account('a3', 'm2'), config_dir: '~/.claude_work' }]} />);
+    const box = screen.getByLabelText('Trocar de conta sozinho quando o Claude atingir o limite em jarvis') as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    expect(
+      screen.getByText('A conta padrão do Claude em jarvis não está cadastrada: as abas dela passam para as contas cadastradas, mas nenhuma aba volta para ela.'),
+    ).toBeInTheDocument();
+  });
+
+  it('a single account that is the default login, or a machine without Claude, is not enough', () => {
+    const { container } = render(
+      <AutoSwapSettings
+        machines={[{ ...machine('m1', 'mac'), capabilities: ['claude'] }, machine('m2', 'box')]}
+        accounts={[account('a1', 'm1'), { ...account('a2', 'm2'), config_dir: '~/.claude_b' }]}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it('needs machines:update: without it nothing is rendered', () => {
     canMock.mockImplementation((resource: string, action?: string) => !(resource === 'machines' && action === 'update'));
     const { container } = render(<AutoSwapSettings machines={[machine('m1', 'mac')]} accounts={[account('a1', 'm1'), account('a2', 'm1')]} />);

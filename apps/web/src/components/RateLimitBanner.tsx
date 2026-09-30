@@ -2,8 +2,11 @@ import { useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import type { Tab } from '../lib/types';
 
-/** Shown above a tab whose Claude stopped on a usage limit (spec 2026-09-26 account swap). */
-export function RateLimitBanner({ tab, canSwap }: { tab: Pick<Tab, 'id' | 'state' | 'rate_limited_at'>; canSwap: boolean }) {
+/**
+ * Shown above a tab whose Claude stopped on a usage limit (spec 2026-09-26 account swap). `autoSwap` is the
+ * machine's setting: when it is off nothing happens by itself, and the banner says so (TER-587).
+ */
+export function RateLimitBanner({ tab, canSwap, autoSwap = true }: { tab: Pick<Tab, 'id' | 'state' | 'rate_limited_at'>; canSwap: boolean; autoSwap?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +26,7 @@ export function RateLimitBanner({ tab, canSwap }: { tab: Pick<Tab, 'id' | 'state
   return (
     <div role="status" className="flex flex-wrap items-center gap-2 border-b border-warn/30 bg-warn/10 px-3 py-1 text-xs text-warn">
       <span>Limite de uso da conta atingido.</span>
+      {!autoSwap && <span>A troca automática está desligada nesta máquina.</span>}
       {done ? (
         <span>Retomando em {done}…</span>
       ) : (
