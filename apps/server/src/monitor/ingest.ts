@@ -25,11 +25,17 @@ export async function ingestHookEvent(
 ): Promise<IngestResult> {
   const tab = await repos.tabs.findByTmuxSession(input.machineId, input.session);
   if (!tab) return { ok: false, reason: 'unknown_session' };
-  // Any hook event of the tab means its screen moved: a suggestion check still waiting opens nothing
-  // (spec 2026-09-25 tab suggestions §6.1).
+  const interpreted = interpretHookEvent(input.tool, input.event);
+  // A subagent ended (spec 2026-09-30 tab questions per subagent §5): the tab's screen and state are
+  // its main thread's, so nothing is recorded and a suggestion check still waiting is left alone.
+  if (interpreted?.closeOnly) {
+    await noteHookEvent(repos, log, tab, interpreted, waker);
+    return { ok: true, tab };
+  }
+  // Any other hook event of the tab means its screen moved: a suggestion check still waiting opens
+  // nothing (spec 2026-09-25 tab suggestions §6.1).
   cancelTabSuggestion(tab.id);
   let current = tab;
-  const interpreted = interpretHookEvent(input.tool, input.event);
   if (input.tool === 'claude') current = await noteClaudeSession(repos, current, input.event, interpreted);
   if (!interpreted) return { ok: false, reason: 'ignored' };
   const recorded = await recordInterpretation(repos, log, current, input.tool, interpreted);
