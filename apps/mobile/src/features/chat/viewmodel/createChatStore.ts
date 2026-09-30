@@ -193,6 +193,9 @@ const emptySlot = (): ConversationSlot => ({ conversation: null, messages: [], a
 const keyOf = (projectId: string | null): string => projectId ?? '';
 const projectOf = (key: string): string | null => (key === '' ? null : key);
 
+/** How many early events (see `early` in the store) are held while the open slot has no conversation: the web's cap. */
+const EARLY_EVENTS_CAP = 500;
+
 /** No ids: what a re-read of a slot that is not on screen merges with (its fold is not in the store). */
 const NO_IDS: ReadonlySet<string> = new Set();
 
@@ -222,6 +225,14 @@ export function createChatStore(deps: ChatDeps) {
   const arrivedDuringReads = (key: string, id: string): void => {
     reads.get(key)?.forEach((arrived) => arrived.add(id));
   };
+  /**
+   * Live events tagged with a conversation that reached the open slot (`key`) before it knew its
+   * conversation (its first `GET chat` in flight). Held, not dropped, as on the web: the deltas and
+   * the final `message` of an answer under way exist nowhere else, and the snapshot may be older than
+   * them. The read that gives the slot its conversation replays those of that conversation, in order,
+   * through the same path as live ones; the others go. Emptied when another conversation opens.
+   */
+  let early: { key: string; events: ChatEvent[] } | null = null;
   /** App-level taps into every raw event (`subscribeEvents`), independent of the open conversation
    * and never cleared by `close()`/`generation` — a subscriber outlives any one socket connection. */
   const eventListeners = new Set<(e: ChatEvent) => void>();
@@ -302,6 +313,12 @@ export function createChatStore(deps: ChatDeps) {
             if (onScreen) {
               const live = seedLive(same ? closeLive(pruneLive(get().live, res.messages), dropped) : emptyFold(), res.open_answer_ids);
               if (live !== get().live) set({ live });
+              // The slot knows its conversation now: what arrived before it is newer than this snapshot.
+              if (early?.key === key) {
+                const held = early.events;
+                early = null;
+                for (const e of held) if ('conversation_id' in e && e.conversation_id === res.conversation.id) applyOwn(key, e);
+              }
             }
           } catch (e) {
             if (stale() || isLocked(e) || session().handleApiError(e)) return;
@@ -335,8 +352,19 @@ export function createChatStore(deps: ChatDeps) {
           }
           const key = activeKey();
           if (key === null) return;
+          const conversationId = get().conversations[key]?.conversation?.id ?? null;
+          if (conversationId === null && 'conversation_id' in e) {
+            const events = early?.key === key ? early.events : [];
+            early = { key, events: [...events.slice(-(EARLY_EVENTS_CAP - 1)), e] };
+            return;
+          }
+          if (!belongsTo(conversationId)(e)) return;
+          applyOwn(key, e);
+        };
+
+        /** One event of the open conversation, live or held: the slice takes it, then its side effects. */
+        const applyOwn = (key: string, e: ChatEvent): void => {
           const current = get().conversations[key] ?? emptySlot();
-          if (!belongsTo(current.conversation?.id ?? null)(e)) return;
           const before = {
             messages: current.messages,
             actions: current.actions,
@@ -389,12 +417,14 @@ export function createChatStore(deps: ChatDeps) {
           // The answer is complete (or failed): what streamed in is worth an MMKV write now.
           if (e.type === 'run_finished') storage.flush();
           // A run that could not even be attempted: nobody awaits it, so this is where it is said.
-          // Only for the conversation on screen: `belongsTo` above already dropped the others. The
-          // line is the screen's banner, where a failed send's goes, set after the re-read.
+          // Only for its own conversation: `belongsTo` already dropped the others, and the line is the
+          // screen's banner (where a failed send's goes), set after the re-read only if that same
+          // conversation is still the one on screen — another project may have opened meanwhile.
           if (e.type === 'run_finished' && e.message_id === null && !e.ok) {
             const gen = generation;
+            const conversationId = e.conversation_id;
             void reread(key).then(() => {
-              if (gen === generation) set({ error: CHAT_MSG.setupFailed });
+              if (gen === generation && activeKey() === key && get().conversations[key]?.conversation?.id === conversationId) set({ error: CHAT_MSG.setupFailed });
             });
           }
         };
@@ -474,6 +504,7 @@ export function createChatStore(deps: ChatDeps) {
 
           async open(projectId) {
             const key = keyOf(projectId);
+            if (early !== null && early.key !== key) early = null;
             set((s) => ({
               activeProject: projectId,
               error: null,
@@ -500,6 +531,7 @@ export function createChatStore(deps: ChatDeps) {
 
           close() {
             generation++;
+            early = null;
             closeSocket?.();
             closeSocket = null;
             readSeq.clear();

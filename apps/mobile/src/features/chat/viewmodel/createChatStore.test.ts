@@ -1,7 +1,7 @@
 // The chat store (design spec §6) over the real `HttpMobileApi`, the in-memory `MockTransport`
 // and its fake socket, with an enrolled, unlocked session store built over the same mock.
 import * as SecureStore from 'expo-secure-store';
-import type { TChatEvent, TChatMessage, TChatStandingGrant } from '@/services/api/contract';
+import { chatResponse, type TChatEvent, type TChatMessage, type TChatStandingGrant } from '@/services/api/contract';
 import { ApiError } from '@/services/api/errors';
 import { mmkv } from '@/services/storage';
 import { appBackgrounded } from '@/features/shared/signals';
@@ -1352,17 +1352,23 @@ describe('run state (spec 2026-09-29 §5)', () => {
     expect(chat.getState().live.started.has('a1')).toBe(true);
   });
 
-  it('a refresh against a server that sends no open_answer_ids marks nothing', async () => {
+  it('a refresh against a server that sends no open_answer_ids marks nothing, and still closes what the snapshot shows answered', async () => {
     const { chat, api } = await setup();
     await openAndConnect(chat, 'p-termhub');
+    const answered = slot(chat, 'p-termhub').messages.find((m) => m.role === 'assistant' && m.text)!;
+    expect(answered).toBeDefined();
+    chat.setState({ live: emptyFold() }); // forget what the first read closed: this read must close it again
+    // The path an older server takes: its JSON has no `open_answer_ids`, and the contract fills the default.
     serve(api, (res) => {
       const { open_answer_ids: _ids, ...older } = res;
-      return { ...older, messages: [...res.messages, answer('a1')] } as typeof res;
+      return chatResponse.parse({ ...older, messages: [...res.messages, answer('a1')] });
     });
 
     await chat.getState().refresh('p-termhub');
+    expect(slot(chat, 'p-termhub').error).toBeNull();
     expect(slot(chat, 'p-termhub').messages.at(-1)?.id).toBe('a1');
-    expect(chat.getState().live.started.has('a1')).toBe(false);
+    expect(chat.getState().live.started.size).toBe(0);
+    expect(chat.getState().live.closed.has(answered.id)).toBe(true);
   });
 
   it('a refresh of another conversation starts from an empty fold, then seeds', async () => {
@@ -1480,5 +1486,61 @@ describe('run state (spec 2026-09-29 §5)', () => {
     await flush();
     expect(read).toHaveBeenCalledWith(expect.anything(), 'p-termhub');
     expect(chat.getState().error).toBe('O concierge não conseguiu começar a resposta. Tente de novo.');
+  });
+
+  it('the line of a run that could not start stays on its conversation: another project opened before the read resolves shows nothing', async () => {
+    const { chat, api, handlers } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    const real = api.chat.bind(api);
+    let release!: () => void;
+    jest.spyOn(api, 'chat').mockImplementation(async (auth, projectId) => {
+      const res = await real(auth, projectId);
+      if (projectId === 'p-termhub') {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+      return res;
+    });
+
+    handlers().onEvent({ type: 'run_finished', user_id: 'u1', conversation_id: 'c-termhub', message_id: null, ok: false, error_code: 'SETUP_FAILED' });
+    await flush();
+    await chat.getState().open('p-opapingou');
+    release();
+    await flush();
+    await flush();
+    expect(chat.getState().activeProject).toBe('p-opapingou');
+    expect(chat.getState().error).toBeNull();
+  });
+
+  it('events that arrive before the first read gives the slot its conversation are held and replayed after it', async () => {
+    const { chat, api, handlers } = await setup();
+    const real = api.chat.bind(api);
+    // The open's read and the one the socket's first connect starts: both are held, then both let go.
+    const held: (() => void)[] = [];
+    const release = () => held.splice(0).forEach((resolve) => resolve());
+    let snapshotTaken = false;
+    jest.spyOn(api, 'chat').mockImplementation(async (auth, projectId) => {
+      const res = await real(auth, projectId);
+      snapshotTaken = true;
+      await new Promise<void>((resolve) => held.push(resolve));
+      // Taken before the answer ended: `a1` is still empty, and listed as open.
+      return { ...res, messages: [...res.messages, answer('a1')], open_answer_ids: ['a1'] };
+    });
+
+    const opening = chat.getState().open('p-termhub');
+    await jest.advanceTimersByTimeAsync(0); // the socket connects
+    await flush();
+    expect(snapshotTaken).toBe(true);
+    expect(slot(chat, 'p-termhub').conversation).toBeNull();
+    handlers().onEvent({ type: 'delta', user_id: 'u1', conversation_id: 'c-termhub', message_id: 'a1', delta: 'pro' });
+    handlers().onEvent({ type: 'message', user_id: 'u1', conversation_id: 'c-termhub', message: answer('a1', 'pronto') });
+    handlers().onEvent({ type: 'delta', user_id: 'u1', conversation_id: 'c-opapingou', message_id: 'o1', delta: 'x' });
+
+    release();
+    await opening;
+    expect(slot(chat, 'p-termhub').messages.find((m) => m.id === 'a1')?.text).toBe('pronto');
+    expect(chat.getState().live.started.has('a1')).toBe(false);
+    expect(chat.getState().live.deltas.size).toBe(0);
   });
 });

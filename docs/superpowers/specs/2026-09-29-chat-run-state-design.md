@@ -194,6 +194,9 @@ only the screen, or the phone's slot, of its `conversation_id` re-reads and show
 - The store's refresh seeds the open conversation's fold from `res.open_answer_ids`, after
   `pruneLive`. `run_finished` keeps its storage flush, and with a null id also refreshes and sets the
   screen's error line.
+- The person's own row counts as arrived for every read in flight when `send` gets its 202: the
+  server has the row from then on, and a read that started before the send would drop it.
+- Events held while a slot has no conversation are replayed after its first read, as on the web.
 
 Rows render as today: an empty row with a started mark shows "pensando…", an empty row without one
 shows as failed.

@@ -149,7 +149,10 @@ it('run_finished with an id closes the row: what streamed goes, the started mark
   expect(folded.removed.has('m1')).toBe(false);
   expect(applyLive(folded, runFinished('m1'))).toBe(folded);
   expect(applyLive(folded, runStarted('m1'))).toBe(folded);
-  expect(applyLive(folded, delta('m1', 'late'))).toBe(folded);
+  expect(applyLive(folded, delta('m1', 'late'))).toBe(folded);  // An id the fold never saw: closed, and not marked started.
+  const unseen = applyLive(emptyFold(), runFinished('m9'));
+  expect(unseen.closed.has('m9')).toBe(true);
+  expect(unseen.started.has('m9')).toBe(false);
 });
 
 it('run_finished with message_id null returns the very same fold', () => {
