@@ -80,7 +80,7 @@ describe('checkTabSuggestion', () => {
     await checkTabSuggestion(asRepos(repos), l, 't1', CONTEXT);
     expect(captureStyledScreen).toHaveBeenCalledWith(machine, 'th-t1', 15);
     expect(repos.chat.findLatestActiveForProject).toHaveBeenCalledWith('p1', 'u1');
-    expect(repos.tabQuestions.open).toHaveBeenCalledWith({ tab_id: 't1', project_id: 'p1', conversation_id: 'c1', kind: 'suggestion', payload: { text: 'commit it', context: CONTEXT }, tool_use_id: null });
+    expect(repos.tabQuestions.open).toHaveBeenCalledWith({ tab_id: 't1', project_id: 'p1', conversation_id: 'c1', kind: 'suggestion', payload: { text: 'commit it', context: CONTEXT }, tool_use_id: null, agent_id: null });
     expect(events).toEqual([expect.objectContaining({ type: 'tab_suggestion', user_id: 'u1', conversation_id: 'c1', suggestion: expect.objectContaining({ id: 's1', tab_name: 'api', kind: 'suggestion' }) })]);
     expect(l.info).toHaveBeenCalledWith({ tabId: 't1', tabQuestionId: 's1', kind: 'suggestion', chars: 9, contextChars: CONTEXT.length }, 'tab suggestion opened');
     expect(JSON.stringify(l.info.mock.calls)).not.toContain('commit');
