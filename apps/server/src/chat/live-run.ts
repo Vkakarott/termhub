@@ -233,13 +233,16 @@ export class LiveRun {
         } else if (frame.type === 'done') {
           await this.saveSession(frame.session_id);
           if (frame.context) await saveContext(this.deps.chat, this.deps.userId, this.deps.conversationId, frame.context);
+          const answered = this.current !== null;
           if (this.current) {
             this.current.usage = frame.usage ?? null;
             await this.finish(this.current, null);
           }
-          // A turn ended and this process never replayed a message: the CLI does not echo the uuids,
-          // so no waiting turn can ever be matched. They fail now instead of waiting for the kill.
-          if (!this.replayed && (this.waiting.length > 0 || this.notes.size > 0)) await this.failWaiting('RUN_FAILED');
+          // A turn was answered and this process never replayed a message: the CLI does not echo the
+          // uuids, so no waiting turn can ever be matched. They fail now instead of waiting for the kill.
+          // Only a turn that said something counts: a resumed session whose last process left a subagent
+          // unfinished writes a `result` that ended no turn before its first replay (Claude Code 2.1.285).
+          if (answered && !this.replayed && (this.waiting.length > 0 || this.notes.size > 0)) await this.failWaiting('RUN_FAILED');
           this.endInputIfIdle();
         } else if (frame.type === 'error') {
           await this.saveSession(frame.session_id);
@@ -251,8 +254,11 @@ export class LiveRun {
             if (frame.reason === 'missing_session') missingSession = true;
           }
         } else if (frame.type === 'background') {
+          // Only counted: the input ends at the end of a turn, never here. The CLI reports a subagent
+          // that ended in a turn of its own, and that turn may start another one (a monitor that
+          // relaunches itself). With the input already closed that process would take no message,
+          // and would hold every `result` back until nothing is left in the background.
           this.background = frame.count;
-          this.endInputIfIdle();
         } else if (frame.type === 'subagent_started') {
           await this.bookkeeping(async () => {
             const row = await this.deps.subagents.start({ conversation_id: this.deps.conversationId, task_id: frame.task_id, tool_use_id: frame.tool_use_id, description: frame.description, subagent_type: frame.subagent_type });
@@ -441,8 +447,8 @@ export class LiveRun {
     if (failure) throw failure.error;
   }
 
-  /** Nothing to answer and nothing in the background: end the input. The CLI still runs whatever it
-   *  has (a notification turn that is on its way), and a message that comes later goes to the next run. */
+  /** A turn ended with nothing to answer and nothing in the background: end the input. A message that
+   *  comes later goes to the next run. */
   private endInputIfIdle(): void {
     if (this.current || this.waiting.length > 0 || this.notes.size > 0 || this.background > 0) return;
     this.endInput();

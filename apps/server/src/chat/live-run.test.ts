@@ -164,11 +164,36 @@ it('keeps the input open while a subagent runs and ends it once nothing is left'
   await settle();
   expect(h.live.accepting).toBe(true);
   expect(s.written).toEqual([]);
+  // The subagent ends: the CLI reports it in a turn of its own, and the input ends with that turn.
   s.push(background(0));
+  await settle();
+  expect(h.live.accepting).toBe(true);
+  s.push(delta('terminou')); s.push(result());
   await settle();
   expect(h.live.accepting).toBe(false);
   expect(s.written).toEqual([STREAM_END_INPUT_LINE]);
   expect(h.live.add((await h.turn(U2, 'tarde')).t)).toBe(false);
+  s.end();
+  await consumed;
+});
+
+it('keeps the input open when the turn that reports the last subagent starts another one (TER-498)', async () => {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1)); s.push(background(1)); s.push(delta('disparei')); s.push(result());
+  await settle();
+  // A monitor ends, and the turn the CLI starts to report it launches the next monitor.
+  s.push(background(0)); s.push(toolCall()); s.push(background(1)); s.push(delta('relancei')); s.push(result());
+  await settle();
+  expect(h.live.accepting).toBe(true);
+  expect(s.written).toEqual([]);
+  // With its input open the CLI ends each turn with a `result`: the text is stored, and nothing is owed.
+  expect(h.live.busy).toBe(false);
+  expect(h.rows.filter((r) => r.role === 'assistant').map((r) => r.text)).toEqual(['disparei', 'relancei']);
+  // A message typed now goes straight in, monitor or not.
+  expect(h.live.add((await h.turn(U2, 'e agora?')).t)).toBe(true);
   s.end();
   await consumed;
 });
@@ -458,6 +483,29 @@ it('fails the waiting turns and ends the input when a turn ends and the CLI neve
   await consumed;
 });
 
+/** What a resumed session writes before it replays anything when its previous process left a subagent
+ *  unfinished (Claude Code 2.1.285): that task's notification, then a `result` that ended no turn. */
+const leftover = () => [
+  JSON.stringify({ type: 'system', subtype: 'task_notification', task_id: 't-old', status: 'stopped' }),
+  JSON.stringify({ type: 'result', subtype: 'success', is_error: false, num_turns: 0, result: '', session_id: 's1', usage: { input_tokens: 0, output_tokens: 0, iterations: [] } }),
+];
+
+it('keeps the waiting turns when a resumed session ends a turn of its own before it replays anything (TER-498)', async () => {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  for (const line of leftover()) s.push(line);
+  await settle();
+  expect(h.live.accepting).toBe(true);
+  expect(s.written).toEqual([]);
+  s.push(replay(U1)); s.push(delta('resposta')); s.push(result());
+  await settle();
+  s.end();
+  await consumed;
+  expect(await a.done).toMatchObject({ text: 'resposta', error_code: null });
+});
+
 it('keeps waiting turns waiting at a result once the CLI has replayed in this process', async () => {
   const a = await h.turn(U1, 'a');
   const b = await h.turn(U2, 'b');
@@ -600,7 +648,7 @@ it('writes a stop_task control line', async () => {
 
 it('refuses to stop once input is closed', async () => {
   const { s, consumed } = await running();
-  s.push(result()); s.push(background(0));
+  s.push(background(0)); s.push(result());
   await settle();
   expect(h.live.accepting).toBe(false);
   const before = s.written.length;
