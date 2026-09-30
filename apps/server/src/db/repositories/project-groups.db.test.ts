@@ -142,4 +142,38 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ProjectGroupsRepository (
     await db.projectGroup.createMany({ data: Array.from({ length: 50 }, (_, i) => ({ id: newId(), userId, name: `g${i}`, position: i + 1 })) });
     await expect(repo.create(userId, 'one more')).rejects.toBeInstanceOf(ProjectGroupRuleError);
   });
+  describe('setFavorite (TER-541)', () => {
+    const favs = async (u: string) => (await repo.read(u)).find((g) => g.kind === 'favorites')?.project_ids ?? [];
+
+    it('creates Favoritos on first use and puts each new pin last', async () => {
+      await repo.setFavorite(userId, p[1], true);
+      await repo.setFavorite(userId, p[0], true);
+      expect(await favs(userId)).toEqual([p[1], p[0]]);
+    });
+
+    it('is idempotent both ways', async () => {
+      await repo.setFavorite(userId, p[1], true);
+      await repo.setFavorite(userId, p[0], true);
+      await repo.setFavorite(userId, p[1], true);
+      await repo.setFavorite(userId, p[2], false);
+      expect(await favs(userId)).toEqual([p[1], p[0]]);
+    });
+
+    it('unpins only that project', async () => {
+      await repo.setFavorite(userId, p[1], true);
+      await repo.setFavorite(userId, p[0], true);
+      await repo.setFavorite(userId, p[1], false);
+      expect(await favs(userId)).toEqual([p[0]]);
+    });
+
+    it("never touches another user's Favoritos", async () => {
+      await repo.setFavorite(userId, p[0], true);
+      expect(await favs(otherId)).toEqual([]);
+    });
+
+    it('two racing pins of the same project leave one item', async () => {
+      await Promise.all([repo.setFavorite(userId, p[2], true), repo.setFavorite(userId, p[2], true)]);
+      expect(await favs(userId)).toEqual([p[2]]);
+    });
+  });
 });
