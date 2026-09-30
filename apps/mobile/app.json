@@ -4,7 +4,7 @@
     "slug": "termhub",
     "owner": "pedrogoiania",
     "scheme": "termhub",
-    "version": "0.3.2",
+    "version": "0.4.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",

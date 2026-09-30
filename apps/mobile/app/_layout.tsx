@@ -3,6 +3,7 @@ import { Stack, useRouter, useSegments, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { AppState, Linking } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { PinPromptSheet } from '@/features/session/view/pin-prompt-sheet';
 import { usePhaseRedirect } from '@/features/session/view/use-phase-redirect';
 import { useSessionStore } from '@/features/session/viewmodel/useSessionStore';
@@ -84,10 +85,13 @@ function Navigator() {
   );
 }
 
+// The gesture handler's root: the chat's drag-to-answer (TER-447) needs it above every screen.
 export default function RootLayout() {
   return (
-    <ThemeProvider>
-      <Navigator />
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <Navigator />
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
