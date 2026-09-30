@@ -30,7 +30,7 @@ Triunfo?", the concierge guesses the group from the folder paths.
 | `find` | Kind `group`, part of the default kinds. Needs `projects:read`. | "Triunfo" must resolve without the model knowing which kind to ask for. |
 | Project prompt | One line after the machines: the groups of the project, each with its sibling projects by name, worded as related projects. At most 600 characters. It counts in the 4000 characters the prompt already has. | The machines list is what absorbs the cut today, and it keeps doing so. 600 is room for about 40 names. The tail of the prompt says not to report on other projects unasked; the line says these are related, not that they are the subject. |
 | Account-wide chat | A short index, groups and their projects by name, on the streamed path only. At most 4000 characters, ending with a pointer to `list_project_groups`. No groups, no index. | The one-shot path sends no prompt for the account-wide chat, and three tests pin that. Streamed runs already send the orchestrator's rules, so the agent is known to forward a prompt. |
-| A cut | Whole names only: the names that do not fit are dropped and "…" says so. | A cut inside a quoted name would leave a broken quote in the prompt. |
+| A cut | Whole names only, and a group keeps its name before its projects: the names that do not fit are dropped and "…" says so. In a project chat every group of the project is named, and the room left is shared equally by the groups for their siblings. In the index the lines that fit whole come first, and each line left over has its projects fitted to the room left; only a group whose name does not fit at all is dropped, and a closing "…" line says so. | A cut inside a quoted name would leave a broken quote in the prompt. |
 | When a change reaches the chat | The next process. On a one-shot host that is the next turn. On a streamed host a message typed while the process is alive joins it, with the prompt it started with; the next process gets the new groups. | The prompt is set when the process starts, and so it already is for a machine rename or a standing grant. Injecting a note into the live process for a group move is not worth its cost. |
 | A failed read of the groups | The prompt goes without them; find answers without groups; list_projects answers without groups when no group is asked for, and refuses with GROUPS_UNAVAILABLE when one is. The failure is logged by its label. | Groups are context. They must not cost a message or a lookup. |
 | Names in a prompt | Whitespace runs, line breaks included, become one space, and the name is quoted as a JSON string, so a quote inside it is escaped. | A name is the person's own text, but a line break in it would break the line it sits in, and a quote would break the quoting. |
@@ -78,7 +78,7 @@ Project chat, one line after "Its machines and directories: …":
 Its sidebar groups, with the related projects in each: "Triunfo" (with "notify", "painel-triunfo", "speedbike-app"); "Clientes" (no other project).
 ```
 
-A project in no group gets no line. When the names do not fit in 600 characters, the ones that do not fit are dropped, whole, and "…" takes their place; a long name in the middle of a list goes while the shorter ones after it stay. A name is quoted as a JSON string.
+A project in no group gets no line. Every group of the project is named first; the room left of the 600 characters is shared equally by the groups for their siblings, and in each list the names that do not fit are dropped, whole, and "…" takes their place; a long name in the middle of a list goes while the shorter ones after it stay. Only when the groups' names alone do not fit are the last groups dropped, and "; …" says so. A name is quoted as a JSON string.
 
 Account-wide chat, after the orchestrator's rules:
 
@@ -90,7 +90,10 @@ Use list_project_groups for ids and status, and list_projects with group to work
 ```
 
 A group with no project is left out of the index. When the lines do not fit in 4000 characters with
-the head and the pointer, whole lines are dropped from the end and a line "…" says so.
+the head and the pointer, the lines that fit whole are kept first; then each line left over, in order,
+keeps its group's name and gets its projects fitted to the room left, whole names only, closing with
+"…" (`- "Big": "a", "b", …`), so a large group stays in the index. Only a line whose name does not fit
+at all is dropped, and a closing line "…" says so.
 
 ## 5. Where the account-wide index is read
 

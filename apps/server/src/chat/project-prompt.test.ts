@@ -176,6 +176,28 @@ describe('the groups line of a project chat', () => {
     const over = groupsLineOf(projectSystemPrompt(p, links, [], [{ name: 'x'.repeat(577), siblings: [] }, { name: 'y', siblings: [] }]));
     expect(over).toBe(`${GROUPS_PREFIX}….`);
   });
+
+  it("one group's many siblings do not hide the project's other group: every group is named, and they share the room", () => {
+    const first = { name: 'Triunfo', siblings: Array.from({ length: 40 }, (_, i) => `um-projeto-irmao-com-nome-bem-comprido-${i}`) };
+    const second = { name: 'Clientes', siblings: ['painel-clientes', 'outro-cliente'] };
+    const text = projectSystemPrompt(p, links, [], [first, second]);
+    const line = groupsLineOf(text);
+    expect(line.length).toBeLessThanOrEqual(GROUPS_PREFIX.length + 600 + 1);
+    expect(text.length).toBeLessThanOrEqual(4000);
+    expect(line).toMatch(/^Its sidebar groups, with the related projects in each: "Triunfo" \(with "um-projeto-irmao-com-nome-bem-comprido-0", .*, …\); "Clientes" \(with "painel-clientes"/);
+    expect(line).not.toContain('; …');
+    expect((line.match(/"/g) ?? []).length % 2).toBe(0);
+  });
+
+  it('a short group after a long one keeps all its siblings, and the long one takes the rest of the room', () => {
+    const first = { name: 'Triunfo', siblings: Array.from({ length: 60 }, (_, i) => `proj-${i}-abc`) };
+    const line = groupsLineOf(projectSystemPrompt(p, links, [], [first, { name: 'Clientes', siblings: ['a'] }]));
+    expect(line.endsWith('; "Clientes" (with "a").')).toBe(true);
+    expect(line).toContain('"Triunfo" (with "proj-0-abc", ');
+    // The long list is cut only by what the short group needs: within a name of the 600.
+    expect(line.length).toBeGreaterThan(GROUPS_PREFIX.length + 600 + 1 - '"proj-99-abc", '.length);
+    expect(line.length).toBeLessThanOrEqual(GROUPS_PREFIX.length + 600 + 1);
+  });
 });
 
 describe('the index of the account-wide chat', () => {
@@ -209,13 +231,36 @@ describe('the index of the account-wide chat', () => {
     expect(lines.at(-1)).toBe('…');
   });
 
-  it('a first group too long for the index does not empty it: the groups that fit are kept', () => {
+  it('a first group too long for the index does not empty it: the groups after it are kept whole', () => {
     const huge = { name: 'Enorme', projects: Array.from({ length: 150 }, (_, i) => `um-projeto-com-um-nome-bem-comprido-${i}`) };
     const text = accountSystemPrompt([huge, { name: 'Triunfo', projects: ['notify'] }, { name: 'Faculdade', projects: ['Escreva+'] }])!;
     expect(text.length).toBeLessThanOrEqual(4000);
     expect(text).toContain('- "Triunfo": "notify"');
     expect(text).toContain('- "Faculdade": "Escreva+"');
-    expect(text).not.toContain('Enorme');
-    expect(text).toContain('\n…\n');
+  });
+
+  it('a group too long for the index stays in it, its projects fitted to the room left', () => {
+    const big = { name: 'Big', projects: Array.from({ length: 200 }, (_, i) => `projeto-${i}-`.padEnd(40, 'x')) };
+    const text = accountSystemPrompt([big, { name: 'Small', projects: ['a'] }])!;
+    expect(text.length).toBeLessThanOrEqual(4000);
+    const lines = text.split('\n').slice(1, -1);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/^- "Big": "projeto-0-x+", .*", …$/);
+    expect((lines[0].match(/"/g) ?? []).length % 2).toBe(0);
+    expect(lines[1]).toBe('- "Small": "a"');
+    // The room left goes to the big group: the index is full within one name.
+    expect(text.length).toBeGreaterThan(4000 - `"${'x'.repeat(40)}", `.length);
+  });
+
+  it('drops the last groups only when even their names do not fit, and "…" says so', () => {
+    const groups = Array.from({ length: 400 }, (_, g) => ({ name: `grupo-com-nome-longo-${g}`, projects: [`projeto-${g}`] }));
+    const text = accountSystemPrompt(groups)!;
+    expect(text.length).toBeLessThanOrEqual(4000);
+    const lines = text.split('\n').slice(1, -1);
+    expect(lines.at(-1)).toBe('…');
+    expect(lines[0]).toMatch(/^- "grupo-com-nome-longo-0": /);
+    const kept = lines.slice(0, -1);
+    kept.forEach((l, i) => expect(l).toMatch(new RegExp(`^- "grupo-com-nome-longo-${i}": `)));
+    expect(text).not.toContain('grupo-com-nome-longo-399');
   });
 });

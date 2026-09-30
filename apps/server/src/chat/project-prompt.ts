@@ -45,29 +45,49 @@ export const fit = (items: string[], sep: string, max: number): string => {
   return out ? `${out}${sep}…` : '…';
 };
 
+/** The most each of `lengths` may take so that together they fit in `room`, shared equally: an item
+ *  shorter than its share keeps all of it and leaves the rest to the others. Infinity when all fit. */
+const share = (lengths: number[], room: number): number => {
+  let left = room;
+  let n = lengths.length;
+  for (const len of [...lengths].sort((a, b) => a - b)) {
+    if (len > Math.floor(left / n)) return Math.floor(left / n);
+    left -= len;
+    n--;
+  }
+  return Infinity;
+};
+
 const GROUPS_PREFIX = 'Its sidebar groups, with the related projects in each: ';
 const NO_SIBLING = 'no other project';
-/** What closes a line whose later groups do not fit. Every group but the last keeps room for it. */
-const MORE = '; …';
+const SEP = '; ';
 
 /** The line telling the model which sidebar groups the project is in and what else is in them, or ''.
- *  Whole groups and whole names only: what does not fit in GROUPS_MAX is dropped and "…" says so. */
+ *  Every group is named first: the last groups whose names do not fit in GROUPS_MAX are dropped, and
+ *  "; …" says so. Then the siblings share what is left equally, each list fitted to its share with
+ *  `fit`, whole names only. */
 const groupsLine = (groups: PromptGroup[]): string => {
   if (!groups.length) return '';
-  let out = '';
-  for (const [i, g] of groups.entries()) {
-    const open = `${out ? '; ' : ''}${quoted(g.name)} (`;
-    const reserve = i < groups.length - 1 ? MORE.length : 0;
-    const room = GROUPS_MAX - out.length - open.length - ')'.length - reserve;
-    const body = g.siblings.length ? (room >= 'with …'.length ? `with ${fit(g.siblings.map(quoted), ', ', room - 'with '.length)}` : null) : room >= NO_SIBLING.length ? NO_SIBLING : null;
-    if (body === null) {
-      // The earlier groups kept room for this.
-      out = out ? `${out}${MORE}` : '…';
-      break;
-    }
-    out = `${out}${open}${body})`;
+  const heads = groups.map((g) => `${quoted(g.name)} (${g.siblings.length ? 'with ' : ''}`);
+  const lists = groups.map((g) => g.siblings.map(quoted));
+  // What group i takes at the least: its name and fixed words, and "…" for a list.
+  const least = (i: number): number => heads[i].length + (lists[i].length ? '…'.length : NO_SIBLING.length) + ')'.length;
+  const closing = (n: number): number => (n < groups.length ? (n ? SEP.length : 0) + '…'.length : 0);
+  let n = groups.length;
+  let used = groups.reduce((sum, _, i) => sum + least(i) + (i ? SEP.length : 0), 0);
+  while (n > 0 && used + closing(n) > GROUPS_MAX) {
+    n--;
+    used -= least(n) + (n ? SEP.length : 0);
   }
-  return `\n${GROUPS_PREFIX}${out}.`;
+  if (n === 0) return `\n${GROUPS_PREFIX}….`;
+  const kept = groups.slice(0, n).map((_, i) => i);
+  const withSiblings = kept.filter((i) => lists[i].length);
+  const cap = share(
+    withSiblings.map((i) => lists[i].join(', ').length),
+    GROUPS_MAX - closing(n) - (used - withSiblings.length * '…'.length),
+  );
+  const parts = kept.map((i) => `${heads[i]}${lists[i].length ? fit(lists[i], ', ', cap) : NO_SIBLING})`);
+  return `\n${GROUPS_PREFIX}${parts.join(SEP)}${n < groups.length ? `${SEP}…` : ''}.`;
 };
 
 /**
@@ -77,8 +97,9 @@ const groupsLine = (groups: PromptGroup[]): string => {
  * `standing` (TER-386) is this user's active "Liberar sem prazo" kinds for the project, appended as a
  * line before `tail`; it counts against the same 4000-char budget as everything else, so a long machine
  * list is what gets cut, never the prompt overflowing. `groups` (spec 2026-09-30) are the project's
- * sidebar groups with their sibling projects, told in one line after the machines; that line is capped
- * at GROUPS_MAX and counts against the same budget.
+ * sidebar groups with their sibling projects, told in one line after the machines; the groups in it are
+ * capped at GROUPS_MAX (the line adds its prefix, a newline and a full stop) and count against the same
+ * budget.
  */
 export function projectSystemPrompt(
   project: { name: string; key: string },
@@ -111,8 +132,34 @@ const INDEX_TAIL = '\nUse list_project_groups for ids and status, and list_proje
  * business. Null when there is no group with a project: then the chat is told nothing, as before.
  */
 export function accountSystemPrompt(groups: { name: string; projects: string[] }[]): string | null {
-  const lines = groups.filter((g) => g.projects.length > 0).map((g) => `- ${quoted(g.name)}: ${g.projects.map(quoted).join(', ')}`);
-  if (!lines.length) return null;
-  // Whole lines only: a line too long to fit is dropped, and the lines after it still get their turn.
-  return `${INDEX_HEAD}${fit(lines, '\n', MAX - INDEX_HEAD.length - INDEX_TAIL.length)}${INDEX_TAIL}`;
+  const kept = groups.filter((g) => g.projects.length > 0);
+  if (!kept.length) return null;
+  const heads = kept.map((g) => `- ${quoted(g.name)}: `);
+  const lists = kept.map((g) => g.projects.map(quoted));
+  const whole = kept.map((_, i) => `${heads[i]}${lists[i].join(', ')}`);
+  let index = whole.join('\n');
+  const max = MAX - INDEX_HEAD.length - INDEX_TAIL.length;
+  if (index.length > max) {
+    // Room for a closing "\n…" is kept from the start. The whole lines that fit come first, as `fit`
+    // takes them; then each line left over, in order, gets its projects fitted to the room left. Only
+    // a line whose name does not fit at all is dropped, and the closing "…" says so.
+    const room = max - '\n…'.length;
+    const lines: (string | null)[] = kept.map(() => null);
+    let used = -'\n'.length;
+    for (const [i, line] of whole.entries()) {
+      if (used + '\n'.length + line.length <= room) {
+        lines[i] = line;
+        used += '\n'.length + line.length;
+      }
+    }
+    for (const i of kept.keys()) {
+      const left = room - used - '\n'.length - heads[i].length;
+      if (lines[i] !== null || left < '…'.length) continue;
+      lines[i] = `${heads[i]}${fit(lists[i], ', ', left)}`;
+      used += '\n'.length + lines[i]!.length;
+    }
+    const shown = lines.filter((l): l is string => l !== null);
+    index = shown.length < kept.length ? [...shown, '…'].join('\n') : shown.join('\n');
+  }
+  return `${INDEX_HEAD}${index}${INDEX_TAIL}`;
 }

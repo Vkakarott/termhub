@@ -77,8 +77,8 @@ export async function listProjects(ctx: ControlContext, input: { machine_id?: st
   try {
     ({ groups, favorites } = await groupsOf(ctx, { archived: true, projects }));
   } catch (err) {
-    if (input.group !== undefined) throw new ControlError('GROUPS_UNAVAILABLE', 'Não foi possível ler os grupos');
     groupsUnavailable(ctx, 'list_projects', err);
+    if (input.group !== undefined) throw new ControlError('GROUPS_UNAVAILABLE', 'Não foi possível ler os grupos');
   }
   const only = input.group === undefined ? null : new Set(groupsNamed(groups, input.group).flatMap((g) => g.projects.map((p) => p.id)));
   const links = await ctx.repos.projectMachines.listByProjects(projects.map((p) => p.id));
