@@ -1,9 +1,9 @@
 import type { AgentMessage, ClaudeOpenParams } from '@termhub/agent-protocol';
 import { HEADER_BYTES, MAX_FRAME, STREAM_END_INPUT_LINE } from '@termhub/agent-protocol';
-import { buildClaudeArgs, classifyFailure, mcpConfig } from '@termhub/claude-cli';
+import { buildClaudeArgs, classifyFailure, mcpConfig, resolveConfigDir } from '@termhub/claude-cli';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentSocket } from '../client.js';
 import type { ClaudeManager } from '../dispatch.js';
@@ -125,7 +125,7 @@ export function createClaudeManager(deps: ClaudeManagerDeps): ClaudeManager {
       // `null` means "the account this machine uses by default", which is not the account the agent
       // process itself happens to be pointed at: the inherited value must not stand in for it.
       if (params.config_dir === null) delete env.CLAUDE_CONFIG_DIR;
-      else env.CLAUDE_CONFIG_DIR = params.config_dir;
+      else env.CLAUDE_CONFIG_DIR = resolveConfigDir(params.config_dir, env.HOME || homedir());
 
       const args = buildClaudeArgs({
         session_id: params.session_id,

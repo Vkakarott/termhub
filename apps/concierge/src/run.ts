@@ -1,7 +1,7 @@
-import { buildClaudeArgs, classifyFailure, mcpConfig, type ClaudeFailureReason } from '@termhub/claude-cli';
+import { buildClaudeArgs, classifyFailure, mcpConfig, resolveConfigDir, type ClaudeFailureReason } from '@termhub/claude-cli';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 export interface RunRequest {
@@ -45,7 +45,7 @@ export async function* runClaude(req: RunRequest, opts: { cliPath?: string; tmpD
   const dir = mkdtempSync(join(opts.tmpDir ?? tmpdir(), 'run-'));
   const args = buildClaudeArgs({ ...req, mcp_config_path: writeMcpConfig(dir, req) });
   const child = spawn(opts.cliPath ?? 'claude', args, {
-    env: { ...process.env, CLAUDE_CONFIG_DIR: req.config_dir },
+    env: { ...process.env, CLAUDE_CONFIG_DIR: resolveConfigDir(req.config_dir, process.env.HOME || homedir()) },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   const timer = setTimeout(() => child.kill('SIGTERM'), opts.timeoutMs ?? 10 * 60 * 1000);
