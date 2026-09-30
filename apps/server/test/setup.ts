@@ -23,7 +23,7 @@ setPublicIdKey(TEST_PUBLIC_ID_KEY);
  * Two layers, both loaded before every test file:
  *  - `$HOME` points at a fresh temp dir per file (`os.homedir()` and child processes read it), so
  *    code that resolves `~` lands in a sandbox;
- *  - the watched files under the REAL home are snapshotted, and a change fails the file: that
+ *  - the hook files termhub's installer/heal writes under the REAL home are snapshotted, and a change fails the file: that
  *    catches code that bypasses `$HOME` (hardcoded paths, `os.userInfo()`).
  */
 const REAL_HOME = os.homedir(); // captured once, before HOME is redirected
@@ -42,5 +42,9 @@ afterAll(() => {
   else process.env.HOME = previousHome;
   if (sandboxHome) fs.rmSync(sandboxHome, { recursive: true, force: true });
   const changed = changedPaths(homeBefore, snapshotHome(REAL_HOME));
-  if (changed.length > 0) throw new Error(`a test wrote to the real HOME: ${changed.join(', ')}`);
+  if (changed.length > 0) {
+    throw new Error(
+      `a test wrote to the real HOME: ${changed.join(', ')} (a live termhub-agent restarting or updating during the run also rewrites these: re-run to confirm)`,
+    );
+  }
 });

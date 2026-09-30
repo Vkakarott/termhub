@@ -1,17 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** Files under the home that the monitor-hooks / agent code writes; a test must never touch them. */
-export const WATCHED_HOME_PATHS = [
-  '.termhub/bin/termhub-hook',
-  '.termhub/hook.env',
-  '.termhub/config.json',
-  '.termhub/tabs',
-  '.claude/settings.json',
-  '.codex/config.toml',
-  '.codex/hooks.json',
-  '.cursor/hooks.json',
-];
+/**
+ * Files only termhub's installer/heal writes, and rarely. Deliberately narrow: live tools on a dev
+ * machine (the termhub agent's tabs/config.json, Claude Code's settings.json, Codex's config.toml,
+ * Cursor's hooks.json) write other home files during a test run, which would fail at random.
+ */
+export const WATCHED_HOME_PATHS = ['.termhub/bin/termhub-hook', '.termhub/hook.env', '.codex/hooks.json'];
 
 /** Path -> "mtimeMs:size", or "absent". */
 export type HomeSnapshot = Record<string, string>;
