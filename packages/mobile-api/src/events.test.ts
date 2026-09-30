@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { chatActionSchema, chatEventSchema, chatGrantListItemSchema, chatGrantListQuery, chatGrantListResponse, chatStandingGrantSchema, STANDING_GRANT_KINDS, subagentViewSchema, tabQuestionSchema, tabSuggestionSchema } from './events.js';
+import { chatActionSchema, chatEventSchema, chatMessage, chatGrantListItemSchema, chatGrantListQuery, chatGrantListResponse, chatStandingGrantSchema, STANDING_GRANT_KINDS, subagentViewSchema, tabQuestionSchema, tabSuggestionSchema } from './events.js';
 
 const base = { user_id: 'u1', conversation_id: 'c1' };
 const grant = { id: 'g1', tab_id: 't1', tool: 'send_input', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z', tab_name: 'api' };
@@ -216,4 +216,11 @@ describe('chatEventSchema: subagents', () => {
   it('requires the subagent id on a failed cancel', () => {
     expect(chatEventSchema.safeParse({ type: 'subagent_cancel_failed', ...base }).success).toBe(false);
   });
+});
+
+it('a message may carry what it answers, with a null id once the original is gone (TER-447)', () => {
+  const m = { id: 'm2', conversation_id: 'c1', role: 'user', text: 'faz de novo', usage: null, error_code: null, created_at: '2026-09-30T12:00:00.000Z' };
+  expect(chatMessage.parse({ ...m, reply_to: { id: 'm1', role: 'assistant', excerpt: 'Abri a aba' } }).reply_to).toEqual({ id: 'm1', role: 'assistant', excerpt: 'Abri a aba' });
+  expect(chatMessage.parse({ ...m, reply_to: { id: null, role: 'user', excerpt: 'oi' } }).reply_to?.id).toBeNull();
+  expect(chatMessage.parse(m).reply_to).toBeUndefined();
 });

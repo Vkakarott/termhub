@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  REPLY_EXCERPT_MAX,
+  replyExcerpt,
   chatMemoryPatchBody,
   chatMemoryResponse,
   decisionsResponse,
@@ -137,6 +139,11 @@ describe('isTabGrantable', () => {
 });
 
 describe('mobileMessageBody', () => {
+  it('accepts an optional reply_to_id (TER-447)', () => {
+    expect(mobileMessageBody.parse({ text: 'oi', reply_to_id: 'm1' })).toEqual({ text: 'oi', reply_to_id: 'm1' });
+    expect(mobileMessageBody.safeParse({ text: 'oi', reply_to_id: '' }).success).toBe(false);
+  });
+
   it('accepts text alone, attachments alone, and refuses neither', () => {
     expect(mobileMessageBody.safeParse({ text: 'oi' }).success).toBe(true);
     expect(mobileMessageBody.parse({ text: '  ', attachment_ids: ['a1'] })).toEqual({ text: '', attachment_ids: ['a1'] });
@@ -343,5 +350,23 @@ describe('lessonForgetSchema (spec 2026-09-27 failure lessons §6)', () => {
 
   it('refuses ok: false', () => {
     expect(lessonForgetSchema.safeParse({ ok: false }).success).toBe(false);
+  });
+});
+
+describe('replyExcerpt (TER-447)', () => {
+  it('collapses whitespace and keeps a short text whole', () => {
+    expect(replyExcerpt('  abri a aba\n\n build  ')).toBe('abri a aba build');
+  });
+  it('drops markdown noise but keeps identifiers with underscores', () => {
+    expect(replyExcerpt('## Feito\n> nota\n**Rodei** `npm test` em [api](https://x.dev) com reply_to_id\n```ts\nconst a = 1\n```')).toBe('Feito nota Rodei npm test em api com reply_to_id const a = 1');
+  });
+  it('cuts at 200 characters with an ellipsis, by code point', () => {
+    const out = replyExcerpt('á'.repeat(250));
+    expect([...out]).toHaveLength(REPLY_EXCERPT_MAX + 1);
+    expect(out.endsWith('…')).toBe(true);
+  });
+  it('names the files of a message with no text', () => {
+    expect(replyExcerpt('', ['relatorio.pdf', 'foto.jpg'])).toBe('📎 relatorio.pdf, foto.jpg');
+    expect(replyExcerpt('   ', [])).toBe('');
   });
 });
