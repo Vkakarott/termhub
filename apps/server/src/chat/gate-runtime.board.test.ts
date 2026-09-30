@@ -3,7 +3,7 @@ import type { ControlContext } from '../control/context.js';
 import type { ChatAction, InsertApprovedInput, InsertPendingInput } from '../db/repositories/chat-actions.js';
 import { chatBus } from './bus.js';
 import { applyGate } from './gate-runtime.js';
-import { idempotencyKeyFor } from './gate.js';
+import { idempotencyKeyFor, DEFAULT_ALLOW_KINDS } from './gate.js';
 
 const C = 'c1';
 function fakeActions() {
@@ -48,6 +48,8 @@ beforeEach(() => {
     chatGrants: { findActive: vi.fn(async () => undefined) },
     chatProjectGrants: { findActive: vi.fn(async (c: string, p: string) => projectGrants.find((g) => g.conversation_id === c && g.project_id === p && !g.revoked_at && Date.parse(g.expires_at) > Date.now())) },
     // No standing grant (TER-386): these tests are about the conversation-bound ones.
+    // Every default allowance (TER-627) restricted: these tests are about the person's own grants.
+    chatDefaultRestrictions: { listForUser: vi.fn(async () => new Set(DEFAULT_ALLOW_KINDS)) },
     chatStandingGrants: { findActive: vi.fn(async () => undefined) },
     projects: { findByIdsForOwner: vi.fn(async (ids: string[], o: string) => (o === 'u1' ? ids.filter((i) => i === 'p1' || i === 'p2').map((id) => ({ id, name: id })) : [])) },
     tasks: { findByIdsForOwner: vi.fn(async (ids: string[], o: string) => (o === 'u1' ? ids.filter((i) => i === 'k1').map((id) => ({ id, project_id: 'p1', ref: 'APP-1', title: 't' })) : [])) },

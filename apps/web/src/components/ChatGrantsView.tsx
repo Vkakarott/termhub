@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '../lib/api';
-import type { ChatGrantListItem } from '../lib/types';
+import type { ChatDefault, ChatGrantListItem } from '../lib/types';
 import { untilLabel } from './chat/grant-time';
 import { endedAtLabel, GRANT_STATE_LABEL, grantOriginLabel, grantTitleLabel } from './chat/grant-list-text';
 
@@ -24,6 +24,9 @@ export function ChatGrantsView() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  // Loaded apart from the grants: a failure here hides the section, never the grants below it.
+  const [defaults, setDefaults] = useState<ChatDefault[] | null>(null);
+  const [savingKind, setSavingKind] = useState<ChatDefault['kind'] | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -41,6 +44,22 @@ export function ChatGrantsView() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    api.listChatDefaults().then((r) => setDefaults(r.defaults), () => setDefaults(null));
+  }, []);
+
+  const toggleDefault = async (d: ChatDefault) => {
+    setSavingKind(d.kind);
+    setError(null);
+    try {
+      setDefaults((await api.setChatDefault(d.kind, !d.allowed)).defaults);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Não foi possível salvar a alteração.');
+    } finally {
+      setSavingKind(null);
+    }
+  };
 
   const loadMore = async () => {
     if (!next) return;
@@ -89,6 +108,26 @@ export function ChatGrantsView() {
     <div className="max-w-3xl space-y-6">
       <p className="text-sm text-fg-muted">O que o chat pode fazer sem pedir confirmação. Permissões de conversa valem por até 24 horas; as sem prazo valem até você revogar.</p>
       {error && <p className="text-sm text-danger">{error}</p>}
+      {defaults && (
+        <section aria-labelledby="chat-defaults" className="space-y-2">
+          <h2 id="chat-defaults" className="text-sm font-semibold text-fg">
+            Liberadas por padrão
+          </h2>
+          <p className="text-xs text-fg-dim">
+            O chat faz estas ações sem pedir confirmação; leituras nunca pedem. Desmarque para voltar a pedir. Sempre pedem confirmação: apagar card, rodar comando, responder permissões, texto com “!”, as teclas Ctrl+C e Esc, fechar aba trabalhando, integrações e status de ticket.
+          </p>
+          <ul className="space-y-1">
+            {defaults.map((d) => (
+              <li key={d.kind}>
+                <label className="flex items-center gap-2 text-sm text-fg">
+                  <input type="checkbox" checked={d.allowed} disabled={savingKind !== null} onChange={() => void toggleDefault(d)} />
+                  <span>{d.label.charAt(0).toUpperCase() + d.label.slice(1)}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <section aria-labelledby="chat-grants-active" className="space-y-2">
         <h2 id="chat-grants-active" className="text-sm font-semibold text-fg">
           Ativas

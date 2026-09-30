@@ -5,7 +5,7 @@ import { agents } from '../agent/registry.js';
 import { hashApiToken } from '../auth/api-tokens.js';
 import { canAccess } from '../auth/permissions.js';
 import { chatBus } from '../chat/bus.js';
-import { idempotencyKeyFor } from '../chat/gate.js';
+import { DEFAULT_ALLOW_KINDS, idempotencyKeyFor } from '../chat/gate.js';
 import { subagentOrigins } from '../chat/subagent-origin.js';
 import type { ChatAction, InsertApprovedInput, InsertPendingInput } from '../db/repositories/chat-actions.js';
 import type { Repositories } from '../db/repositories/index.js';
@@ -254,6 +254,8 @@ function build(opts: { gated: boolean; conversationId?: string }) {
     chatGrants: grants,
     chatProjectGrants: { findActive: vi.fn(async () => undefined) },
     chatStandingGrants: { findActive: vi.fn(async () => undefined) },
+    // Every default allowance (TER-627) restricted: these tests drive the confirmation card itself.
+    chatDefaultRestrictions: { listForUser: vi.fn(async () => new Set(DEFAULT_ALLOW_KINDS)) },
     chatSubagents: { listByIds: vi.fn(async (ids: string[]) => [SUBAGENT, OTHER_CONVERSATION_SUBAGENT].filter((s) => ids.includes(s.id))) },
     users: { findById: vi.fn(async () => ({ id: 'u1', role_id: 'r' })) },
     machines: {

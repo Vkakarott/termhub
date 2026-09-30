@@ -6,13 +6,21 @@ import type { ChatGrantListItem } from '../lib/types';
 
 const listMock = vi.fn();
 const revokeMock = vi.fn();
+const defaultsMock = vi.fn();
+const setDefaultMock = vi.fn();
 vi.mock('../lib/api', () => {
   class ApiError extends Error {
     constructor(public status: number, message: string) {
       super(message);
     }
   }
-  return { ApiError, api: { listChatGrants: (...a: unknown[]) => listMock(...a), revokeChatGrant: (...a: unknown[]) => revokeMock(...a) } };
+  return { ApiError, api: {
+      listChatGrants: (...a: unknown[]) => listMock(...a),
+      revokeChatGrant: (...a: unknown[]) => revokeMock(...a),
+      listChatDefaults: (...a: unknown[]) => defaultsMock(...a),
+      setChatDefault: (...a: unknown[]) => setDefaultMock(...a),
+    },
+  };
 });
 
 import { ApiError } from '../lib/api';
@@ -27,6 +35,9 @@ const item = (over: Partial<ChatGrantListItem> & { id: string }): ChatGrantListI
 beforeEach(() => {
   listMock.mockReset();
   revokeMock.mockReset();
+  defaultsMock.mockReset();
+  setDefaultMock.mockReset();
+  defaultsMock.mockRejectedValue(new Error('not in this test'));
 });
 afterEach(() => cleanup());
 
@@ -109,4 +120,35 @@ it('lists a standing grant as "sem prazo", asks for all_standing and explains bo
   expect(within(active).getByText('Fechar abas paradas no projeto App · sem prazo')).toBeInTheDocument();
   expect(within(active).getByText('Conversa apagada · sem prazo')).toBeInTheDocument();
   expect(screen.getByText('O que o chat pode fazer sem pedir confirmação. Permissões de conversa valem por até 24 horas; as sem prazo valem até você revogar.')).toBeInTheDocument();
+});
+
+const defaultsList = (off: string[] = []) =>
+  ([['open_tab', 'abrir abas'], ['board', 'mexer no quadro (criar, mover e editar cards)'], ['close_tab', 'fechar abas paradas']] as const).map(([kind, label]) => ({ kind, label, allowed: !off.includes(kind) }));
+
+it('lists the default allowances (TER-627), each checked unless restricted', async () => {
+  serve([], [{ grants: [], next_cursor: null }]);
+  defaultsMock.mockResolvedValue({ defaults: defaultsList(['close_tab']) });
+  render(<ChatGrantsView />);
+  const section = await screen.findByRole('region', { name: 'Liberadas por padrão' });
+  expect(within(section).getByRole('checkbox', { name: 'Abrir abas' })).toBeChecked();
+  expect(within(section).getByRole('checkbox', { name: 'Fechar abas paradas' })).not.toBeChecked();
+  expect(within(section).getByText(/Sempre pedem confirmação: apagar card, rodar comando, responder permissões/)).toBeInTheDocument();
+});
+
+it('unchecking a default restricts it and shows what the server answered', async () => {
+  serve([], [{ grants: [], next_cursor: null }]);
+  defaultsMock.mockResolvedValue({ defaults: defaultsList() });
+  setDefaultMock.mockResolvedValue({ defaults: defaultsList(['board']) });
+  render(<ChatGrantsView />);
+  const section = await screen.findByRole('region', { name: 'Liberadas por padrão' });
+  fireEvent.click(within(section).getByRole('checkbox', { name: 'Mexer no quadro (criar, mover e editar cards)' }));
+  expect(setDefaultMock).toHaveBeenCalledWith('board', false);
+  await waitFor(() => expect(within(section).getByRole('checkbox', { name: 'Mexer no quadro (criar, mover e editar cards)' })).not.toBeChecked());
+});
+
+it('a failed defaults read hides that section and keeps the grants', async () => {
+  serve([], [{ grants: [], next_cursor: null }]);
+  render(<ChatGrantsView />);
+  expect(await screen.findByText('Nenhuma permissão ativa agora.')).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Liberadas por padrão' })).toBeNull();
 });

@@ -269,3 +269,27 @@ describe('the index of the account-wide chat', () => {
     expect(text).not.toContain('grupo-com-nome-longo-399');
   });
 });
+
+describe('default allowances line (TER-627)', () => {
+  const pr = { name: 'notify', key: 'NOT' };
+  const ln = [{ machine: 'jarvis', cwd: '/srv/notify' }];
+
+  it('says nothing when the person restricted every default', () => {
+    expect(projectSystemPrompt(pr, ln, [], [], [])).not.toContain('por padrão');
+  });
+
+  it('names the defaults still on, in DEFAULT_ALLOW_KINDS order, and the exceptions that still ask', () => {
+    const text = projectSystemPrompt(pr, ln, [], [], ['close_tab', 'open_tab', 'board']);
+    expect(text).toContain('Liberado sem confirmação por padrão (o usuário pode restringir em Permissões do chat): abrir abas, mexer no quadro (criar, mover e editar cards), fechar abas paradas; leituras nunca pedem.');
+    expect(text).not.toContain('iniciar agentes');
+    for (const x of ['delete_task', 'run_command', 'responder permissões', '"!"', 'fechar aba trabalhando', 'push_ticket_status', 'set_project_repo']) expect(text).toContain(x);
+  });
+
+  it('stays under the protocol cap with every line at once, cutting the machine list', () => {
+    const links = Array.from({ length: 200 }, (_, i) => ({ machine: `m${i}`, cwd: `/very/long/path/${'d'.repeat(40)}/${i}` }));
+    const text = projectSystemPrompt({ name: 'N'.repeat(200), key: 'X' }, links, ['open_tab', 'close_tab', 'start_agent', 'board', 'terminal'], [], ['open_tab', 'start_agent', 'link_tab_task', 'board', 'terminal', 'close_tab']);
+    expect(text.length).toBeLessThanOrEqual(4000);
+    expect(text).toContain('por padrão');
+    expect(text.endsWith('Keep answers short unless asked for detail.')).toBe(true);
+  });
+});

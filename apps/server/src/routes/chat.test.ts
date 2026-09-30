@@ -126,6 +126,10 @@ function build(opts: {
       revokeForConversation: vi.fn(async () => 0),
       listForUser: vi.fn(async () => ({ grants: [], next: null })),
     },
+    chatDefaultRestrictions: {
+      stateForUser: vi.fn(async () => ['open_tab', 'start_agent', 'link_tab_task', 'board', 'terminal', 'close_tab'].map((kind) => ({ kind, allowed: kind !== 'terminal' }))),
+      setAllowed: vi.fn(async () => {}),
+    },
     // ...and then to standing grants (TER-386): by default none matches either.
     chatStandingGrants: {
       grant: vi.fn(async (input: { user_id: string; project_id: string; kind: string; conversation_id: string | null; source_action_id: string | null }) => ({ id: 'sg1', ...input, created_at: '2026-09-28T10:00:00.000Z', revoked_at: null, revoked_by: null })),
@@ -1123,5 +1127,37 @@ describe('POST /chat/tab-questions/:id/auto-answer/cancel (web)', () => {
     const res = await app.inject({ method: 'POST', url: '/chat/tab-questions/q1/auto-answer/cancel' });
     expect(res.statusCode).toBe(409);
     expect(res.json().code).toBe('NOT_SCHEDULED');
+  });
+});
+
+describe('default allowances (TER-627)', () => {
+  it('GET /defaults lists every kind with its label and whether it is on for the caller', async () => {
+    const { app, repos } = build();
+    const res = await app.inject({ method: 'GET', url: '/chat/defaults' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().defaults).toHaveLength(6);
+    expect(res.json().defaults).toContainEqual({ kind: 'terminal', allowed: false, label: 'teclas e texto nas abas de agente' });
+    expect(res.json().defaults).toContainEqual({ kind: 'close_tab', allowed: true, label: 'fechar abas paradas' });
+    expect(repos.chatDefaultRestrictions.stateForUser).toHaveBeenCalledWith('u1');
+  });
+
+  it('PUT /defaults/:kind turns one kind off for the caller and answers the new list', async () => {
+    const { app, repos } = build();
+    const res = await app.inject({ method: 'PUT', url: '/chat/defaults/board', payload: { allowed: false } });
+    expect(res.statusCode).toBe(200);
+    expect(repos.chatDefaultRestrictions.setAllowed).toHaveBeenCalledWith('u1', 'board', false);
+    expect(res.json().defaults).toHaveLength(6);
+  });
+
+  it.each([
+    ['/chat/defaults/run_command', { allowed: true }],
+    ['/chat/defaults/delete_task', { allowed: true }],
+    ['/chat/defaults/board', { allowed: 'yes' }],
+    ['/chat/defaults/board', {}],
+  ])('PUT %s %j is a 400 and changes nothing', async (url, payload) => {
+    const { app, repos } = build();
+    const res = await app.inject({ method: 'PUT', url, payload });
+    expect(res.statusCode).toBe(400);
+    expect(repos.chatDefaultRestrictions.setAllowed).not.toHaveBeenCalled();
   });
 });

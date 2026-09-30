@@ -3,6 +3,11 @@ import {
   actionClass,
   BOARD_GRANT_TOOLS,
   boardGrantable,
+  DEFAULT_ALLOW_BUDGETS,
+  DEFAULT_ALLOW_KINDS,
+  defaultGrantId,
+  defaultKindOf,
+  isDefaultGrantId,
   gateDecision,
   grantable,
   idempotencyKeyFor,
@@ -11,6 +16,7 @@ import {
   STANDING_GRANT_BUDGETS,
   terminalGrantable,
 } from './gate.js';
+import { TOOLS } from '../mcp/tools.js';
 
 it('classifies every tool the MCP exposes, and defaults an unknown one to irreversible', () => {
   expect(actionClass('list_machines', {})).toBe('read');
@@ -170,4 +176,62 @@ describe('standingKindOf', () => {
 it('standing grant budgets and window match spec (TER-386)', () => {
   expect(STANDING_GRANT_BUDGETS).toEqual({ open_tab: 30, close_tab: 30, start_agent: 10, board: 30, terminal: 120 });
   expect(STANDING_BUDGET_WINDOW_MS).toBe(60 * 60 * 1000);
+});
+
+it('classifies list_tab_questions as read (TER-627): it only lists the tabs\' question cards', () => {
+  expect(actionClass('list_tab_questions', {})).toBe('read');
+});
+
+describe('defaultKindOf (TER-627)', () => {
+  it.each([
+    ['open_tab', { project_id: 'p1' }, 'open_tab'],
+    ['start_agent', { project_id: 'p1', prompt: 'oi' }, 'start_agent'],
+    ['link_tab_task', { tab_id: 't1', task_id: 'k1' }, 'link_tab_task'],
+    ['link_tab_task', { tab_id: 't1' }, null],
+    ['create_task', { project_id: 'p1' }, 'board'],
+    ['move_task', { task_id: 'k1' }, 'board'],
+    ['send_input', { tab_id: 't1', text: 'ls' }, 'terminal'],
+    ['send_key', { tab_id: 't1', key: 'Enter' }, 'terminal'],
+    ['close_tab', { tab_id: 't1' }, 'close_tab'],
+    // never a default: interrupting keys, answering a permission, and the tools that always ask
+    ['send_key', { tab_id: 't1', key: 'C-c' }, null],
+    ['send_key', { tab_id: 't1', key: 'Escape' }, null],
+    ['send_input', { tab_id: 't1', text: 'y', answering_permission: true }, null],
+    ['run_command', { tab_id: 't1', command: 'ls' }, null],
+    ['delete_task', { task_id: 'k1' }, null],
+    ['push_ticket_status', {}, null],
+    ['create_integration', {}, null],
+    ['set_project_repo', {}, null],
+    ['link_project_machine', { project_id: 'p1', machine_id: 'm1' }, null],
+    ['set_project_machine_cwd', { project_id: 'p1', machine_id: 'm1' }, null],
+    ['unlink_project_machine', { project_id: 'p1', machine_id: 'm1' }, null],
+    ['sync_tickets', {}, null],
+    ['import_tickets', {}, null],
+  ])('%s %j → %s', (tool, args, expected) => expect(defaultKindOf(tool, args)).toBe(expected));
+
+  it('every MCP tool is a read, self-mediated, a default kind, or on the list that always asks: a new tool is placed on purpose', () => {
+    const alwaysAsks = new Set(['run_command', 'delete_task', 'push_ticket_status', 'create_integration', 'set_project_repo', 'link_project_machine', 'set_project_machine_cwd', 'unlink_project_machine', 'sync_tickets', 'import_tickets']);
+    const sample: Record<string, Record<string, unknown>> = {
+      open_tab: { project_id: 'p1' }, start_agent: { project_id: 'p1' }, link_tab_task: { tab_id: 't1', task_id: 'k1' }, close_tab: { tab_id: 't1' },
+      send_input: { tab_id: 't1', text: 'x' }, send_key: { tab_id: 't1', key: 'Enter' },
+    };
+    for (const { name } of TOOLS) {
+      const cls = actionClass(name, sample[name] ?? {});
+      const placed = cls === 'read' || cls === 'self_mediated' || defaultKindOf(name, sample[name] ?? {}) !== null || alwaysAsks.has(name);
+      expect(placed, name).toBe(true);
+    }
+  });
+
+  it('budgets: the standing ones, plus link_tab_task', () => {
+    expect(Object.keys(DEFAULT_ALLOW_BUDGETS).sort()).toEqual([...DEFAULT_ALLOW_KINDS].sort());
+    expect(DEFAULT_ALLOW_BUDGETS).toMatchObject({ ...STANDING_GRANT_BUDGETS, link_tab_task: 30 });
+  });
+
+  it('the synthetic grant id names the user and the kind, and never looks like a real grant id', () => {
+    expect(defaultGrantId('u1', 'board')).toBe('default:board:u1');
+    expect(defaultGrantId('x'.repeat(24), 'link_tab_task').length).toBeLessThanOrEqual(64);
+    expect(isDefaultGrantId('default:board:u1')).toBe(true);
+    expect(isDefaultGrantId('sg1')).toBe(false);
+    expect(isDefaultGrantId(null)).toBe(false);
+  });
 });

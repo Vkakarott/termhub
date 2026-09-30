@@ -5,7 +5,7 @@ import { readScreen } from '../control/screen.js';
 import type { ChatAction, InsertApprovedInput, InsertPendingInput } from '../db/repositories/chat-actions.js';
 import { chatBus } from './bus.js';
 import { applyGate } from './gate-runtime.js';
-import { idempotencyKeyFor, TAB_TERMINAL_GRANT } from './gate.js';
+import { idempotencyKeyFor, TAB_TERMINAL_GRANT, DEFAULT_ALLOW_KINDS } from './gate.js';
 import { DIALOG_FOOTER } from './permission-dialog.js';
 
 vi.mock('../control/screen.js', () => ({ readScreen: vi.fn(async () => ({ text: '$ ', lines: 40, tab_id: 't1', styled: false })) }));
@@ -84,6 +84,8 @@ beforeEach(() => {
     chatGrants: { findActive: vi.fn(async (c: string, t: string, tool: string) => tabGrants.find((g) => g.conversation_id === c && g.tab_id === t && g.tool === tool && active(g))) },
     chatProjectGrants: { findActive: vi.fn(async (c: string, p: string) => projectGrants.find((g) => g.conversation_id === c && g.project_id === p && active(g))) },
     // No standing grant (TER-386): these tests are about the conversation-bound ones.
+    // Every default allowance (TER-627) restricted: these tests are about the person's own grants.
+    chatDefaultRestrictions: { listForUser: vi.fn(async () => new Set(DEFAULT_ALLOW_KINDS)) },
     chatStandingGrants: { findActive: vi.fn(async () => undefined) },
     projects: { findByIdsForOwner: vi.fn(async (ids: string[], o: string) => (o === 'u1' ? ids.filter((i) => i === 'p1' || i === 'p2').map((id) => ({ id, name: id })) : [])) },
     tasks: { findByIdsForOwner: vi.fn(async () => []) },

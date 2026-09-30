@@ -35,6 +35,8 @@ const TAB_LIFECYCLE_TOOLS = new Set(['open_tab', 'close_tab', 'start_agent']);
 
 /** What a call run under a grant adds to its status line — the web's `grantedLabel`. */
 function grantedLabel(action: ChatAction): string {
+  // TER-627: a default allowance of the chat, not a grant the person gave (`default:<kind>:<user>`).
+  if (action.grant_id?.startsWith('default:')) return ' · liberado por padrão';
   if (isBoardGrantable({ tool: action.tool })) return ' · quadro confiado';
   if (TAB_LIFECYCLE_TOOLS.has(action.tool)) return ' · liberado no projeto';
   return ' · aba confiada';

@@ -431,6 +431,7 @@ export const ModelName = {
   ChatGrant: 'ChatGrant',
   ChatProjectGrant: 'ChatProjectGrant',
   ChatStandingGrant: 'ChatStandingGrant',
+  ChatDefaultRestriction: 'ChatDefaultRestriction',
   TabLimitNotice: 'TabLimitNotice',
   TabQuestion: 'TabQuestion',
   ChatDecision: 'ChatDecision',
@@ -459,7 +460,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "tabLastAnswer" | "machineHook" | "ticket" | "taskColumn" | "task" | "taskPullRequest" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAttachment" | "chatAction" | "chatSubagent" | "chatLiveRun" | "chatGrant" | "chatProjectGrant" | "chatStandingGrant" | "tabLimitNotice" | "tabQuestion" | "chatDecision" | "memoryItem" | "instanceSecret" | "projectGroup" | "projectGroupItem" | "deviceRequest" | "device" | "deviceToken" | "deviceChallenge" | "deviceEvent" | "userNotification"
+    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "tabLastAnswer" | "machineHook" | "ticket" | "taskColumn" | "task" | "taskPullRequest" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAttachment" | "chatAction" | "chatSubagent" | "chatLiveRun" | "chatGrant" | "chatProjectGrant" | "chatStandingGrant" | "chatDefaultRestriction" | "tabLimitNotice" | "tabQuestion" | "chatDecision" | "memoryItem" | "instanceSecret" | "projectGroup" | "projectGroupItem" | "deviceRequest" | "device" | "deviceToken" | "deviceChallenge" | "deviceEvent" | "userNotification"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -2979,6 +2980,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    ChatDefaultRestriction: {
+      payload: Prisma.$ChatDefaultRestrictionPayload<ExtArgs>
+      fields: Prisma.ChatDefaultRestrictionFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ChatDefaultRestrictionFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDefaultRestrictionPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ChatDefaultRestrictionFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDefaultRestrictionPayload>
+        }
+        findFirst: {
+          args: Prisma.ChatDefaultRestrictionFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDefaultRestrictionPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ChatDefaultRestrictionFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDefaultRestrictionPayload>
+        }
+        findMany: {
+          args: Prisma.ChatDefaultRestrictionFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDefaultRestrictionPayload>[]
+        }
+        create: {
+          args: Prisma.ChatDefaultRestrictionCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDefaultRestrictionPayload>
+        }
+        createMany: {
+          args: Prisma.ChatDefaultRestrictionCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ChatDefaultRestrictionCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDefaultRestrictionPayload>[]
+        }
+        delete: {
+          args: Prisma.ChatDefaultRestrictionDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDefaultRestrictionPayload>
+        }
+        update: {
+          args: Prisma.ChatDefaultRestrictionUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDefaultRestrictionPayload>
+        }
+        deleteMany: {
+          args: Prisma.ChatDefaultRestrictionDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ChatDefaultRestrictionUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ChatDefaultRestrictionUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDefaultRestrictionPayload>[]
+        }
+        upsert: {
+          args: Prisma.ChatDefaultRestrictionUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDefaultRestrictionPayload>
+        }
+        aggregate: {
+          args: Prisma.ChatDefaultRestrictionAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateChatDefaultRestriction>
+        }
+        groupBy: {
+          args: Prisma.ChatDefaultRestrictionGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ChatDefaultRestrictionGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ChatDefaultRestrictionCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ChatDefaultRestrictionCountAggregateOutputType> | number
+        }
+      }
+    }
     TabLimitNotice: {
       payload: Prisma.$TabLimitNoticePayload<ExtArgs>
       fields: Prisma.TabLimitNoticeFieldRefs
@@ -4536,6 +4611,15 @@ export const ChatStandingGrantScalarFieldEnum = {
 export type ChatStandingGrantScalarFieldEnum = (typeof ChatStandingGrantScalarFieldEnum)[keyof typeof ChatStandingGrantScalarFieldEnum]
 
 
+export const ChatDefaultRestrictionScalarFieldEnum = {
+  userId: 'userId',
+  kind: 'kind',
+  createdAt: 'createdAt'
+} as const
+
+export type ChatDefaultRestrictionScalarFieldEnum = (typeof ChatDefaultRestrictionScalarFieldEnum)[keyof typeof ChatDefaultRestrictionScalarFieldEnum]
+
+
 export const TabLimitNoticeScalarFieldEnum = {
   id: 'id',
   tabId: 'tabId',
@@ -5222,6 +5306,7 @@ export type GlobalOmitConfig = {
   chatGrant?: Prisma.ChatGrantOmit
   chatProjectGrant?: Prisma.ChatProjectGrantOmit
   chatStandingGrant?: Prisma.ChatStandingGrantOmit
+  chatDefaultRestriction?: Prisma.ChatDefaultRestrictionOmit
   tabLimitNotice?: Prisma.TabLimitNoticeOmit
   tabQuestion?: Prisma.TabQuestionOmit
   chatDecision?: Prisma.ChatDecisionOmit
