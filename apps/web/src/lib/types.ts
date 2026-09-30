@@ -916,7 +916,8 @@ export type ChatHostAiAccount = Pick<AiAccount, 'id' | 'label'>;
  * degrades to the machine's default login, which is the right thing to run and the wrong thing to do
  * without saying so.
  */
-export type ChatHostAccount = { kind: 'chosen'; id: string; label: string } | { kind: 'default' } | { kind: 'lost' };
+/** `via: 'project'` (TER-589): the project's setup chose this account for the project chat, not the person. */
+export type ChatHostAccount = { kind: 'chosen'; id: string; label: string; via?: 'project' } | { kind: 'default' } | { kind: 'lost' };
 
 /**
  * `GET /api/chat`'s `host`: which machine and account run this conversation — the "terminal geral" of

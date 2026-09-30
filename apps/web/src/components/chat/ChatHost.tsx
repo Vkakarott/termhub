@@ -7,6 +7,7 @@ import type { ChatHostAccount, ChatHostAiAccount, ChatHostMachine, ChatHostState
  * chosen account is not the one doing it.
  */
 function accountClause(account: ChatHostAccount): string {
+  if (account.kind === 'chosen' && account.via === 'project') return `na conta ${account.label}, definida pelo projeto`;
   return account.kind === 'chosen' ? `na conta ${account.label}` : 'na conta padrão do Claude dela';
 }
 
@@ -211,7 +212,11 @@ export function ChatHost({ host, machines, accounts, accountsError, accountId, v
             {/* The other half of the pair (spec §3), on the machine that is hosting right now: without it
                 `ai_account_id` could only ever be null and the chosen/lost states were unreachable. Only
                 where there is a machine to read them from — `no_machine` has no accounts to speak of. */}
-            {current !== null && (
+            {host.kind === 'ready' && host.account.kind === 'chosen' && host.account.via === 'project' ? (
+              // TER-589: the project's setup picks this chat's account (and moves on to the next when one
+              // hits its limit); a pick here would not be the one running, so none is offered.
+              <p className="mt-3 text-fg-dim">A conta deste chat vem do setup do projeto (Contas de IA e modelo), na ordem definida lá.</p>
+            ) : current !== null && (
               <>
                 <p className="mt-3 text-fg-dim">Conta do Claude em {current.name}</p>
                 {accountsError ? (
