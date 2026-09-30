@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { permissionDialogVisible, promptVisible } from './permission-dialog.js';
+import { dialogTool, permissionDialogVisible, promptVisible } from './permission-dialog.js';
 
 const fx = (name: string) => readFileSync(new URL(`./fixtures/permission-dialogs/${name}`, import.meta.url), 'utf8');
 const real = readFileSync(new URL('./fixtures/tab-questions/screen-permission.txt', import.meta.url), 'utf8');
@@ -68,4 +68,54 @@ describe('permissionDialogVisible', () => {
 describe('promptVisible stays strict', () => {
   it('does not accept a permission dialog without the Esc footer', () =>
     expect(promptVisible(fx('claude-exit-plan.txt'), { kind: 'permission', payload: { tool_name: 'ExitPlanMode' } })).toBe(false));
+});
+
+const rule = '────────────────────────────────────────────────────────────────────────────────';
+const fullSkill = `${fx('claude-skill.txt')}\n Do you want to proceed?\n Esc to cancel`;
+const transcriptTitle = `${rule}\n Edit file\n${fullSkill}`;
+const croppedBash = real.slice(real.indexOf(' Bash command'));
+
+describe('dialogTool', () => {
+  it.each([
+    ['main-thread Bash', real, 'Bash'],
+    ['subagent Bash', fx('claude-bash-subagent.txt'), 'Bash'],
+    ['Edit', fx('claude-edit.txt'), 'Edit'],
+    ['WebFetch', fx('claude-webfetch.txt'), 'WebFetch'],
+    ['Skill', fx('claude-skill.txt'), null],
+    ['no rule', croppedBash, null],
+    ['title prefix without a space', `${rule}\n Fetching the page…`, null],
+    ['known transcript title above the lowest rule', transcriptTitle, null],
+    ['lowest rule with no following line', `${rule}\n Edit file\n${rule}\n`, null],
+    ['blank lines and case', `${rule}\n\n BASH COMMAND \n`, 'Bash'],
+  ])('identifies %s only under the lowest rule', (_label, screen, expected) => {
+    expect(dialogTool(screen)).toBe(expected);
+  });
+});
+
+describe('promptVisible permission tool check', () => {
+  it.each([
+    ['Bash', 'main-thread Bash', real, true],
+    ['Bash', 'subagent Bash', fx('claude-bash-subagent.txt'), true],
+    ['Bash', 'Edit', fx('claude-edit.txt'), false],
+    ['Bash', 'WebFetch', `${fx('claude-webfetch.txt')}\n Esc to cancel`, false],
+    ['Edit', 'Edit', fx('claude-edit.txt'), true],
+    ['Edit', 'Bash', real, false],
+    ['Skill', 'Bash', real, false],
+    ['Skill', 'original Skill without the old marker/footer', fx('claude-skill.txt'), false],
+    ['Skill', 'Skill with the old marker/footer', fullSkill, true],
+    ['Bash', 'unknown title', fullSkill, true],
+    ['Bash', 'cropped Bash without a rule', croppedBash, true],
+    ['Bash', 'known transcript title above Skill', transcriptTitle, true],
+    ['Bash', 'Bash without a footer', real.slice(0, real.indexOf(' Esc to cancel')), false],
+  ])('%s card on %s', (tool_name, _label, screen, expected) => {
+    expect(promptVisible(screen, { kind: 'permission', payload: { tool_name } })).toBe(expected);
+  });
+});
+
+it('the gate sees the subagent Bash fixture', () => {
+  expect(permissionDialogVisible(fx('claude-bash-subagent.txt'))).toBe(true);
+});
+
+it('the gate keeps its footer/marker path even without menu options', () => {
+  expect(permissionDialogVisible(`${rule}\n Bash command\n Do you want to proceed?\n Esc to cancel`)).toBe(true);
 });

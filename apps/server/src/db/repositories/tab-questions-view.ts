@@ -26,6 +26,8 @@ export interface TabQuestionView {
   auto_answer: AutoAnswer | null;
   /** How `answer` was obtained: `'auto'` when the countdown sent it; null on rows from before. */
   answered_via: AnsweredVia | null;
+  /** When the card was last brought back to the end of the chat (TER-477): screens order by it, else `created_at`. */
+  surfaced_at: string | null;
 }
 
 /** Names resolved owner-scoped, in one batched read: a tab the user cannot see names nothing. */
@@ -56,6 +58,7 @@ export function toTabQuestionView(r: TabQuestion, tabName: string | null): TabQu
     suggestion: r.status === 'open' ? r.suggestion : null,
     auto_answer: r.auto_answer && (r.status === 'open' || r.auto_answer.status === 'sent' || r.auto_answer.status === 'failed') ? r.auto_answer : null,
     answered_via: r.answered_via ?? null,
+    surfaced_at: r.surfaced_at ?? null,
   };
 }
 

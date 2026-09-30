@@ -1,0 +1,10 @@
+● The general-purpose agent is creating its completion marker.
+────────────────────────────────────────────────────────────────────────────────
+ Bash command · from the general-purpose agent
+   touch /tmp/th-f8/a-done && sleep 3
+   Create the completion marker and wait three seconds
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to /tmp/th-f8 from this project
+   3. No
+ Esc to cancel · Tab to amend

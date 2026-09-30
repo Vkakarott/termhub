@@ -15,6 +15,21 @@ const STATUS_LABEL: Record<Exclude<ChatAction['status'], 'pending'>, string> = {
   failed: 'falhou',
 };
 
+/** Why a `failed` card went stale rather than failing to run (spec 2026-09-30 §2.3): the gate refused
+ * a decision that no longer fits the tab. Read as expired, with the reason — the web's `STALE_REASON`. */
+const STALE_REASON: Record<string, string> = {
+  TAB_GONE: 'expirou: a aba foi fechada',
+  WAITING_PERMISSION: 'expirou: a aba passou a pedir uma permissão',
+  PROMPT_CHANGED: 'expirou: a aba está pedindo outra permissão',
+};
+
+/** The line an expired or stale card reads, or null for any other card (TER-477). */
+export function staleLabel(action: ChatAction): string | null {
+  if (action.status === 'expired') return 'expirou sem resposta';
+  if (action.status === 'failed') return STALE_REASON[action.error_code ?? ''] ?? null;
+  return null;
+}
+
 /** Tools whose standing grant trusts the project's tabs themselves (open, close, start an agent). */
 const TAB_LIFECYCLE_TOOLS = new Set(['open_tab', 'close_tab', 'start_agent']);
 
@@ -37,6 +52,8 @@ type Props = {
   standingGrant?: ChatStandingGrant;
   revoking: boolean;
   onRevoke(grantId: string): void;
+  /** "Propor de novo" on an expired or stale card (TER-477): asks the concierge for a fresh card. */
+  onRepropose?(action: ChatAction): void;
 };
 
 /** A write the concierge proposed: its server-composed summary, and Autorizar (PIN) / Recusar while
@@ -46,14 +63,16 @@ type Props = {
  * PIN and its own proof word, and "Liberar sem prazo: <ação> neste projeto" (PIN, TER-386) when the card
  * maps to a standing kind — or how it ended ("· aba confiada" / "· quadro confiado" / "· liberado no
  * projeto" when it ran under a grant), and "Permitido até HH:MM · Revogar" (or "…, sem prazo · Revogar")
- * on the card that created the grant. Memoised: `onDecide` and `onRevoke` are the store's own
+ * on the card that created the grant. An expired or stale card says why and offers "Propor de novo"
+ * (TER-477), with a muted border: it waits on nobody. Memoised: `onDecide` and `onRevoke` are the store's own
  * (stable) actions. */
-export const ActionCard = memo(function ActionCard({ action, busy, onDecide, grant, projectGrant, standingGrant, revoking, onRevoke }: Props) {
+export const ActionCard = memo(function ActionCard({ action, busy, onDecide, grant, projectGrant, standingGrant, revoking, onRevoke, onRepropose }: Props) {
   // explicit fields: the contract infers `args` (z.unknown) as optional
   const terminal = isTerminalGrantable({ tool: action.tool, args: action.args, tab_id: action.tab_id });
   const standingKind = standingKindOf({ tool: action.tool, args: action.args, tab_id: action.tab_id, project_id: action.project_id });
+  const stale = staleLabel(action);
   return (
-    <View className="gap-3 rounded-2xl border border-app-accent bg-app-surface2 p-4">
+    <View testID={`action-card-${action.id}`} className={`gap-3 rounded-2xl border ${stale ? 'border-app-border' : 'border-app-accent'} bg-app-surface2 p-4`}>
       <AppText variant="label">Pedido de confirmação</AppText>
       <AppText>{action.summary}</AppText>
       {/* The subagent whose turn proposed this action (spec 2026-09-26 §4), when there is one. */}
@@ -84,6 +103,13 @@ export const ActionCard = memo(function ActionCard({ action, busy, onDecide, gra
           {standingKind ? (
             <Button label={`Liberar sem prazo: ${STANDING_KIND_LABEL[standingKind]} neste projeto`} variant="secondary" onPress={() => onDecide(action.id, 'approve_project_always')} disabled={busy} />
           ) : null}
+        </View>
+      ) : stale ? (
+        <View className="flex-row items-center justify-between gap-2">
+          <AppText variant="muted" className="flex-1">
+            {stale}
+          </AppText>
+          {onRepropose ? <Button label="Propor de novo" variant="ghost" onPress={() => onRepropose(action)} /> : null}
         </View>
       ) : (
         <AppText variant="muted">{`${STATUS_LABEL[action.status]}${action.grant_id ? grantedLabel(action) : ''}`}</AppText>

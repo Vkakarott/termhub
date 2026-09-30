@@ -193,18 +193,26 @@ Fronts 2, 3, 4 and 5 have no dependency, and neither has what is left of front 1
 **Cards:** TER-179
 **Depends on:** fronts 6 and 7
 **Files:** `packages/machine-ops/src/hooks.ts`, `apps/server/prisma/schema.prisma`, a new migration, `apps/server/src/monitor/state.ts`, `apps/server/src/chat/tab-questions.ts`, `apps/server/src/db/repositories/tab-questions.ts`, `apps/server/src/chat/permission-dialog.ts`, the agent version files, and their tests
-**Needs its own spec:** yes. The first attempt was reverted (spec of 2026-09-26, section 10).
+**Status:** Delivered on 2026-09-30: #247 (hooks, agent 0.12.1), #250 (closes per agent, queue members) and the live check.
+**Spec:** [Tab questions per subagent](../specs/2026-09-30-tab-questions-per-subagent-design.md).
+**Plan:** [Tab Questions Per Subagent Implementation Plan](2026-09-30-tab-questions-per-subagent.md).
 
-- [ ] Spec: closing and queueing per `agent_id`, and the live check that ties a card to the dialog on screen
-- [ ] Hook script: a sanitised `agent_id` value in the reduced `PreToolUse` and `PermissionRequest` bodies
-- [ ] Migration: `agent_id` on `tab_questions`, nullable, with its index
-- [ ] Close and queue per agent; an old script (no value) keeps today's behaviour
-- [ ] `promptVisible` also requires the tool name on screen
-- [ ] Test: two subagents in parallel; B's event never closes A's card, and A's card never answers B's dialog
-- [ ] Agent release
-- [ ] Pull request, merge on green, deploy and publish followed
+- [x] Spec: closing and queueing per `agent_id`, and the live check that ties a card to the dialog on screen
+- [x] Hook script: sanitised Claude `agent_id`, per-agent dedupe, permission marker reset, and `SubagentStop`
+- [x] Migration: nullable `agent_id` and default-empty `queue_agents` on `tab_questions`; no new index needed
+- [x] Close and queue per agent; an old script (no value) keeps today's behaviour
+- [x] `promptVisible` refuses another tool's known title under the lowest box rule; unknown titles fail open; the gate is unchanged
+- [x] Tests: scoped closes and queue membership for parallel subagents, and refusal of another tool's known dialog
+- [x] Agent release: 0.12.1, published by CI and checked with `npm pack`
+- [x] Pull requests merged on green, deploys followed to the health check; database tests run against a real Postgres
 
-**Done when:** answering a subagent's permission in the terminal closes that subagent's card, and the parallel test passes.
+**Delivered behavior:** answering a subagent's permission in the terminal closes its card on that
+agent's next tool call or stop; a main-thread stop with running background agents preserves their
+cards and queue membership. The live check refuses known titles belonging to another tool.
+
+**Left out:** cards for queued dialogs; showing what a permission approves (a hint of the tool's
+input), which requires a maintainer decision about what may leave the machine. Two dialogs of the
+same tool with a lost or late hook remain outside the title check's protection.
 
 ### Front 9: Cursor: approval prompts and unmonitored tabs
 

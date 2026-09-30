@@ -158,6 +158,39 @@ describe('chatTimeline', () => {
   });
 });
 
+// Pending cards at hand (spec 2026-09-30 §2.2): a card brought back to the end of the thread sorts,
+// and is windowed, by `surfaced_at ?? created_at`.
+describe('chatTimeline: surfaced_at', () => {
+  const T3 = '2026-01-01T00:03:00.000Z';
+  const ids = (entries: ReturnType<typeof chatTimeline>) => entries.map((e) => (e.kind === 'message' ? e.message.id : e.kind === 'action' ? e.action.id : e.kind === 'tab_question' ? e.question.id : e.kind === 'tab_suggestion' ? e.suggestion.id : e.kind));
+  const q = { id: 'q1', tab_id: 't1', tab_name: 'api', kind: 'permission', payload: { tool_name: 'Bash' }, answer: null, status: 'open', error_code: null, created_at: T1, answered_at: null, closed_at: null } as TabQuestion;
+  const s = { id: 's1', tab_id: 't1', tab_name: 'api', kind: 'suggestion', payload: { text: 'commit it' }, status: 'open', answer: null, error_code: null, created_at: T1, answered_at: null, closed_at: null } as TabSuggestion;
+
+  it('orders a card by surfaced_at when set, and carries it as the entry\'s at', () => {
+    const messages = [message({ id: 'm1', created_at: T0 }), message({ id: 'm2', created_at: T2 })];
+    const entries = chatTimeline(messages, [action({ id: 'a1', created_at: T1, surfaced_at: T3 })], [{ ...q, surfaced_at: T3 } as TabQuestion], [{ ...s, surfaced_at: T3 } as TabSuggestion]);
+    expect(ids(entries)).toEqual(['m1', 'm2', 'a1', 'q1', 's1']);
+    expect(entries[2]!.at).toBe(T3);
+  });
+
+  it('a null surfaced_at falls back to created_at', () => {
+    const entries = chatTimeline([message({ id: 'm1', created_at: T0 }), message({ id: 'm2', created_at: T2 })], [action({ id: 'a1', created_at: T1, surfaced_at: null })]);
+    expect(ids(entries)).toEqual(['m1', 'a1', 'm2']);
+  });
+
+  it('keeps a card created before the window when it was surfaced inside it', () => {
+    const before = '2025-12-31T23:59:00.000Z';
+    const messages = [message({ id: 'm1', created_at: T1 })];
+    const entries = chatTimeline(messages, [action({ id: 'a1', created_at: before, surfaced_at: T2 }), action({ id: 'a0', created_at: before })], [{ ...q, created_at: before, surfaced_at: T2 } as TabQuestion]);
+    expect(ids(entries)).toEqual(['m1', 'a1', 'q1']);
+  });
+
+  it('two pending cards brought back together group at the end of the thread', () => {
+    const entries = chatTimeline([message({ id: 'm1', created_at: T0 }), message({ id: 'm2', created_at: T2 })], [action({ id: 'a1', created_at: T1, surfaced_at: T3 }), action({ id: 'a2', created_at: T1, surfaced_at: T3 })]);
+    expect(groupPendingActions(entries).map((e) => e.kind)).toEqual(['message', 'message', 'action_group']);
+  });
+});
+
 describe('groupPendingActions', () => {
   it('leaves a single pending card alone', () => {
     const entries = chatTimeline([message({ id: 'm1', created_at: T0 })], [action({ id: 'a1', created_at: T1 }), action({ id: 'a2', created_at: T2, status: 'approved' })]);

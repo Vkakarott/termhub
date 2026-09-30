@@ -13,6 +13,21 @@ const ACTION_STATUS_LABEL: Record<Exclude<ChatAction['status'], 'pending'>, stri
   failed: 'Falhou',
 };
 
+/** Why a `failed` card went stale rather than failing to run (TER-477): the gate refused to run a
+ * decision that no longer fits the tab. Read as "Expirou", with the reason. */
+const STALE_REASON: Record<string, string> = {
+  TAB_GONE: 'Expirou: a aba foi fechada',
+  WAITING_PERMISSION: 'Expirou: a aba passou a pedir uma permissão',
+  PROMPT_CHANGED: 'Expirou: a aba está pedindo outra permissão',
+};
+
+/** The line an expired or stale card reads, or null for any other card (TER-477). */
+export function staleLabel(action: ChatAction): string | null {
+  if (action.status === 'expired') return ACTION_STATUS_LABEL.expired;
+  if (action.status === 'failed') return STALE_REASON[action.error_code ?? ''] ?? null;
+  return null;
+}
+
 /** Mirrors the server's `grantable` (apps/server/src/chat/gate.ts): the server refuses anything else. */
 export function isTabGrantable(action: ChatAction): boolean {
   const args = (action.args ?? {}) as Record<string, unknown>;
@@ -68,6 +83,8 @@ export interface ChatActionCardProps {
   onRevoke?: (grantId: string) => void;
   /** Takes the action's id, for the same reason. */
   onDecide: (id: string, decision: ChatDecisionWord) => void;
+  /** "Propor de novo" on an expired or stale card (TER-477): asks the concierge for a fresh card. */
+  onRepropose?: (action: ChatAction) => void;
 }
 
 /**
@@ -75,10 +92,13 @@ export interface ChatActionCardProps {
  * request, the decision call and the queued note all live in `ChatPanel`. Memoised, with callbacks
  * that take the id: a streamed delta re-renders the panel, and this card must not follow.
  */
-export const ChatActionCard = memo(function ChatActionCard({ action, deciding, note, grant, projectGrant, standingGrant, revoking, onRevoke, onDecide }: ChatActionCardProps) {
+export const ChatActionCard = memo(function ChatActionCard({ action, deciding, note, grant, projectGrant, standingGrant, revoking, onRevoke, onDecide, onRepropose }: ChatActionCardProps) {
   const standingKind = standingKindOf(action);
+  const stale = staleLabel(action);
   return (
-    <li className="chat-enter rounded-xl border border-attention/40 bg-bg-2 px-4 py-3 text-sm">
+    // `data-chat-card`: how the pending bar finds this card to scroll to it (TER-477). A stale card waits
+    // on nobody, so it drops the attention border.
+    <li data-chat-card={action.id} className={`chat-enter rounded-xl border ${stale ? 'border-line' : 'border-attention/40'} bg-bg-2 px-4 py-3 text-sm`}>
       {/* Plain text only — never HTML: this sentence can carry a command the model read off a real terminal screen. */}
       <p className="whitespace-pre-wrap text-fg">{action.summary}</p>
       {/* The subagent whose turn proposed this action (spec 2026-09-26 §4), when there is one. */}
@@ -117,6 +137,15 @@ export const ChatActionCard = memo(function ChatActionCard({ action, deciding, n
             Recusar
           </button>
         </div>
+      ) : stale ? (
+        <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-fg-dim">
+          <span>{stale}</span>
+          {onRepropose && (
+            <button type="button" className="btn-ghost text-xs" onClick={() => onRepropose(action)}>
+              Propor de novo
+            </button>
+          )}
+        </p>
       ) : (
         <p className="mt-1 text-xs text-fg-dim">
           {ACTION_STATUS_LABEL[action.status]}
