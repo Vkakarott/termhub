@@ -3757,6 +3757,50 @@ describe('usage limit (TER-588)', () => {
     expect(built.chat.setRunAccount).not.toHaveBeenCalled();
   });
 
+  // The report behind TER-837: a chat on Opus, the other account with room except for its Fable allowance.
+  const fableFull = { ...usage(69), windows: [{ key: 'seven_day', label: '', utilization: 69, resets_at: null }, { key: 'limit:weekly_scoped:Fable', label: '', utilization: 100, resets_at: null, model: 'fable' }] };
+  const opusFrames = [JSON.stringify({ ...JSON.parse(init), model: 'claude-opus-5-5' }), ...limitFrames.slice(1)];
+
+  it('one-shot (TER-837): a full window of another model does not stop the swap, and the turn stays on its model', async () => {
+    getAccountUsage.mockResolvedValue(fableFull);
+    const built = build([], { host: { machines: [jarvis()] }, accounts: [work] });
+    vi.mocked(built.runner.run).mockImplementationOnce(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield* opusFrames; } }));
+    vi.mocked(built.runner.run).mockImplementationOnce(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield delta('oi!'); yield done(SID); } }));
+    expect(await built.service.send(user, 'oi')).toMatchObject({ text: 'oi!', error_code: null });
+    expect(built.inputs()[0].model ?? null).toBeNull();
+    expect(built.inputs()[1]).toMatchObject({ config_dir: '~/.claude-work', model: 'claude-opus-5-5' });
+  });
+
+  it('one-shot (TER-837): with the model unknown, that window still counts', async () => {
+    getAccountUsage.mockResolvedValue(fableFull);
+    const { service, runner } = build([], { host: { machines: [jarvis()] }, accounts: [work] });
+    vi.mocked(runner.run).mockImplementation(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield* limitFrames; } }));
+    expect(await service.send(user, 'oi')).toMatchObject({ error_code: 'USAGE_LIMIT' });
+    expect(runner.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('streamed (TER-837): picks the account by the model the run is on, and keeps that model there', async () => {
+    getAccountUsage.mockResolvedValue(fableFull);
+    const { service, runner } = build([], { streaming: true, host: { machines: [jarvis()] }, accounts: [work] });
+    const lr = liveRunner();
+    vi.mocked(runner.run).mockImplementation(lr.run);
+    const started = await service.start(user, 'oi');
+    const first = await runAt(lr, 0);
+    first.push(replayOf(first.input.text.trim()));
+    for (const l of opusFrames.slice(0, 4)) first.push(l);
+    await settled();
+    first.push(errorFrame('run_failed'));
+    first.end();
+    const second = await runAt(lr, 1);
+    expect(second.input).toMatchObject({ config_dir: '~/.claude-work', model: 'claude-opus-5-5' });
+    second.push(replayOf(second.input.text.trim()));
+    second.push(delta('oi!'));
+    second.push(done(SID));
+    await settled();
+    second.end();
+    expect(await started.done).toMatchObject({ text: 'oi!', error_code: null });
+  });
+
   it('one-shot: a 429 without the rejected limit event is a transient failure, not the usage limit', async () => {
     const { service, runner } = build([], { host: { machines: [jarvis()] }, accounts: [work] });
     vi.mocked(runner.run).mockImplementation(() => ({ write: () => true, [Symbol.asyncIterator]: async function* () { yield* limitFrames.filter((l) => !l.includes('rate_limit_event')); } }));
