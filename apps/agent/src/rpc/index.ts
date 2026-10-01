@@ -28,6 +28,7 @@ export const handlers: Handlers = {
   'tmux.sendText': tmux.sendText,
   'tmux.sendKey': tmux.sendKey,
   'tmux.scroll': tmux.scroll,
+  'tmux.foreground': tmux.foreground,
   'tools.detect': tools.detect,
   'hw.probe': hw.probe,
   'fs.list': fs.list,

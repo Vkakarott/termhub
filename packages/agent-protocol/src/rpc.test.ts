@@ -5,7 +5,7 @@ describe('rpc catalog', () => {
   it('lists the v1 methods', () => {
     expect([...RPC_METHODS].sort()).toEqual([
       'agent.update', 'ai.credential', 'claude.linkSession', 'docs.read', 'docs.scan', 'file.paste', 'fs.list', 'fs.mkdir', 'hooks.install',
-      'hooks.uninstall', 'hw.probe', 'secret.read', 'sim.boot', 'sim.list', 'tab.mcp.remove', 'tab.mcp.write', 'tmux.capture', 'tmux.ensure',
+      'hooks.uninstall', 'hw.probe', 'secret.read', 'sim.boot', 'sim.list', 'tab.mcp.remove', 'tab.mcp.write', 'tmux.capture', 'tmux.ensure', 'tmux.foreground',
       'tmux.kill', 'tmux.list', 'tmux.scroll', 'tmux.sendKey', 'tmux.sendText', 'tools.detect', 'wda.runner.alive', 'wda.runner.start', 'wda.runner.tail',
       'wda.setup.start', 'wda.setup.state',
     ]);

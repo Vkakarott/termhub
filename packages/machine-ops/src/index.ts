@@ -12,3 +12,4 @@ export * from './claude-session.js';
 export * from './discover.js';
 export * from './simulator.js';
 export * from './scroll-script.js';
+export * from './pane-script.js';

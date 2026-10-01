@@ -183,9 +183,12 @@ export class TabQuestionsRepository {
   async open(input: OpenTabQuestionInput, now = new Date()): Promise<{ question: TabQuestion | null; closed: TabQuestion[] }> {
     return this.db.$transaction(async (tx) => {
       const tab = await lockTab(tx, input.tab_id);
+      // A resume card (TER-643) opens on a tab whose agent exited (`idle`), whatever it had open: the
+      // process that asked is gone, and the cards it left close below.
+      const exited = input.kind === 'suggestion' && (input.payload as { exited?: unknown }).exited === true;
       if (input.kind === 'suggestion') {
-        if (input.conversation_id === null || tab?.state !== 'waiting_input') return { question: null, closed: [] };
-        const question = await tx.tabQuestion.findFirst({ where: { tabId: input.tab_id, kind: { not: 'suggestion' }, closedAt: null, status: { in: ['open', 'answered'] } }, select: { id: true } });
+        if (input.conversation_id === null || tab?.state !== (exited ? 'idle' : 'waiting_input')) return { question: null, closed: [] };
+        const question = exited ? null : await tx.tabQuestion.findFirst({ where: { tabId: input.tab_id, kind: { not: 'suggestion' }, closedAt: null, status: { in: ['open', 'answered'] } }, select: { id: true } });
         if (question) return { question: null, closed: [] };
       }
       let queued = false;
@@ -202,7 +205,7 @@ export class TabQuestionsRepository {
           queued = true;
         }
       }
-      const closed = await closeIn(tx, input.tab_id, 'answered_in_tab', now);
+      const closed = await closeIn(tx, input.tab_id, exited ? 'expired' : 'answered_in_tab', now);
       if (queued) return { question: null, closed };
       if (input.kind === 'choice') await tx.tabQuestion.updateMany({ where: { tabId: input.tab_id, errorCode: PERMISSION_QUEUED }, data: { errorCode: null, queueAgents: [] } });
       const conversationId = input.conversation_id;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TabSuggestion } from '../../lib/types';
-import { CONTEXT_PREVIEW_MAX, lastParagraph, suggestionHint, suggestionTitle } from './tab-suggestion-text';
+import { CONTEXT_PREVIEW_MAX, isReplyCard, lastParagraph, suggestionFieldLabel, suggestionHint, suggestionTitle } from './tab-suggestion-text';
 
 const s = (over: Partial<TabSuggestion> = {}): TabSuggestion => ({ id: 's1', tab_id: 't1', tab_name: 'api', kind: 'suggestion', payload: { text: 'commit it' }, status: 'open', answer: null, error_code: null, created_at: '', answered_at: null, closed_at: null, ...over });
 
@@ -52,5 +52,25 @@ describe('a Codex reply card', () => {
   it('asks for an answer instead of saying none is needed', () => {
     expect(suggestionHint(codex())).toBe('Responda aqui ou na aba.');
     expect(suggestionHint(s())).toBe('Não precisa responder.');
+  });
+});
+
+describe('a resume card (TER-643)', () => {
+  const exited = (over: Partial<TabSuggestion> = {}) => s({ payload: { text: 'claude --continue', exited: true, last_at: null }, ...over } as Partial<TabSuggestion>);
+  it('says the agent exited and offers the line', () => {
+    expect(suggestionTitle(exited())).toBe('«api» parou: o agente encerrou sem terminar o turno.');
+    expect(suggestionTitle(exited({ tab_name: null }))).toBe('Uma aba parou: o agente encerrou sem terminar o turno.');
+    expect(suggestionTitle(exited({ status: 'answered' }))).toBe('«api» parou; comando para retomar:');
+    expect(suggestionHint(exited())).toBe('Envie o comando para retomar a sessão na aba, ou dispense.');
+    expect(suggestionFieldLabel(exited())).toBe('Comando para retomar (edite ou dispense)');
+  });
+  it('names the last activity in local time', () => {
+    const at = new Date(2026, 9, 1, 2, 48);
+    expect(suggestionHint(exited({ payload: { text: 'x', exited: true, last_at: at.toISOString() } } as Partial<TabSuggestion>))).toBe('Última atividade às 02:48. Envie o comando para retomar a sessão na aba, ou dispense.');
+  });
+  it('a Codex resume card holds a line to edit, not a reply', () => {
+    expect(isReplyCard(exited({ payload: { text: 'codex resume --last', agent: 'codex', exited: true } } as Partial<TabSuggestion>))).toBe(false);
+    expect(isReplyCard(s({ payload: { text: '', agent: 'codex' } } as Partial<TabSuggestion>))).toBe(true);
+    expect(suggestionFieldLabel(s())).toBe('Sugestão do Claude Code (opcional — edite ou dispense)');
   });
 });

@@ -81,6 +81,12 @@ export interface SuggestionPayload {
   /** Absent = Claude Code. */
   agent?: 'codex';
   context?: string | null;
+  /**
+   * The tab's agent exited without a hook (TER-643): `text` is the line that resumes it, typed into the
+   * shell the pane is back at, and `last_at` the tab's last state change before that (ISO).
+   */
+  exited?: true;
+  last_at?: string | null;
 }
 /** What the person sent for it, as edited. */
 export interface SuggestionAnswer {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { type TmuxKey } from '@termhub/agent-protocol';
-import { buildScrollScript } from '@termhub/machine-ops';
+import { buildPaneForegroundScript, buildScrollScript, parsePaneForeground, type PaneForeground } from '@termhub/machine-ops';
 import { agentRpc, requireAgentVersion } from '../agent/errors.js';
 import type { Machine } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
@@ -18,6 +18,9 @@ export const TERMINAL_PASTE_MIN_AGENT_VERSION = '0.3.0';
 
 /** The agent release that answers `tmux.scroll` (TER-465): the mouse wheel over a terminal tab. */
 export const TERMINAL_SCROLL_MIN_AGENT_VERSION = '0.12.0';
+
+/** The agent release that answers `tmux.foreground` (TER-643): whether the tab's agent is still in front. */
+export const TERMINAL_FOREGROUND_MIN_AGENT_VERSION = '0.14.0';
 
 /** The largest text the monitor's input route (or a future MCP tool) may type in one call. */
 export const INPUT_MAX_CHARS = 4000;
@@ -114,4 +117,22 @@ export async function scrollSession(machine: Machine, session: string, lines: nu
     return;
   }
   await shell(machine, script);
+}
+
+/**
+ * What the tab's pane runs in front (TER-643): `shell` once the agent on top of it exited, `busy` while
+ * anything else holds the terminal, `dead` for a pane whose process is gone. The agent and ssh/local run
+ * the same script (`buildPaneForegroundScript`), which checks and quotes the session name. Throws like the
+ * other operations (an outdated agent is AGENT_OUTDATED); an answer that is not one of the words is a
+ * MACHINE_FAILED.
+ */
+export async function paneForeground(machine: Machine, session: string): Promise<PaneForeground> {
+  const script = buildPaneForegroundScript(session);
+  if (machine.type === 'agent') {
+    requireAgentVersion(machine, TERMINAL_FOREGROUND_MIN_AGENT_VERSION);
+    return (await agentRpc(machine, 'tmux.foreground', { session })).pane;
+  }
+  const pane = parsePaneForeground(await shell(machine, script));
+  if (!pane) throw new HttpError(502, 'Resposta inesperada do tmux da máquina', 'MACHINE_FAILED');
+  return pane;
 }

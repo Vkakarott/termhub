@@ -1272,7 +1272,9 @@ export interface TabSuggestion {
   tab_name: string | null;
   kind: 'suggestion';
   /** `context`: the agent's message the suggestion answers (TER-96); null or absent when there is none. */
-  payload: { text: string; context?: string | null; agent?: 'codex' };
+  /** `exited` (TER-643): the tab's agent exited without finishing its turn, `text` is the line that resumes it and
+   *  `last_at` the tab's last state change before that. */
+  payload: { text: string; context?: string | null; agent?: 'codex'; exited?: boolean; last_at?: string | null };
   status: TabSuggestionStatus;
   answer: { text: string } | null;
   error_code: string | null;

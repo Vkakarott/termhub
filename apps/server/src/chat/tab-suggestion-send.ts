@@ -7,6 +7,7 @@ import { assertTerminal, offline } from '../control/screen.js';
 import { sendInput } from '../control/terminals.js';
 import { describeTabQuestions, toTabQuestionView, type TabQuestionView } from '../db/repositories/tab-questions-view.js';
 import { forbidden, HttpError, notFound } from '../lib/errors.js';
+import { paneForeground } from '../terminal/session-ops.js';
 import { lastNonBlankLines, permissionDialogVisible } from './permission-dialog.js';
 import { asHttp, codeOf, scopedTabOfRow } from './tab-question-answer.js';
 import { typedText, type SuggestionPayload } from './tab-question-payload.js';
@@ -35,6 +36,16 @@ function codexReplyStale(tab: { state: string | null }, screen: string): boolean
   return permissionDialogVisible(screen) || /enter to submit/i.test(lastNonBlankLines(screen, 5));
 }
 
+/**
+ * The live check of a resume card (TER-643): the tab is still `idle` and its pane still at the shell. The
+ * person may have started something there meanwhile (the agent again, an editor); the resume line would be
+ * typed into it.
+ */
+async function exitedStale(tab: { state: string | null }, machine: Parameters<typeof paneForeground>[0], session: string): Promise<boolean> {
+  if (tab.state !== 'idle') return true;
+  return (await paneForeground(machine, session)) === 'busy';
+}
+
 const suggestionRow = async (ctx: ControlContext, id: string) => {
   const row = await ctx.repos.tabQuestions.findByIdForUser(id, ctx.scope.user.id);
   if (!row || row.kind !== 'suggestion') throw notFound('Sugestão não encontrada');
@@ -56,6 +67,7 @@ export async function sendTabSuggestion(ctx: ControlContext, id: string, raw: un
   const { text } = suggestionSendBody.parse(raw);
   const suggested = (row.payload as SuggestionPayload).text;
   const isCodex = (row.payload as SuggestionPayload).agent === 'codex';
+  const exited = (row.payload as SuggestionPayload).exited === true;
   const { tab, machine } = await scopedTabOfRow(ctx, row, deps.log);
   if (row.status !== 'open') throw suggestionChanged();
   const latest = await ctx.repos.tabQuestions.findOpenForTab(tab.id);
@@ -66,7 +78,9 @@ export async function sendTabSuggestion(ctx: ControlContext, id: string, raw: un
     assertTerminal(tab);
     // an agent moving between instances (a deploy) gets a few seconds to attach before it is called offline
     if (!(await agents.awaitAgent(machine))) throw offline();
-    stale = isCodex
+    stale = exited
+      ? await exitedStale(tab, machine, tab.tmux_session)
+      : isCodex
       ? codexReplyStale(tab, await captureScreen(machine, tab.tmux_session, SUGGESTION_CAPTURE_LINES))
       : (await readSuggestion(machine, tab.tmux_session)) !== suggested;
   } catch (err) {

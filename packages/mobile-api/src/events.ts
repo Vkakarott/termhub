@@ -251,7 +251,8 @@ export const tabSuggestionSchema = z.object({
   kind: z.literal('suggestion'),
   // `context`: the agent's message the suggestion answers (spec 2026-09-26 §6.3). Optional: a server before
   // TER-96 sends none; an app before it strips it (a plain z.object).
-  payload: z.object({ text: z.string(), context: z.string().nullable().optional(), agent: z.string().optional() }),
+  // `exited`/`last_at` (TER-643): a resume card for a tab whose agent exited; an app before it strips them.
+  payload: z.object({ text: z.string(), context: z.string().nullable().optional(), agent: z.string().optional(), exited: z.boolean().optional(), last_at: z.string().nullable().optional() }),
   status: tabSuggestionStatus,
   answer: z.object({ text: z.string() }).nullable(),
   error_code: z.string().nullable(),

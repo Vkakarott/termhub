@@ -76,6 +76,12 @@ export const RPC = {
    * `@termhub/machine-ops`, which the agent runs as is (since agent 0.12.0).
    */
   'tmux.scroll': def(z.object({ session: sessionName, lines: z.number().int().min(-500).max(500) }), z.object({ done: z.literal(true) })),
+  /**
+   * What the tab's pane runs in front (TER-643): `shell` once the agent on top of the shell exited,
+   * `busy` while anything else holds the terminal, `dead` for a pane whose process is gone. See
+   * `buildPaneForegroundScript` in `@termhub/machine-ops`, which the agent runs as is (since agent 0.14.0).
+   */
+  'tmux.foreground': def(z.object({ session: sessionName }), z.object({ pane: z.enum(['shell', 'busy', 'dead']) })),
   'tools.detect': def(z.object({}), z.object({ os: z.string().nullable(), tools: z.array(z.string().max(32)) })),
   'hw.probe': def(z.object({}), z.object({ stdout: z.string() }), 15_000),
   'fs.list': def(z.object({ path: machinePath }), z.object({ stdout: z.string() })),

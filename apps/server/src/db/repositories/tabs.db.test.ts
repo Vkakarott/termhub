@@ -196,12 +196,14 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
   });
 
   describe('stale working tabs (TER-615)', () => {
-    it('lists Claude terminal tabs working with nothing since the cut, oldest first', async () => {
+    it('lists Claude and Codex terminal tabs working with nothing since the cut, oldest first (TER-643: Codex too)', async () => {
       const { tab } = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, meta: { event: 'UserPromptSubmit' } });
       const later = new Date(Date.parse(tab.state_at!) + 1);
       expect((await repo.listStaleWorking(later)).map((t) => t.id)).toContain(tabId);
       expect((await repo.listStaleWorking(new Date(Date.parse(tab.state_at!)))).map((t) => t.id)).not.toContain(tabId);
       await repo.recordEvent(tabId, { kind: 'working', tool: 'codex', text: null, meta: { event: 'UserPromptSubmit' } });
+      expect((await repo.listStaleWorking(new Date(Date.now() + 1000))).map((t) => t.id)).toContain(tabId);
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'cursor', text: null, meta: { event: 'beforeSubmitPrompt' } });
       expect((await repo.listStaleWorking(new Date(Date.now() + 1000))).map((t) => t.id)).not.toContain(tabId);
       await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: null, meta: { event: 'Stop' } });
       expect((await repo.listStaleWorking(new Date(Date.now() + 1000))).map((t) => t.id)).not.toContain(tabId);
