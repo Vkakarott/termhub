@@ -328,6 +328,7 @@ export const TicketScalarFieldEnum = {
   status: 'status',
   meta: 'meta',
   taskId: 'taskId',
+  leftSourceAt: 'leftSourceAt',
   syncedAt: 'syncedAt',
   createdAt: 'createdAt'
 } as const

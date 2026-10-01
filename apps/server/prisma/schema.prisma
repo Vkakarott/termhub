@@ -381,6 +381,8 @@ model Ticket {
   meta          Json                @default("{}")
   /// task criada a partir deste ticket (null = ainda não importado)
   taskId        String?             @unique @map("task_id")
+  /// an imported ticket its source no longer returns (closed, or out of the filter); cleared when it comes back
+  leftSourceAt  DateTime?           @map("left_source_at")
   syncedAt      DateTime            @default(now()) @map("synced_at")
   createdAt     DateTime            @default(now()) @map("created_at")
   project       Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)

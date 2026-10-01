@@ -370,14 +370,14 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'get_ticket',
-    description: 'One external ticket with its full description. key: "EI-123", "PROJ-45", "owner/repo#12" or the ticket URL; with project_id also "repo#12" or "#12". An ambiguous key answers with the candidates. To work on it: import_tickets, then start_agent with the card\'s task id.',
+    description: 'One external ticket with its full description. key: "EI-123", "PROJ-45", "owner/repo#12" or the ticket URL; with project_id also "repo#12" or "#12". An ambiguous key answers with the candidates. left_source_at set = an imported ticket its source no longer returns (closed, or out of the filter); state is what the provider said then. To work on it: import_tickets, then start_agent with the card\'s task id.',
     scope: 'read', resource: 'tickets', action: 'read',
     input: { key: z.string().trim().min(1).max(300), project_id: id.optional() },
     run: (ctx, a) => getTicket(ctx, a as { key: string; project_id?: string }),
   },
   {
     name: 'sync_tickets',
-    description: 'Fetch the open tickets of every source of the project now (Linear, Jira, GitHub). A sync younger than 60 s is reused (cached: true). One failing source does not stop the others: see sources[].error.',
+    description: 'Fetch the open tickets of every source of the project now (Linear, Jira, GitHub). A sync younger than 60 s is reused (cached: true). One failing source does not stop the others: see sources[].error. sources[].left = imported tickets the source stopped returning, marked in this run (their real state goes to the ticket and its card; list_tickets leaves them out).',
     scope: 'tasks', resource: 'tickets', action: 'update',
     input: { project_id: id },
     run: (ctx, a) => syncTickets(ctx, a as { project_id: string }),

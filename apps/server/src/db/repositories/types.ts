@@ -257,6 +257,8 @@ export interface Ticket {
   status: TaskStatus;
   meta: Record<string, unknown>;
   task_id: string | null;
+  /** an imported ticket its source no longer returns; null while it is open there */
+  left_source_at: string | null;
   synced_at: string;
   created_at: string;
 }
@@ -421,6 +423,7 @@ export const mapTicket = (t: PrismaTicket): Ticket => ({
   status: t.status,
   meta: (t.meta ?? {}) as Record<string, unknown>,
   task_id: t.taskId,
+  left_source_at: t.leftSourceAt?.toISOString() ?? null,
   synced_at: t.syncedAt.toISOString(),
   created_at: t.createdAt.toISOString(),
 });
