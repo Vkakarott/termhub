@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { TabQuestion, TabQuestionAnswer, TabQuestionChoice, TabQuestionPermission, TabQuestionSuggestionItem } from '../../lib/types';
+import { AutoDecisionBadge } from './AutoDecisionBadge';
 import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerDescription, choiceAnswerLabel, choiceTitle, formatCountdown, permissionTitle, statusLabel, suggestionLine, suggestionSourceSentence, tabLabel } from './tab-question-text';
 
 export interface TabQuestionCardProps {
@@ -31,6 +32,8 @@ export const TabQuestionCard = memo(function TabQuestionCard(props: TabQuestionC
     // `data-chat-card`: how the pending bar finds this card to scroll to it (TER-477).
     <li data-chat-card={question.id} className="chat-enter rounded-xl border border-attention/40 bg-bg-2 px-4 py-3 text-sm">
       {question.kind === 'choice' ? <ChoiceBody {...props} question={question} /> : <PermissionBody {...props} question={question} />}
+      {/* TER-641: the countdown decides (or decided) this card by itself, from memory. */}
+      {question.auto_decision && <AutoDecisionBadge decision={question.auto_decision} />}
       {question.status !== 'open' && <p className="mt-1 text-xs text-fg-dim">{statusLabel(question)}</p>}
       {error && <p className="mt-1 text-xs text-danger">{error}</p>}
     </li>

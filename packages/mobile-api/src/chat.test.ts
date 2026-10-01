@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  actionAutoDecision,
+  autoDecisionSourceLine,
   REPLY_EXCERPT_MAX,
   replyExcerpt,
   chatMemoryPatchBody,
@@ -402,5 +404,26 @@ describe('projectFavoriteBody (TER-541)', () => {
     expect(projectFavoriteBody.safeParse({ favorite: false }).success).toBe(true);
     expect(projectFavoriteBody.safeParse({}).success).toBe(false);
     expect(projectFavoriteBody.safeParse({ favorite: 'yes' }).success).toBe(false);
+  });
+});
+
+// TER-641: the badge shows only on a send that ran without a click, never on one the person approved.
+describe('actionAutoDecision / autoDecisionSourceLine (TER-641)', () => {
+  const auto = { reason: 'Mesma pergunta', sources: [{ ref: 'decision:d1', question: 'Rodo os testes?', answer: 'Sim' }] };
+
+  it('is the precedent of a call that ran under a grant or a default allowance', () => {
+    expect(actionAutoDecision({ status: 'executed', grant_id: 'default:terminal:u1', auto_decision: auto })).toBe(auto);
+    expect(actionAutoDecision({ status: 'failed', grant_id: 'g1', auto_decision: auto })).toBe(auto);
+  });
+  it('is null for a pending card, a manual approval, no precedent, or an older server', () => {
+    expect(actionAutoDecision({ status: 'pending', grant_id: null, auto_decision: auto })).toBeNull();
+    expect(actionAutoDecision({ status: 'executed', grant_id: null, auto_decision: auto })).toBeNull();
+    expect(actionAutoDecision({ status: 'executed', grant_id: 'g1', auto_decision: null })).toBeNull();
+    expect(actionAutoDecision({ status: 'executed', grant_id: 'g1' })).toBeNull();
+  });
+  it('reads a decision as its question and answer, anything else as the ref', () => {
+    expect(autoDecisionSourceLine(auto.sources[0]!)).toBe('«Rodo os testes?» → Sim');
+    expect(autoDecisionSourceLine({ ref: 'decision:d1', question: 'Rodo?', answer: '' })).toBe('«Rodo?»');
+    expect(autoDecisionSourceLine({ ref: 'task:tk1', question: null, answer: null })).toBe('task:tk1');
   });
 });

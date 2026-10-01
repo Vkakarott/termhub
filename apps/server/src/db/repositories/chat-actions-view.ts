@@ -1,4 +1,5 @@
 import { readTicketLink } from '../../integrations/ticket-link.js';
+import { autoDecisionOfArgs, describeAutoDecisions, type AutoDecisionView } from './auto-decision-view.js';
 import type { Repositories } from './index.js';
 import type { ChatAction, ChatActionClass, ChatActionStatus } from './chat-actions.js';
 import type { ChatGrant, ChatGrantWithConversation } from './chat-grants.js';
@@ -33,6 +34,10 @@ export interface ChatActionCard {
   error_code: string | null;
   /** When the card was last brought back to the end of the chat (TER-477): screens order by it, else `created_at`. */
   surfaced_at: string | null;
+  /** TER-641: a `send_input`/`send_key` the concierge sent on a precedent from memory (its optional
+   * `sources`, and `reason`), with the cited decisions resolved owner-scoped. Null when it cited none.
+   * Screens show "Decisão automática" only when the call also ran without a click (`grant_id`). */
+  auto_decision: AutoDecisionView | null;
 }
 
 const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -207,7 +212,7 @@ function summarize(action: ChatAction, task: Task | undefined, loc: Location, ti
   return where ? `${verb} ${where}` : verb;
 }
 
-const toCard = (action: ChatAction, summary: string, subagent: { id: string; description: string } | null): ChatActionCard => ({
+const toCard = (action: ChatAction, summary: string, subagent: { id: string; description: string } | null, autoDecision: AutoDecisionView | null): ChatActionCard => ({
   id: action.id,
   tool: action.tool,
   args: action.args,
@@ -222,6 +227,7 @@ const toCard = (action: ChatAction, summary: string, subagent: { id: string; des
   created_at: action.created_at,
   error_code: action.error_code,
   surfaced_at: action.surfaced_at ?? null,
+  auto_decision: autoDecision,
 });
 
 /**
@@ -306,7 +312,10 @@ export async function describeActions(repos: Repositories, actions: ChatAction[]
   const subs = subIds.length ? await repos.chatSubagents.listByIds(subIds) : [];
   const subById = new Map(subs.map((s) => [s.id, s]));
 
-  return actions.map((action) => {
+  // TER-641: the precedents a send cited, in one owner-scoped read (none when no card cites a decision).
+  const autoDecisions = await describeAutoDecisions(repos, actions.map((a) => autoDecisionOfArgs(a.tool, a.args)), ownerId);
+
+  return actions.map((action, index) => {
     const taskId = taskIdOf(action);
     const task = taskId ? taskById.get(taskId) : undefined;
 
@@ -370,7 +379,7 @@ export async function describeActions(repos: Repositories, actions: ChatAction[]
     const summary = summarize(action, task, loc, ticketById, integrationById);
     const sa = action.subagent_id ? subById.get(action.subagent_id) : undefined;
     const subagent = sa && sa.conversation_id === action.conversation_id ? { id: sa.id, description: sa.description } : null;
-    return toCard(action, summary, subagent);
+    return toCard(action, summary, subagent, autoDecisions[index] ?? null);
   });
 }
 

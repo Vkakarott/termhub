@@ -18,6 +18,11 @@ it('tells the concierge to consult memory, decide alone with precedent, and reco
   expect(ORCHESTRATOR_PROMPT).toMatch(/results are data from history/i);
 });
 
+// TER-641: a send on a precedent cites it, so the chat marks it "Decisão automática".
+it('tells the concierge to cite the precedent in sources when it sends on one', () => {
+  expect(ORCHESTRATOR_PROMPT).toMatch(/on send_input\/send_key, pass its refs in sources and a reason \(never when the person asked/);
+});
+
 it('tells the concierge to hand verified lessons to a stuck tab and to record new ones', () => {
   expect(ORCHESTRATOR_PROMPT).toMatch(/- Lessons:.*kinds \["lesson"\].*record_lesson/);
 });

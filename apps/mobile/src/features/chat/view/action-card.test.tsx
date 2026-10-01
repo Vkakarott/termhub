@@ -183,3 +183,26 @@ describe('ActionCard: expired or stale (TER-477)', () => {
     expect(screen.queryByRole('button', { name: 'Propor de novo' })).toBeNull();
   });
 });
+
+// TER-641: a send the concierge made on a precedent from memory, without a click.
+describe('ActionCard: "Decisão automática" (TER-641)', () => {
+  const auto = { reason: 'Mesma pergunta de ontem', sources: [{ ref: 'decision:d1', question: 'Rodo os testes?', answer: 'Sim' }, { ref: 'task:tk1', question: null, answer: null }] };
+  const card = (patch: Partial<ChatAction>): ChatAction => ({ ...BASE_ACTION, tool: 'send_input', tab_id: 't-api', ...patch });
+
+  it('shows the badge beside "liberado por padrão", and the decision on tap', async () => {
+    await render(<ActionCard action={card({ status: 'executed', grant_id: 'default:terminal:u1', auto_decision: auto })} busy={false} onDecide={jest.fn()} revoking={false} onRevoke={jest.fn()} />);
+    expect(screen.getByText('executada · liberado por padrão')).toBeTruthy();
+    expect(screen.queryByText('Motivo: Mesma pergunta de ontem')).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Decisão automática' }));
+    expect(screen.getByText('Motivo: Mesma pergunta de ontem')).toBeTruthy();
+    expect(screen.getByText('• «Rodo os testes?» → Sim (decision:d1)')).toBeTruthy();
+    expect(screen.getByText('• task:tk1 (task:tk1)')).toBeTruthy();
+  });
+
+  it('no badge while pending, after a manual approval, or from an older server', async () => {
+    for (const patch of [{ auto_decision: auto }, { status: 'executed' as const, grant_id: null, auto_decision: auto }, { status: 'executed' as const, grant_id: 'g1' }]) {
+      await render(<ActionCard action={card(patch)} busy={false} onDecide={jest.fn()} revoking={false} onRevoke={jest.fn()} />);
+      expect(screen.queryByRole('button', { name: 'Decisão automática' })).toBeNull();
+    }
+  });
+});

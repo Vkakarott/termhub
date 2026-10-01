@@ -1,9 +1,10 @@
 import { memo } from 'react';
 import { View } from 'react-native';
 import { standingKindLabel } from '@/features/chat-grants/model/labels';
-import { isBoardGrantable, isTabGrantable, isTerminalGrantable, STANDING_KIND_LABEL, standingKindOf } from '@/services/api/contract';
+import { actionAutoDecision, isBoardGrantable, isTabGrantable, isTerminalGrantable, STANDING_KIND_LABEL, standingKindOf } from '@/services/api/contract';
 import { AppText, Button } from '@/ui';
 import { untilLabel } from '../model/grant-time';
+import { AutoDecisionBadge } from './auto-decision-badge';
 import type { ChatDecision } from '../viewmodel/createChatStore';
 import type { ChatAction, ChatGrant, ChatProjectGrant, ChatStandingGrant } from '../model/types';
 
@@ -73,6 +74,7 @@ export const ActionCard = memo(function ActionCard({ action, busy, onDecide, gra
   const terminal = isTerminalGrantable({ tool: action.tool, args: action.args, tab_id: action.tab_id });
   const standingKind = standingKindOf({ tool: action.tool, args: action.args, tab_id: action.tab_id, project_id: action.project_id });
   const stale = staleLabel(action);
+  const autoDecision = actionAutoDecision(action);
   return (
     <View testID={`action-card-${action.id}`} className={`gap-3 rounded-2xl border ${stale ? 'border-app-border' : 'border-app-accent'} bg-app-surface2 p-4`}>
       <AppText variant="label">Pedido de confirmação</AppText>
@@ -116,6 +118,8 @@ export const ActionCard = memo(function ActionCard({ action, busy, onDecide, gra
       ) : (
         <AppText variant="muted">{`${STATUS_LABEL[action.status]}${action.grant_id ? grantedLabel(action) : ''}`}</AppText>
       )}
+      {/* TER-641: sent without a click on a precedent from memory — apart from the allowance it ran under. */}
+      {autoDecision ? <AutoDecisionBadge decision={autoDecision} /> : null}
       {grant ? (
         <View className="flex-row items-center justify-between gap-2">
           <AppText variant="muted" className="flex-1">{`${grant.tool === 'terminal' ? 'Teclas e shell liberados nesta aba ' : 'Permitido '}${untilLabel(grant.expires_at)}`}</AppText>

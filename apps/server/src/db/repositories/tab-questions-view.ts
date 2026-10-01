@@ -1,5 +1,6 @@
 import type { TabQuestionSuggestion } from '../../chat/decision-text.js';
 import type { SuggestionPayload, TabRowKind } from '../../chat/tab-question-payload.js';
+import { describeAutoDecisions, type AutoDecisionInput, type AutoDecisionView } from './auto-decision-view.js';
 import type { Repositories } from './index.js';
 import { PERMISSION_QUEUED, type AnsweredVia, type AutoAnswer, type TabQuestion, type TabQuestionStatus, type TabRowAnswer, type TabRowPayload } from './tab-questions.js';
 
@@ -28,18 +29,34 @@ export interface TabQuestionView {
   answered_via: AnsweredVia | null;
   /** When the card was last brought back to the end of the chat (TER-477): screens order by it, else `created_at`. */
   surfaced_at: string | null;
+  /** TER-641: "Decisão automática" — set while the countdown runs or sends (`scheduled`/`sent`, which
+   * stays on a card the countdown answered), with its reason and cited decisions resolved owner-scoped.
+   * Null on a card answered by a click, a cancelled or failed countdown, or none at all. */
+  auto_decision: AutoDecisionView | null;
 }
 
-/** Names resolved owner-scoped, in one batched read: a tab the user cannot see names nothing. */
-export async function describeTabQuestions(repos: Pick<Repositories, 'tabs'>, rows: TabQuestion[], userId: string): Promise<TabQuestionView[]> {
+/** The countdown that decides (or decided) this card by itself, as refs to resolve; null otherwise. */
+function autoDecisionInput(r: TabQuestion): AutoDecisionInput | null {
+  const auto = r.auto_answer;
+  if (!auto || (auto.status !== 'scheduled' && auto.status !== 'sent')) return null;
+  // A sent countdown only stays on the view of a card it answered, or one still open (in flight).
+  if (auto.status === 'sent' && r.status !== 'open' && r.answered_via !== 'auto') return null;
+  return { reason: auto.reason, refs: auto.sources.map((s) => `${s.kind}:${s.id}`) };
+}
+
+/** Names resolved owner-scoped, in one batched read: a tab the user cannot see names nothing. The
+ * decisions an automatic answer cited are resolved the same way, and only when a row has one (TER-641). */
+export async function describeTabQuestions(repos: Pick<Repositories, 'tabs' | 'chatDecisions'>, rows: TabQuestion[], userId: string): Promise<TabQuestionView[]> {
   const ids = [...new Set(rows.map((r) => r.tab_id))];
   const tabs = ids.length ? await repos.tabs.findByIdsForOwner(ids, userId) : [];
   const nameOf = new Map(tabs.map((t) => [t.id, t.name]));
-  return rows.map((r) => toTabQuestionView(r, nameOf.get(r.tab_id) ?? null));
+  const inputs = rows.map(autoDecisionInput);
+  const autos = inputs.some((i) => i !== null) ? await describeAutoDecisions(repos, inputs, userId) : inputs.map(() => null);
+  return rows.map((r, i) => toTabQuestionView(r, nameOf.get(r.tab_id) ?? null, autos[i] ?? null));
 }
 
 /** One row as a view, with the tab's name already resolved by the caller. */
-export function toTabQuestionView(r: TabQuestion, tabName: string | null): TabQuestionView {
+export function toTabQuestionView(r: TabQuestion, tabName: string | null, autoDecision: AutoDecisionView | null = null): TabQuestionView {
   return {
     id: r.id,
     tab_id: r.tab_id,
@@ -60,6 +77,7 @@ export function toTabQuestionView(r: TabQuestion, tabName: string | null): TabQu
     auto_answer: r.auto_answer && (r.status === 'open' || r.auto_answer.status === 'sent' || r.auto_answer.status === 'failed') ? r.auto_answer : null,
     answered_via: r.answered_via ?? null,
     surfaced_at: r.surfaced_at ?? null,
+    auto_decision: autoDecision,
   };
 }
 

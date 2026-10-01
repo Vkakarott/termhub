@@ -37,6 +37,16 @@ export const chatActionClass = z.enum(['read', 'write', 'irreversible']);
 
 export const chatActionStatus = z.enum(['pending', 'approved', 'denied', 'expired', 'executed', 'failed']);
 
+/** Mirrors the server's `AutoDecisionView` (auto-decision-view.ts, TER-641): what the concierge sent a tab
+ * on its own from memory — its reason and the refs it cited. A `decision:` ref of the person's own carries
+ * the recorded question and answer; any other ref carries only `ref`. Optional + nullable wherever it
+ * appears: absent from an older server, stripped by an older app. */
+export const autoDecisionSchema = z.object({
+  reason: z.string().nullable(),
+  sources: z.array(z.object({ ref: z.string(), question: z.string().nullable(), answer: z.string().nullable() })),
+});
+export type TAutoDecision = z.infer<typeof autoDecisionSchema>;
+
 /** Mirrors the server's `ChatActionCard` (chat-actions-view.ts): a write the concierge proposed, with
  * the server-composed pt-BR `summary`. `grant_id` names the tab grant it ran under (optional: older
  * servers do not send it). `subagent` names which subagent's turn proposed it (spec 2026-09-26 §4) —
@@ -60,6 +70,8 @@ export const chatActionSchema = z.object({
   /** When the card was brought back to the end of the thread (spec 2026-09-30 §2.2): the thread orders
    * it by `surfaced_at ?? created_at`. Absent from an older server. */
   surfaced_at: z.string().nullable().optional(),
+  /** A send the concierge made on a precedent from memory (TER-641); null when it cited none. */
+  auto_decision: autoDecisionSchema.nullable().optional(),
 });
 
 /** "Permitir sempre nesta aba" while it holds (server `ChatGrantView`). */
@@ -209,6 +221,8 @@ const tabQuestionCommon = {
   answered_via: z.enum(['card', 'auto']).nullable().optional(),
   /** When the card was brought back to the end of the thread (spec 2026-09-30 §2.2); absent from an older server. */
   surfaced_at: z.string().nullable().optional(),
+  /** "Decisão automática" (TER-641): set while the countdown runs, or on a card it answered. */
+  auto_decision: autoDecisionSchema.nullable().optional(),
 };
 export const tabQuestionSchema = z.discriminatedUnion('kind', [
   z.object({

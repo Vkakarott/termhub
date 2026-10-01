@@ -52,7 +52,7 @@ export function closingScope(next: Interpreted): CloseScope | null {
  * suggestion row goes out on its own events (spec 2026-09-25 tab suggestions §6.2) — `tab_suggestion`
  * when it opens, `tab_suggestion_closed` for anything after — so every close path here also closes it.
  */
-export async function publishTabQuestions(repos: Pick<Repositories, 'tabs'>, type: TabQuestionEventType, rows: TabQuestion[]): Promise<TabQuestionView[]> {
+export async function publishTabQuestions(repos: Pick<Repositories, 'tabs' | 'chatDecisions'>, type: TabQuestionEventType, rows: TabQuestion[]): Promise<TabQuestionView[]> {
   const views: TabQuestionView[] = [];
   for (const row of rows) {
     const [view] = await describeTabQuestions(repos, [row], row.user_id);

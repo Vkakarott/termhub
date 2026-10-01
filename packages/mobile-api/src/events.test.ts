@@ -294,3 +294,20 @@ describe('tab limit events (TER-589)', () => {
     expect(tabQuestionSchema.safeParse({ ...notice, kind: 'usage_limit', answer: null, error_code: null, answered_at: null }).success).toBe(false);
   });
 });
+
+// "Decisão automática" (TER-641): optional + nullable on an action and on a tab question, so an older
+// server (absent) and an older app (stripped by a plain z.object) keep working.
+describe('auto_decision (TER-641)', () => {
+  const q = { id: 'q1', tab_id: 't1', tab_name: 'api', status: 'open', error_code: null, created_at: '2026-10-01T12:00:00.000Z', answered_at: null, closed_at: null, kind: 'permission', payload: { tool_name: 'Bash' }, answer: null };
+  const auto = { reason: 'Mesma pergunta de ontem', sources: [{ ref: 'decision:d1', question: 'Rodo os testes?', answer: 'Sim' }, { ref: 'note:n1', question: null, answer: null }] };
+
+  it('an action carries auto_decision, null, or none (an older server)', () => {
+    expect(chatActionSchema.parse({ ...card, auto_decision: auto }).auto_decision).toEqual(auto);
+    expect(chatActionSchema.parse({ ...card, auto_decision: null }).auto_decision).toBeNull();
+    expect(chatActionSchema.parse(card).auto_decision).toBeUndefined();
+  });
+  it('a tab question carries auto_decision, with a null reason too', () => {
+    expect(tabQuestionSchema.parse({ ...q, auto_decision: { ...auto, reason: null } }).auto_decision?.reason).toBeNull();
+    expect(tabQuestionSchema.parse(q).auto_decision).toBeUndefined();
+  });
+});
