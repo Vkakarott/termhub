@@ -3,6 +3,7 @@ symptom: "two tabs stay working for 40 min with only the shell prompt on screen;
 tags: [monitor, agent, systemd, oomd, tmux, linux]
 evidence: fixed
 card: TER-643
+pr: https://github.com/engenhariainversa/termhub/pull/276
 agent: claude
 date: 2026-10-01
 ---
