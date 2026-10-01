@@ -1,7 +1,9 @@
+import { AppState } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 jest.mock('@/features/session/viewmodel/useSessionStore', () => ({ useSessionStore: require('../../../../test/helpers/ui-stores').stores.store }));
 jest.mock('@/features/chat/viewmodel/useChatStore', () => ({ useChatStore: require('../../../../test/helpers/ui-stores').stores.chat }));
+jest.mock('@/features/permissions/viewmodel/usePermissionsStore', () => ({ usePermissionsStore: require('../../../../test/helpers/ui-stores').stores.permissions }));
 jest.mock('@/features/settings/viewmodel/useSettingsStore', () => ({ useSettingsStore: require('../../../../test/helpers/ui-stores').stores.settings }));
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn(), canGoBack: jest.fn(() => true) };
@@ -54,7 +56,7 @@ describe('Ajustes', () => {
     // for the next test) whichever test ran before.
     await screen.findByText('iPhone de teste', undefined, LOAD);
 
-    const toggle = screen.getByRole('switch');
+    const toggle = screen.getByRole('switch', { name: 'Usar biometria para desbloquear' });
     await act(async () => fireEvent(toggle, 'valueChange', true));
     expect(enable).toHaveBeenCalledTimes(1);
 
@@ -117,5 +119,46 @@ describe('Ajustes', () => {
     await fireEvent.press(await screen.findByRole('button', { name: 'Testar a chave do aparelho' }, LOAD));
     expect(await screen.findByText('create: ok', undefined, LOAD)).toBeTruthy();
     expect(screen.getByText('destroy: ok')).toBeTruthy();
+  });
+});
+
+describe('Notificações e Privacidade (permission prompts spec §2)', () => {
+  it('a refused permission offers the system settings', async () => {
+    stores.permissionDeps.notificationStatus.mockResolvedValueOnce('denied');
+    await render(<SettingsScreen />);
+    expect(await screen.findByText('Desativadas. Para receber avisos, ative nos Ajustes do sistema.')).toBeTruthy();
+    await act(async () => fireEvent.press(screen.getByText('Abrir Ajustes do sistema')));
+    expect(stores.permissionDeps.openSystemSettings).toHaveBeenCalled();
+  });
+
+  it('an undecided permission can be turned on from here', async () => {
+    stores.permissionDeps.notificationStatus.mockResolvedValueOnce('undetermined');
+    await render(<SettingsScreen />);
+    await act(async () => fireEvent.press(await screen.findByText('Ativar notificações')));
+    expect(stores.permissionDeps.requestNotifications).toHaveBeenCalled();
+  });
+
+  it('the ad measurement switch follows and changes the consent', async () => {
+    stores.permissions.setState({ adConsent: 'granted' });
+    await render(<SettingsScreen />);
+    const toggle = screen.getByRole('switch', { name: 'Medição de anúncios' });
+    expect(toggle.props.value).toBe(true);
+    await act(async () => fireEvent(toggle, 'valueChange', false));
+    expect(stores.permissions.getState().adConsent).toBe('denied');
+  });
+
+  it('coming back to the app drops a grant revoked in the system settings', async () => {
+    stores.permissions.setState({ adConsent: 'granted' });
+    let onChange: (state: string) => void = () => undefined;
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
+      onChange = handler as (state: string) => void;
+      return { remove: jest.fn() };
+    });
+    await render(<SettingsScreen />);
+    expect(screen.getByRole('switch', { name: 'Medição de anúncios' }).props.value).toBe(true);
+    stores.permissionDeps.trackingStatus.mockResolvedValue('denied');
+    await act(async () => onChange('active'));
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Medição de anúncios' }).props.value).toBe(false));
+    stores.permissionDeps.trackingStatus.mockResolvedValue('undetermined');
   });
 });

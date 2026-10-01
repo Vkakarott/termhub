@@ -1,10 +1,12 @@
 import * as Application from 'expo-application';
 import { useRouter } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Switch, View } from 'react-native';
+import { AppState, Switch, View } from 'react-native';
 import { hostLine } from '@/features/chat/model/copy';
 import { HostSheet } from '@/features/chat/view/host-sheet';
 import { useChatStore } from '@/features/chat/viewmodel/useChatStore';
+import { PERMISSIONS_MSG } from '@/features/permissions/model/messages';
+import { usePermissionsStore } from '@/features/permissions/viewmodel/usePermissionsStore';
 import { useSessionStore } from '@/features/session/viewmodel/useSessionStore';
 import { useThemeStore, type ThemePreference } from '@/features/theme/viewmodel/useThemeStore';
 import { diagnosticKey } from '@/services/key';
@@ -30,7 +32,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** Ajustes (spec §11.2, design spec §7): this device, biometrics, the general chat's machine and
+/** Ajustes (spec §11.2, design spec §7): this device, biometrics, notifications and privacy, the general chat's machine and
  * "Permissões do chat" (its trusted tabs and projects), the theme, the key diagnostic, the version
  * and leaving. */
 export function SettingsScreen() {
@@ -47,6 +49,14 @@ export function SettingsScreen() {
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
 
+  const notificationStatus = usePermissionsStore((s) => s.notificationStatus);
+  const adConsent = usePermissionsStore((s) => s.adConsent);
+  const refreshStatuses = usePermissionsStore((s) => s.refreshStatuses);
+  const syncAdConsent = usePermissionsStore((s) => s.syncAdConsent);
+  const acceptPush = usePermissionsStore((s) => s.acceptPush);
+  const openSystemSettings = usePermissionsStore((s) => s.openSystemSettings);
+  const setAdsFromSettings = usePermissionsStore((s) => s.setAdsFromSettings);
+
   const [pickingHost, setPickingHost] = useState(false);
   const [confirmingLeave, setConfirmingLeave] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
@@ -60,6 +70,15 @@ export function SettingsScreen() {
     // screen underneath the tabs.
     void refreshGeneralChat(null);
   }, [loadDevice, refreshGeneralChat]);
+
+  // The OS statuses, now and whenever the person comes back from the system settings.
+  useEffect(() => {
+    void refreshStatuses();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void syncAdConsent(); // also downgrades an ATT grant revoked in the system settings
+    });
+    return () => sub.remove();
+  }, [refreshStatuses, syncAdConsent]);
 
   const runDiagnostic = () => {
     setDiagnosticResult(null);
@@ -85,9 +104,23 @@ export function SettingsScreen() {
         <Section title="Biometria">
           <View className="flex-row items-center justify-between">
             <AppText>Usar biometria para desbloquear</AppText>
-            <Switch value={biometricsEnabled} onValueChange={(value) => void (value ? enableBiometrics() : disableBiometrics())} />
+            <Switch accessibilityLabel="Usar biometria para desbloquear" value={biometricsEnabled} onValueChange={(value) => void (value ? enableBiometrics() : disableBiometrics())} />
           </View>
           <AppText variant="muted">Atalho para o seu PIN ao desbloquear e ao autorizar ações.</AppText>
+        </Section>
+
+        <Section title="Notificações">
+          <AppText variant="muted">{PERMISSIONS_MSG.notificationStatus[notificationStatus ?? 'undetermined']}</AppText>
+          {notificationStatus === 'undetermined' ? <Button label={PERMISSIONS_MSG.pushAccept} variant="secondary" onPress={() => void acceptPush()} /> : null}
+          {notificationStatus === 'denied' ? <Button label={PERMISSIONS_MSG.openSettings} variant="secondary" onPress={() => void openSystemSettings()} /> : null}
+        </Section>
+
+        <Section title="Privacidade">
+          <View className="flex-row items-center justify-between">
+            <AppText>{PERMISSIONS_MSG.adsSwitch}</AppText>
+            <Switch accessibilityLabel={PERMISSIONS_MSG.adsSwitch} value={adConsent === 'granted'} onValueChange={(value) => void setAdsFromSettings(value)} />
+          </View>
+          <AppText variant="muted">{PERMISSIONS_MSG.adsHint}</AppText>
         </Section>
 
         <Section title="Chat">

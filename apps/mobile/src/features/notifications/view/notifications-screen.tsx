@@ -1,6 +1,7 @@
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useCallback } from 'react';
 import { FlatList, Pressable, RefreshControl, View } from 'react-native';
+import { usePermissionsStore } from '@/features/permissions/viewmodel/usePermissionsStore';
 import { relativeTime } from '@/features/shared/relative-time';
 import type { TNotificationRow } from '@/services/api/contract';
 import { AppText, Banner, EmptyState, Screen } from '@/ui';
@@ -36,13 +37,15 @@ export function NotificationsScreen() {
   const load = useNotificationsStore((s) => s.load);
   const loadMore = useNotificationsStore((s) => s.loadMore);
   const markRead = useNotificationsStore((s) => s.markRead);
+  const maybeOpenPushPrimer = usePermissionsStore((s) => s.maybeOpenPushPrimer);
 
   // On every focus, like Chats: an approval or a new push seen elsewhere would otherwise leave
-  // this list stale.
+  // this list stale. Someone who opens this tab without notifications on is offered them.
   useFocusEffect(
     useCallback(() => {
       void load();
-    }, [load]),
+      void maybeOpenPushPrimer();
+    }, [load, maybeOpenPushPrimer]),
   );
 
   const onPress = (row: TNotificationRow) => {

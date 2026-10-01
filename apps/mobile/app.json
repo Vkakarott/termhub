@@ -4,7 +4,7 @@
     "slug": "termhub",
     "owner": "engenharia-inversa",
     "scheme": "termhub",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -24,7 +24,7 @@
     },
     "android": {
       "package": "dev.termhub.app",
-      "versionCode": 5,
+      "versionCode": 6,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#0B0F19",
@@ -99,8 +99,14 @@
         "@react-native-firebase/analytics",
         {
           "ios": {
-            "withoutAdIdSupport": true
+            "withoutAdIdSupport": false
           }
+        }
+      ],
+      [
+        "expo-tracking-transparency",
+        {
+          "userTrackingPermission": "Usamos o identificador de publicidade só para medir quais anúncios trouxeram você ao termhub."
         }
       ],
       "./plugins/with-single-bouncycastle"

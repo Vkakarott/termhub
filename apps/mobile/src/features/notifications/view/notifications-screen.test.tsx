@@ -5,6 +5,7 @@ jest.mock('@/features/chat/viewmodel/useChatStore', () => ({ useChatStore: requi
 jest.mock('@/features/notifications/viewmodel/useNotificationsStore', () => ({
   useNotificationsStore: require('../../../../test/helpers/ui-stores').stores.notifications,
 }));
+jest.mock('@/features/permissions/viewmodel/usePermissionsStore', () => ({ usePermissionsStore: require('../../../../test/helpers/ui-stores').stores.permissions }));
 
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
@@ -66,5 +67,12 @@ describe('Notificações', () => {
     await act(async () => fireEvent.press(row));
 
     expect(mockPush).toHaveBeenCalledWith('/chat/general');
+  });
+
+  it('offers the notification primer on focus while the permission is undecided', async () => {
+    stores.permissions.setState({ pushPrimerOpen: false, pushPrimerDismissals: 0 });
+    await render(<NotificationsScreen />);
+    await act(async () => undefined);
+    expect(stores.permissions.getState().pushPrimerOpen).toBe(true);
   });
 });

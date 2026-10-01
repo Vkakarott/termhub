@@ -14,7 +14,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { SessionState } from '@/features/session/model/session.types';
-import { appBackgrounded, sessionEnded } from '@/features/shared/signals';
+import { appBackgrounded, messageSent, sessionEnded } from '@/features/shared/signals';
 import { STANDING_KIND_LABEL, standingKindOf, type TChatAttachment, type TChatProjectItem, type THostOptionsResponse, type TTabQuestionAnswerBody } from '@/services/api/contract';
 import { ApiError } from '@/services/api/errors';
 import { randomId } from '@/services/crypto/random';
@@ -656,6 +656,7 @@ export function createChatStore(deps: ChatDeps) {
                   : slot.messages.map((m) => (m.id === localId ? { ...m, id: accepted.user_message_id, local: undefined } : m)),
               }));
               set({ sending: false });
+              messageSent.emit();
               // Events no longer re-read the thread; with the socket down nothing else would show the answer.
               if (!get().connected) void reread(key);
               return true;

@@ -1,10 +1,13 @@
 // One mock transport, one session store, one chat store, one notifications store, one settings
-// store, one chat grants store, one chat-memory store and one progress store over it, for the `ui`
-// project: a screen test mocks `useSessionStore`, `useChatStore`, `useNotificationsStore`,
-// `useSettingsStore`, `useChatGrantsStore`, `useChatMemoryStore` and `useProgressStore` with these
+// store, one chat grants store, one chat-memory store, one progress store and one permissions store
+// over it, for the `ui` project: a screen test mocks `useSessionStore`, `useChatStore`,
+// `useNotificationsStore`, `useSettingsStore`, `useChatGrantsStore`, `useChatMemoryStore`,
+// `useProgressStore` and `usePermissionsStore` with these
 // (each `jest.mock` factory requires this module, and Jest's registry hands every store the same
 // instance within a test file).
 // `enrolStores()` leaves the session unlocked; run it once, in `beforeAll`.
+import type { PermissionsDeps } from '@/features/permissions/model/permissions.types';
+import { createPermissionsStore } from '@/features/permissions/viewmodel/createPermissionsStore';
 import { createChatGrantsStore } from '@/features/chat-grants/viewmodel/createChatGrantsStore';
 import { createChatMemoryStore } from '@/features/chat/viewmodel/createChatMemoryStore';
 import { createChatStore } from '@/features/chat/viewmodel/createChatStore';
@@ -16,6 +19,17 @@ import { enrol, setupSession } from './enrolled-session';
 const ctx = setupSession(Date.now());
 
 const chat = createChatStore({ api: ctx.api, session: () => ctx.store.getState() });
+
+/** Fake OS answers for the permissions store: a screen test overrides one with `mockResolvedValueOnce`. */
+const permissionDeps: jest.Mocked<PermissionsDeps> = {
+  platform: 'ios',
+  notificationStatus: jest.fn(async () => 'undetermined' as const),
+  requestNotifications: jest.fn(async () => 'granted' as const),
+  trackingStatus: jest.fn(async () => 'undetermined' as const),
+  requestTracking: jest.fn(async () => 'authorized' as const),
+  setAdConsent: jest.fn(async (_granted: boolean) => undefined),
+  openSystemSettings: jest.fn(async () => undefined),
+};
 
 export const stores = {
   ...ctx,
@@ -30,6 +44,8 @@ export const stores = {
   chatGrants: createChatGrantsStore({ api: ctx.api, session: () => ctx.store.getState() }),
   chatMemory: createChatMemoryStore({ api: ctx.api, session: () => ctx.store.getState() }),
   progress: createProgressStore({ api: ctx.api, session: () => ctx.store.getState() }),
+  permissions: createPermissionsStore(permissionDeps),
+  permissionDeps,
 };
 
 export async function enrolStores(): Promise<void> {

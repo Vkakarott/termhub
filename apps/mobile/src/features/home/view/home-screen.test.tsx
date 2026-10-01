@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 jest.mock('@/features/session/viewmodel/useSessionStore', () => ({ useSessionStore: require('../../../../test/helpers/ui-stores').stores.store }));
 jest.mock('@/features/chat/viewmodel/useChatStore', () => ({ useChatStore: require('../../../../test/helpers/ui-stores').stores.chat }));
+jest.mock('@/features/permissions/viewmodel/usePermissionsStore', () => ({ usePermissionsStore: require('../../../../test/helpers/ui-stores').stores.permissions }));
 
 const mockPush = jest.fn();
 const mockNavigate = jest.fn();
@@ -79,6 +80,14 @@ describe('Home (TER-541)', () => {
     await stores.api.setProjectFavorite(auth(), 'p-termhub', false); // the web, say
     await act(async () => mockFocus?.());
     expect(await screen.findByText('Nenhum projeto fixado')).toBeTruthy();
+  });
+
+  it('re-reads the OS statuses on focus, and asks for ad consent while undecided', async () => {
+    stores.permissions.setState({ adConsent: 'unknown', trackingStatus: null });
+    stores.permissionDeps.trackingStatus.mockClear();
+    await render(<HomeScreen />);
+    expect(stores.permissionDeps.trackingStatus).toHaveBeenCalled();
+    expect(await screen.findByText('Ajude a medir nossos anúncios', undefined, LOAD)).toBeTruthy();
   });
 
   it('does not claim nothing is pinned while the first load is running', async () => {

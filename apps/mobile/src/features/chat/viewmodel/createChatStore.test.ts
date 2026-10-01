@@ -4,7 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 import { chatResponse, type TChatEvent, type TChatMessage, type TChatStandingGrant } from '@/services/api/contract';
 import { ApiError } from '@/services/api/errors';
 import { mmkv } from '@/services/storage';
-import { appBackgrounded } from '@/features/shared/signals';
+import { appBackgrounded, messageSent } from '@/features/shared/signals';
 import { PERSIST_INTERVAL_MS } from './throttled-storage';
 import { emptyFold } from '../model/live';
 import { createChatStore } from './createChatStore';
@@ -1699,4 +1699,17 @@ describe('replies (TER-447)', () => {
     await expect(chat.getState().send('faz de novo', [], { id: 'nope', role: 'assistant', excerpt: 'x' })).resolves.toBe(false);
     expect(chat.getState().error).toBe('A mensagem citada não está mais disponível. Cancele a citação e envie de novo.');
   });
+});
+
+it('announces a message the server accepted, never a failed one (permission prompts spec §3.1)', async () => {
+  const { chat, api } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  const sent = jest.fn();
+  const off = messageSent.subscribe(sent);
+  jest.spyOn(api, 'sendMessage').mockRejectedValueOnce(new ApiError(409, 'HOST_OFFLINE', 'A máquina do chat está offline.'));
+  await chat.getState().send('oi');
+  expect(sent).not.toHaveBeenCalled();
+  await expect(chat.getState().send('de novo')).resolves.toBe(true);
+  expect(sent).toHaveBeenCalledTimes(1);
+  off();
 });

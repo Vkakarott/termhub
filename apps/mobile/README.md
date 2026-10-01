@@ -150,18 +150,22 @@ Manifests are code-signed: the server holds the app's private key, and `certs/ce
 
 `expo-notifications` (spec §9). The server sends through the Expo Push Service to the token the app registers with `PUT push-token`; `src/services/push.ts` reads that token:
 
-- **Registration.** At every session start (activation or unlock, never a silent renewal) the session store asks for the phone's Expo push token and sends it, fire-and-forget. The first time, this is where the OS permission prompt appears (on Android 13+ only after the `default` channel exists, which `expoPushToken` creates first). A simulator, a refused permission or a build without `extra.eas.projectId` has no token, and nothing is sent. Mock mode keeps sending the fake `ExponentPushToken[mock-…]`.
+- **Registration.** At every session start (activation or unlock, never a silent renewal), and right after the primer gets a grant, the session store asks for the phone's Expo push token and sends it, fire-and-forget. The token is read only once the permission is granted: the OS prompt comes from the notification primer (after the first message the server accepts, or on the Notificações tab) or from Ajustes, never from a session start. A simulator, a permission not granted or a build without `extra.eas.projectId` has no token, and nothing is sent. Mock mode keeps sending the fake `ExponentPushToken[mock-…]`.
 - **Tokens are per EAS project.** `getExpoPushTokenAsync` needs `extra.eas.projectId` (`app.json`, project `0614ffa1-…` of the `engenharia-inversa` Expo account). If that id changes, every phone's token changes with it.
 - **Taps.** `app/_layout.tsx` opens `data.conversation_id` the same way as a `termhub://chat/<id>` deep link, straight away when unlocked or after the PIN otherwise; a cold start from a tap works the same way. A `device_request` push names no conversation and just opens the app. Every push also carries `data.notification_id`, its row in the Notificações history: the tap marks that row read (`markPushRead`, once unlocked).
 - **In the foreground** a push is still shown as a banner: the server only skips phones with a live chat socket, so one that arrives while the app is open is about something the screen may not be showing.
 
 Delivery to real phones needs credentials on the Expo project, set once with `eas credentials` (or expo.dev → the project → Credentials), logged in to `engenharia-inversa` (see the root `CLAUDE.md`, "Mobile (EAS)"): an **APNs key** for `dev.termhub.app` (iOS) and a **FCM V1 service account key** of the Firebase project `apptermhub` (Android). If the Expo account enables enhanced push security, the server's `EXPO_PUSH_ACCESS_TOKEN` must be an access token of that same account.
 
+### Permission prompts
+
+`src/features/permissions` (spec `docs/superpowers/specs/2026-09-30-mobile-permission-prompts-design.md`) asks for two things in context: notifications (a primer sheet, at most twice) and ad measurement (a Home card; ATT on iOS, our own yes on Android). Ad consent is denied by default in `firebase.json` and only granted by the person; it can be changed in Ajustes → Privacidade.
+
 ## Firebase
 
 Both apps (`dev.termhub.app`) are registered in the Firebase project `apptermhub`; `google-services.json` (Android) and `GoogleService-Info.plist` (iOS) are committed next to `app.json` (they identify the app, they are not secrets). `@react-native-firebase/app` and `@react-native-firebase/analytics` are installed for Firebase App Distribution and Analytics: `src/services/analytics.ts` logs a `screen_view` per expo-router route pattern (`/chat/[id]`, never the resolved id).
 
-On iOS, the Firebase pods are resolved through CocoaPods (`disableSPM`), which needs static frameworks: `expo-build-properties` sets `ios.useFrameworks: "static"` for every pod. Analytics is built without the AdSupport framework (`withoutAdIdSupport`), so the app never touches the IDFA and needs no App Tracking Transparency prompt.
+On iOS, the Firebase pods are resolved through CocoaPods (`disableSPM`), which needs static frameworks: `expo-build-properties` sets `ios.useFrameworks: "static"` for every pod. AdSupport is linked (`withoutAdIdSupport: false`) so the IDFA can be read after the App Tracking Transparency prompt; the ad signals (`ad_storage`, `ad_user_data`, `ad_personalization`) are denied by default in `firebase.json` and only granted by the person (see "Permission prompts"); screen views (`analytics_storage`) are unchanged.
 
 ## Manual checklist (design spec §10)
 
