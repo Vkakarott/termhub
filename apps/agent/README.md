@@ -7,11 +7,33 @@ sleeping.
 
 ## Install
 
+Requires Node 20+ and `tmux` on the machine you're pairing. On Linux, npm also compiles
+node-pty (its release publishes no Linux prebuild), so it needs `make`, a C++ compiler and
+`python3`; without them the install stops at `gyp ERR! ... not found: make` and
+`termhub-agent` is never installed. The web app's **Add machine** screen shows these commands
+in a Linux and a macOS tab.
+
+Linux (apt, dnf or pacman; uses `sudo` when not root):
+
 ```bash
+SUDO=$([ "$(id -u)" -eq 0 ] || echo sudo)
+if command -v apt-get >/dev/null; then $SUDO apt-get update && $SUDO apt-get install -y build-essential python3 tmux
+elif command -v dnf >/dev/null; then $SUDO dnf group install -y "Development Tools" && $SUDO dnf install -y python3 tmux
+elif command -v pacman >/dev/null; then $SUDO pacman -S --noconfirm --needed base-devel python tmux
+else echo 'Instale tmux, make, g++ e python3 com o gerenciador de pacotes do sistema e rode o comando de novo.'; false
+fi && npm i -g @termhub/agent && termhub-agent --version
+```
+
+macOS (Homebrew):
+
+```bash
+{ xcode-select -p >/dev/null 2>&1 || { xcode-select --install; echo 'Conclua a instalação das Command Line Tools e rode o comando de novo.'; false; }; } &&
+{ command -v tmux >/dev/null || brew install tmux; } &&
 npm i -g @termhub/agent && termhub-agent --version
 ```
 
-Requires Node 20+ and `tmux` on the machine you're pairing.
+Each step only runs when the previous one succeeded, so a failed package install never reaches
+`npm i -g`.
 
 ## Connect
 
