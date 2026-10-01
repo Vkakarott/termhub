@@ -11,8 +11,8 @@ vi.mock('node:crypto', async (importOriginal) => {
   return { ...actual, randomUUID: () => 'fixed-uuid' };
 });
 
-import { buildScrollScript, shellQuote } from '@termhub/machine-ops';
-import { capture, ensure, kill, list, scroll, sendKey, sendText } from './tmux.js';
+import { buildPaneForegroundScript, buildScrollScript, shellQuote } from '@termhub/machine-ops';
+import { capture, ensure, foreground, kill, list, scroll, sendKey, sendText } from './tmux.js';
 
 beforeEach(() => {
   run.mockReset();
@@ -215,5 +215,24 @@ describe('scroll', () => {
     await expect(scroll({ session: 's1', lines: 2 })).rejects.toMatchObject({ code: 'notfound', message: "can't find session: s1" });
     sh.mockResolvedValue({ code: null, stdout: '', stderr: '', timedOut: true });
     await expect(scroll({ session: 's1', lines: 2 })).rejects.toMatchObject({ code: 'timeout' });
+  });
+});
+
+describe('foreground (TER-643)', () => {
+  it('runs the shared pane script with sh, tmux quoted, and answers its word', async () => {
+    sh.mockResolvedValue({ code: 0, stdout: 'shell\n', stderr: '', timedOut: false });
+    await expect(foreground({ session: 's1' })).resolves.toEqual({ pane: 'shell' });
+    expect(sh).toHaveBeenCalledWith(buildPaneForegroundScript('s1', shellQuote('tmux')));
+    sh.mockResolvedValue({ code: 0, stdout: 'busy\n', stderr: '', timedOut: false });
+    await expect(foreground({ session: 's1' })).resolves.toEqual({ pane: 'busy' });
+  });
+
+  it("raises notfound with tmux's message when the session is gone or the answer is not one of the words, timeout on a timeout", async () => {
+    sh.mockResolvedValue({ code: 1, stdout: '', stderr: "can't find session: s1\n", timedOut: false });
+    await expect(foreground({ session: 's1' })).rejects.toMatchObject({ code: 'notfound', message: "can't find session: s1" });
+    sh.mockResolvedValue({ code: 0, stdout: 'what\n', stderr: '', timedOut: false });
+    await expect(foreground({ session: 's1' })).rejects.toMatchObject({ code: 'notfound' });
+    sh.mockResolvedValue({ code: null, stdout: '', stderr: '', timedOut: true });
+    await expect(foreground({ session: 's1' })).rejects.toMatchObject({ code: 'timeout' });
   });
 });

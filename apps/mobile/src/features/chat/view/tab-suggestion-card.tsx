@@ -1,7 +1,7 @@
 import { memo, useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { AppText, Button } from '@/ui';
-import { CODEX_REPLY_PLACEHOLDER, CONTEXT_PREVIEW_MAX, lastParagraph, suggestionHint, suggestionStatusLabel, suggestionTitle } from '../model/tab-suggestion-text';
+import { CODEX_REPLY_PLACEHOLDER, CONTEXT_PREVIEW_MAX, isReplyCard, lastParagraph, suggestionFieldLabel, suggestionHint, suggestionStatusLabel, suggestionTitle } from '../model/tab-suggestion-text';
 import type { TabSuggestion } from '../model/types';
 
 type Props = {
@@ -15,7 +15,6 @@ type Props = {
 };
 
 const INPUT = 'rounded-xl border border-app-border bg-app-surface px-4 py-3 text-base text-app-text placeholder:text-app-muted';
-const FIELD_LABEL = 'Sugestão do Claude Code (opcional — edite ou dispense)';
 
 /** Claude Code's dimmed next prompt in a tab that finished its turn — an offer, not a question (spec 2026-09-26
  * TER-203 §5) —, the web card's twin, with the agent's message it answers (spec 2026-09-26 §6.4): the text
@@ -26,8 +25,9 @@ export const TabSuggestionCard = memo(function TabSuggestionCard({ suggestion, b
   const trimmed = text.trim();
   const context = suggestion.payload.context?.trim() || null;
   // A Codex reply card holds no suggested text: it asks the person a question, so it takes an answer, not an edit.
-  const codex = suggestion.payload.agent === 'codex';
-  const label = codex ? CODEX_REPLY_PLACEHOLDER : FIELD_LABEL;
+  const codex = isReplyCard(suggestion);
+  const fieldLabel = suggestionFieldLabel(suggestion);
+  const label = codex ? CODEX_REPLY_PLACEHOLDER : fieldLabel;
   return (
     // The testID tells this card's "Enviar" from the composer's, both on screen at once.
     <View testID={`tab-suggestion-${suggestion.id}`} className="gap-3 rounded-2xl border border-app-border bg-app-surface2 p-4">
@@ -36,7 +36,7 @@ export const TabSuggestionCard = memo(function TabSuggestionCard({ suggestion, b
       {context ? <SuggestionContext text={context} /> : null}
       {open ? (
         <View className="gap-2">
-          {codex ? null : <AppText variant="muted">{FIELD_LABEL}</AppText>}
+          {codex ? null : <AppText variant="muted">{fieldLabel}</AppText>}
           <TextInput accessibilityLabel={label} placeholder={codex ? CODEX_REPLY_PLACEHOLDER : undefined} value={text} maxLength={2000} editable={!busy} onChangeText={setText} className={INPUT} />
           <View className="flex-row gap-2">
             <View className="flex-1">

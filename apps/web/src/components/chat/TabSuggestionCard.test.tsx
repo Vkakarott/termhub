@@ -110,3 +110,13 @@ it('a closed Codex reply card says the tab asked and the person answered', () =>
   expect(screen.getByText('«api» perguntou; você respondeu:')).toBeInTheDocument();
   expect(screen.getByText('sim')).toBeInTheDocument();
 });
+
+it('a resume card (TER-643): the agent exited, the line is editable and Enviar types it', () => {
+  const onSend = vi.fn();
+  render(<TabSuggestionCard suggestion={open({ payload: { text: 'codex --no-alt-screen resume --last', agent: 'codex', exited: true, last_at: null } })} busy={false} onSend={onSend} onDismiss={vi.fn()} />);
+  expect(screen.getByText('«api» parou: o agente encerrou sem terminar o turno.')).toBeInTheDocument();
+  const field = screen.getByLabelText('Comando para retomar (edite ou dispense)');
+  expect(field).toHaveValue('codex --no-alt-screen resume --last');
+  fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+  expect(onSend).toHaveBeenCalledWith('codex --no-alt-screen resume --last');
+});

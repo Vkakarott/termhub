@@ -20,7 +20,7 @@ import { TaskRuleError } from '../db/repositories/tasks.js';
 import { Scoped } from '../auth/scope.js';
 import { ControlError, type ControlContext } from './context.js';
 import { normalizeSetup } from '../setup/schema.js';
-import { checkPrompt, CODEX_TAB_MCP_ENABLED, launchLine, LESSONS_REMINDER, linkTabTask, PROMPT_MAX_CHARS, RESUME_PROMPT, resumeLine, startAgent, withLessonsReminder } from './agents.js';
+import { checkPrompt, CODEX_TAB_MCP_ENABLED, continueLine, launchLine, LESSONS_REMINDER, linkTabTask, PROMPT_MAX_CHARS, RESUME_PROMPT, resumeLine, startAgent, withLessonsReminder } from './agents.js';
 
 const machine = (over: Partial<Machine> & { id: string }): Machine => ({
   name: over.id, host: null, ssh_user: null, ssh_port: 22, type: 'agent', os: 'macos', capabilities: ['tmux', 'claude', 'codex'], checked_at: null,
@@ -216,6 +216,14 @@ describe('launchLine with a model (TER-589)', () => {
   it('refuses a model the shell could read, before anything is typed', () => {
     for (const bad of ['opus; id', '$(id)', "o'pus", '-p', ''])
       expect(() => launchLine('claude', null, 'x', null, bad), bad).toThrow(new ControlError('INVALID_MODEL', 'Modelo inválido: use um apelido (opus, sonnet, haiku) ou o id do modelo'));
+  });
+});
+
+describe('continueLine (TER-643)', () => {
+  it('continues Claude\'s last session, or Codex\'s, under the tab\'s account', () => {
+    expect(continueLine('claude', '~/.claude_b')).toBe(`CLAUDE_CONFIG_DIR="$HOME"/'.claude_b' claude --continue`);
+    expect(continueLine('claude', null)).toBe(`${CLEAR_CLAUDE}claude --continue`);
+    expect(continueLine('chatgpt', '/home/u/.codex_b')).toBe(`CODEX_HOME='/home/u/.codex_b' codex --no-alt-screen resume --last`);
   });
 });
 

@@ -14,6 +14,11 @@ const FAILURE_TEXT: Record<string, string> = {
  * 2026-09-26 TER-203 §5); once closed it says what the tab had suggested. Keep in step with the app's copy.
  */
 export const suggestionTitle = (s: TabSuggestion): string => {
+  if (s.payload.exited) {
+    // TER-643: the tab's agent exited without finishing its turn; the card offers the line that resumes it.
+    const who = s.tab_name ? `«${s.tab_name}»` : 'Uma aba';
+    return s.status === 'open' ? `${who} parou: o agente encerrou sem terminar o turno.` : `${who} parou; comando para retomar:`;
+  }
   if (s.status === 'open') {
     const who = s.payload.agent === 'codex' ? 'o Codex perguntou:' : 'o Claude Code sugere:';
     return s.tab_name ? `«${s.tab_name}» terminou — ${who}` : `Uma aba terminou — ${who}`;
@@ -34,7 +39,26 @@ export const CODEX_REPLY_HINT = 'Responda aqui ou na aba.';
 /** The empty input of a Codex reply card, and its accessible name. */
 export const CODEX_REPLY_PLACEHOLDER = 'Sua resposta';
 
-export const suggestionHint = (s: TabSuggestion): string => (s.payload.agent === 'codex' ? CODEX_REPLY_HINT : SUGGESTION_HINT);
+/** "05:48", in the viewer's time zone; null for a missing or broken timestamp. */
+function clock(iso: string | null | undefined): string | null {
+  const at = iso ? new Date(iso) : null;
+  if (!at || Number.isNaN(at.getTime())) return null;
+  return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+}
+
+export const suggestionHint = (s: TabSuggestion): string => {
+  if (s.payload.exited) {
+    const last = clock(s.payload.last_at);
+    return `${last ? `Última atividade às ${last}. ` : ''}Envie o comando para retomar a sessão na aba, ou dispense.`;
+  }
+  return s.payload.agent === 'codex' ? CODEX_REPLY_HINT : SUGGESTION_HINT;
+};
+
+/** A Codex reply card asks for an answer; every other card holds a line to edit (TER-643: a resume card of Codex too). */
+export const isReplyCard = (s: TabSuggestion): boolean => s.payload.agent === 'codex' && !s.payload.exited;
+
+/** The label over the editable line. */
+export const suggestionFieldLabel = (s: TabSuggestion): string => (s.payload.exited ? 'Comando para retomar (edite ou dispense)' : 'Sugestão do Claude Code (opcional — edite ou dispense)');
 
 /** How much of the agent's message a collapsed card shows. */
 export const CONTEXT_PREVIEW_MAX = 400;

@@ -15,6 +15,9 @@ const captureStyledScreen = vi.fn();
 const captureScreen = vi.fn();
 vi.mock('../agent/screen.js', async (orig) => ({ ...(await orig<typeof import('../agent/screen.js')>()), captureStyledScreen: (...a: unknown[]) => captureStyledScreen(...a), captureScreen: (...a: unknown[]) => captureScreen(...a) }));
 
+const paneForeground = vi.fn();
+vi.mock('../terminal/session-ops.js', async (orig) => ({ ...(await orig<typeof import('../terminal/session-ops.js')>()), paneForeground: (...a: unknown[]) => paneForeground(...a) }));
+
 const { dismissTabSuggestion, sendTabSuggestion } = await import('./tab-suggestion-send.js');
 
 const fx = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures/tab-suggestions', name), 'utf8');
@@ -65,6 +68,31 @@ beforeEach(() => {
 afterEach(() => {
   unsubscribe();
   vi.restoreAllMocks();
+});
+
+describe('sendTabSuggestion — a resume card (TER-643)', () => {
+  const LINE = "CLAUDE_CONFIG_DIR=\"$HOME\"/'.claude_b' claude --continue";
+  const exited = () => row({ payload: { text: LINE, exited: true, last_at: null } });
+
+  it('types the line while the tab is idle and its pane still at the shell', async () => {
+    paneForeground.mockResolvedValueOnce('shell');
+    const { ctx } = ctxFor(exited(), { tab: { state: 'idle' } });
+    await sendTabSuggestion(ctx, 's1', { text: LINE }, { log: log() });
+    expect(paneForeground).toHaveBeenCalledWith({ id: 'm1', type: 'agent' }, 'th-t1');
+    expect(captureStyledScreen).not.toHaveBeenCalled();
+    expect(sendInput).toHaveBeenCalledWith(ctx, { tab_id: 't1', text: LINE, enter: true });
+  });
+
+  it('409 and the card closes once something else runs in the pane, or the tab moved on', async () => {
+    paneForeground.mockResolvedValueOnce('busy');
+    const busy = ctxFor(exited(), { tab: { state: 'idle' } });
+    await rejects(sendTabSuggestion(busy.ctx, 's1', { text: LINE }, { log: log() }), 409, 'TAB_PROMPT_CHANGED');
+    expect(busy.tabQuestions.closeOne).toHaveBeenCalledWith('s1', 'answered_in_tab');
+
+    const moved = ctxFor(exited(), { tab: { state: 'working' } });
+    await rejects(sendTabSuggestion(moved.ctx, 's1', { text: LINE }, { log: log() }), 409, 'TAB_PROMPT_CHANGED');
+    expect(sendInput).not.toHaveBeenCalled();
+  });
 });
 
 describe('sendTabSuggestion', () => {

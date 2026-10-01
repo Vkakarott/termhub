@@ -19,14 +19,16 @@ vi.mock('node:crypto', async (importOriginal) => {
 const {
   ensureSession,
   INPUT_MAX_CHARS,
+  paneForeground,
   scrollSession,
   sendKeyToSession,
   sendTextToSession,
   TERMINAL_PASTE_MIN_AGENT_VERSION,
+  TERMINAL_FOREGROUND_MIN_AGENT_VERSION,
   TERMINAL_RPC_MIN_AGENT_VERSION,
   TERMINAL_SCROLL_MIN_AGENT_VERSION,
 } = await import('./session-ops.js');
-const { buildScrollScript } = await import('@termhub/machine-ops');
+const { buildPaneForegroundScript, buildScrollScript } = await import('@termhub/machine-ops');
 
 const machine = (type: Machine['type']): Machine => ({ id: 'm1', name: 'jarvis', type, os: 'linux', capabilities: ['tmux'], owner_id: 'u1' }) as Machine;
 
@@ -229,5 +231,35 @@ describe('scrollSession', () => {
     await expect(scrollSession(machine('agent'), 's1', 1.5)).rejects.toBeInstanceOf(Error);
     expect(runOnMachine).not.toHaveBeenCalled();
     expect(agentRpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('paneForeground (TER-643)', () => {
+  it('pins the agent floor to 0.14.0, the first release with tmux.foreground', () => {
+    expect(TERMINAL_FOREGROUND_MIN_AGENT_VERSION).toBe('0.14.0');
+  });
+
+  it('agent: checks the floor, then calls tmux.foreground', async () => {
+    agentRpc.mockResolvedValue({ pane: 'shell' });
+    await expect(paneForeground(machine('agent'), 's1')).resolves.toBe('shell');
+    expect(requireAgentVersion).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), TERMINAL_FOREGROUND_MIN_AGENT_VERSION);
+    expect(agentRpc).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'tmux.foreground', { session: 's1' });
+    expect(runOnMachine).not.toHaveBeenCalled();
+  });
+
+  it('agent: an outdated agent never gets the RPC', async () => {
+    requireAgentVersion.mockImplementation(() => {
+      throw new HttpError(409, 'Atualize o agente desta máquina', 'AGENT_OUTDATED');
+    });
+    await expect(paneForeground(machine('agent'), 's1')).rejects.toMatchObject({ code: 'AGENT_OUTDATED' });
+    expect(agentRpc).not.toHaveBeenCalled();
+  });
+
+  it('ssh/local: runs the shared script and reads its word', async () => {
+    runOnMachine.mockResolvedValue({ code: 0, stdout: 'busy\n', stderr: '', timedOut: false });
+    await expect(paneForeground(machine('local'), 's1')).resolves.toBe('busy');
+    expect(runOnMachine).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), { file: 'sh', args: ['-c', buildPaneForegroundScript('s1')] }, expect.stringContaining(buildPaneForegroundScript('s1')), expect.any(Number));
+    runOnMachine.mockResolvedValue({ code: 0, stdout: 'zsh: ps: not found\n', stderr: '', timedOut: false });
+    await expect(paneForeground(machine('ssh'), 's1')).rejects.toMatchObject({ code: 'MACHINE_FAILED' });
   });
 });

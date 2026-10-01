@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { RpcParams, RpcResult } from '@termhub/agent-protocol';
-import { buildScrollScript, shellQuote } from '@termhub/machine-ops';
+import { buildPaneForegroundScript, buildScrollScript, parsePaneForeground, shellQuote } from '@termhub/machine-ops';
 import { RpcFailure, run, sh, tmuxPath, type RunResult } from '../exec.js';
 
 /** Pause between the typed text and the Enter that submits it (same value the server used before). */
@@ -150,4 +150,18 @@ export async function scroll(params: RpcParams<'tmux.scroll'>): Promise<RpcResul
   if (r.timedOut) throw new RpcFailure('timeout', 'tmux timed out');
   if (r.code !== 0) throw new RpcFailure('notfound', why(r.stderr, 'session not found'));
   return { done: true };
+}
+
+/**
+ * What the tab's pane runs in front (TER-643): the server asks when a tab's agent went quiet, to tell an
+ * agent that exited without a hook (killed, crashed) from one still working. `buildPaneForegroundScript`
+ * is shared with the server's ssh/local path; the session name is checked by the RPC schema and quoted by
+ * the script builder, the tmux path here.
+ */
+export async function foreground(params: RpcParams<'tmux.foreground'>): Promise<RpcResult<'tmux.foreground'>> {
+  const r = await sh(buildPaneForegroundScript(params.session, shellQuote(tmuxPath())));
+  if (r.timedOut) throw new RpcFailure('timeout', 'tmux timed out');
+  const pane = r.code === 0 ? parsePaneForeground(r.stdout) : null;
+  if (!pane) throw new RpcFailure('notfound', why(r.stderr, 'session not found'));
+  return { pane };
 }

@@ -172,6 +172,17 @@ export function resumeLine(configDir: string | null, sessionId: string, prompt: 
   return `${clear}${prefix}${claude} ${claudeMcpFlags(mcpTabId)} --resume ${sessionId} -- ${quoted}`;
 }
 
+/**
+ * The line that brings back an agent whose process exited without a hook (TER-643) when its session id is
+ * unknown: Claude's last session in the tab's directory (`--continue`), Codex's last one (`resume --last`),
+ * under the tab's account. A Claude tab whose session id is known resumes it by id instead (`resumeLine`).
+ */
+export function continueLine(provider: AiProvider, configDir: string | null): string {
+  const { binary, configEnv, flags } = launcher(provider);
+  const { clear, prefix } = accountEnv(configEnv, configDir);
+  return provider === 'chatgpt' ? `${clear}${prefix}${binary}${flags} resume --last` : `${clear}${prefix}${binary}${flags} --continue`;
+}
+
 async function accountOnMachine(ctx: ControlContext, accountId: string, machine: Machine): Promise<AiAccount> {
   const { account, machine: home } = await ctx.scoped.aiAccount(accountId);
   if (account.machine_id === machine.id) return account;

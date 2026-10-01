@@ -123,7 +123,7 @@ export class TabsRepository {
    */
   async listStaleWorking(before: Date, limit = 50): Promise<Tab[]> {
     const rows = await this.db.tab.findMany({
-      where: { kind: 'terminal', tmuxSession: { not: null }, state: 'working', stateTool: 'claude', stateAt: { lt: before } },
+      where: { kind: 'terminal', tmuxSession: { not: null }, state: 'working', stateTool: { in: ['claude', 'codex'] }, stateAt: { lt: before } },
       orderBy: [{ stateAt: 'asc' }],
       take: limit,
     });
