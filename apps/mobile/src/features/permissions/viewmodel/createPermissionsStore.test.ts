@@ -160,8 +160,44 @@ it('persists the choices, and a session end forgets them', async () => {
   const again = createPermissionsStore(fakeDeps());
   expect(again.getState()).toMatchObject({ adConsent: 'denied', pushPrimerDismissals: 1, pushPrimerOpen: false });
 
+  const deps = fakeDeps();
+  createPermissionsStore(deps);
   sessionEnded.emit();
   expect(again.getState()).toMatchObject({ adConsent: 'unknown', pushPrimerDismissals: 0, firstMessageSent: false });
+  expect(deps.setAdConsent).toHaveBeenLastCalledWith(false);
+});
+
+it('a failing status read keeps the statuses already known', async () => {
+  const deps = fakeDeps({ notificationStatus: jest.fn(async () => 'granted'), trackingStatus: jest.fn(async () => 'denied') });
+  const store = createPermissionsStore(deps);
+  await store.getState().refreshStatuses();
+  const boom = async () => {
+    throw new Error('native');
+  };
+  deps.notificationStatus.mockImplementation(boom);
+  deps.trackingStatus.mockImplementation(boom);
+  await store.getState().refreshStatuses();
+  await store.getState().maybeOpenPushPrimer();
+  expect(store.getState()).toMatchObject({ notificationStatus: 'granted', trackingStatus: 'denied' });
+});
+
+it('Android: settings on grants with no ATT call', async () => {
+  const deps = fakeDeps({ platform: 'android' });
+  const store = createPermissionsStore(deps);
+  await store.getState().setAdsFromSettings(true);
+  expect(store.getState().adConsent).toBe('granted');
+  expect(deps.requestTracking).not.toHaveBeenCalled();
+  expect(deps.trackingStatus).not.toHaveBeenCalled();
+});
+
+it('iOS: syncAdConsent keeps a grant when the tracking read fails', async () => {
+  const deps = fakeDeps();
+  const store = createPermissionsStore(deps);
+  await store.getState().acceptAds();
+  deps.trackingStatus.mockRejectedValue(new Error('native'));
+  await store.getState().syncAdConsent();
+  expect(store.getState().adConsent).toBe('granted');
+  expect(deps.setAdConsent).toHaveBeenLastCalledWith(true);
 });
 
 it('native failures leave the state as it was and never throw', async () => {

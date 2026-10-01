@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
 import { AppState, Linking } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { setSystemSettingsOpener } from '@/features/permissions/viewmodel/usePermissionsStore';
 import { useNotificationsStore } from '@/features/notifications/viewmodel/useNotificationsStore';
 import { PinPromptSheet } from '@/features/session/view/pin-prompt-sheet';
 import { usePhaseRedirect } from '@/features/session/view/use-phase-redirect';
@@ -14,6 +15,9 @@ import { logScreen } from '@/services/analytics';
 import { configurePush, pushConversationId, pushNotificationId } from '@/services/push';
 import { socketWake } from '@/services/api/wake';
 import { ThemeProvider, useSchemeName } from '@/ui/theme-provider';
+
+// Viewmodels never import react-native: the permissions store opens the system settings through this.
+setSystemSettingsOpener(() => Linking.openSettings());
 
 /** `'termhub://chat/<id>'` or `'https://termhub.dev/chat/<id>'` → the chat id, or `null`. */
 function chatIdFromUrl(url: string): string | null {

@@ -44,13 +44,14 @@ export function createPermissionsStore(deps: PermissionsDeps) {
 
         async refreshStatuses() {
           const [notificationStatus, trackingStatus] = await Promise.all([safe(deps.notificationStatus, null), safe(deps.trackingStatus, null)]);
-          set({ notificationStatus, trackingStatus });
+          if (notificationStatus) set({ notificationStatus });
+          if (trackingStatus) set({ trackingStatus });
         },
 
         async maybeOpenPushPrimer() {
           if (get().pushPrimerOpen || get().pushPrimerDismissals >= MAX_PUSH_PRIMER_DISMISSALS) return;
           const status = await safe(deps.notificationStatus, null);
-          set({ notificationStatus: status });
+          if (status) set({ notificationStatus: status });
           if (status === 'undetermined') set({ pushPrimerOpen: true });
         },
 
@@ -120,6 +121,7 @@ export function createPermissionsStore(deps: PermissionsDeps) {
   });
   sessionEnded.subscribe(() => {
     store.setState({ ...initialData });
+    void safe(() => deps.setAdConsent(false), undefined); // denied until the next person accepts
   });
 
   return store;
