@@ -4,6 +4,8 @@ import { FlatList, RefreshControl, View } from 'react-native';
 import { FavoriteSheet } from '@/features/chat/view/favorite-sheet';
 import { ProjectRow } from '@/features/chat/view/project-row';
 import { useChatStore } from '@/features/chat/viewmodel/useChatStore';
+import { AdConsentCard } from '@/features/permissions/view/ad-consent-card';
+import { usePermissionsStore } from '@/features/permissions/viewmodel/usePermissionsStore';
 import { AppText, Banner, Button, EmptyState, Screen } from '@/ui';
 import { favoriteProjects } from '../model/favorites';
 
@@ -19,13 +21,16 @@ export function HomeScreen() {
   const error = useChatStore((s) => s.error);
   const loadProjects = useChatStore((s) => s.loadProjects);
   const setFavorite = useChatStore((s) => s.setFavorite);
+  const refreshStatuses = usePermissionsStore((s) => s.refreshStatuses);
   const [sheetFor, setSheetFor] = useState<string | null>(null);
 
-  // On every focus: a pin changed in Chats, or on the web, shows up when the person comes back.
+  // On every focus: a pin changed in Chats, or on the web, shows up when the person comes back;
+  // the OS statuses are re-read so the ad card follows a change made in the system settings.
   useFocusEffect(
     useCallback(() => {
       void loadProjects();
-    }, [loadProjects]),
+      void refreshStatuses();
+    }, [loadProjects, refreshStatuses]),
   );
 
   const favorites = favoriteProjects(projects);
@@ -36,6 +41,7 @@ export function HomeScreen() {
       <View className="gap-3 px-6 pb-2 pt-4">
         <AppText variant="title">Home</AppText>
         {error ? <Banner tone="danger" text={error} /> : null}
+        <AdConsentCard />
         {favorites.length > 0 ? <AppText variant="muted">Favoritos</AppText> : null}
       </View>
       {/* No list at all after a failure: the banner says why, and "nothing pinned" would not be true. */}
