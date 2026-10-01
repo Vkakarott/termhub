@@ -1,6 +1,6 @@
 // Push notifications through `expo-notifications` (spec §9). The server sends through the Expo Push
 // Service to the token this module reads; the session store registers it (`PUT push-token`) at every
-// session start, and the root layout opens the conversation a tapped push points at.
+// session start once the permission is granted, and the root layout opens the conversation a tapped push points at.
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
@@ -23,20 +23,38 @@ export function configurePush(): void {
   });
 }
 
-/**
- * This phone's Expo push token, asking for the permission the first time; `null` on a simulator (no
- * token there), when the permission is refused, or when the build has no EAS project id.
- */
-export async function expoPushToken(): Promise<string | null> {
-  if (!Device.isDevice) return null;
-  // Android 13+ only shows the permission prompt once a channel exists (a no-op on iOS).
+/** The OS answer for notifications, in expo's words. */
+export type NotificationStatus = 'granted' | 'denied' | 'undetermined';
+
+/** Android's `default` channel: pushes land there, and Android 13+ only shows the permission
+ * prompt once a channel exists (a no-op on iOS). */
+async function ensureChannel(): Promise<void> {
   await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL, {
     name: 'Notificações',
     importance: Notifications.AndroidImportance.HIGH,
   });
-  let { status } = await Notifications.getPermissionsAsync();
-  if (status !== 'granted') ({ status } = await Notifications.requestPermissionsAsync());
-  if (status !== 'granted') return null;
+}
+
+/** The current permission, never prompting. */
+export async function notificationStatus(): Promise<NotificationStatus> {
+  return (await Notifications.getPermissionsAsync()).status as NotificationStatus;
+}
+
+/** The OS prompt (once per install on iOS): only the permissions store calls it, from the primer
+ * or Ajustes (permission prompts spec §2). */
+export async function requestNotifications(): Promise<NotificationStatus> {
+  await ensureChannel();
+  return (await Notifications.requestPermissionsAsync()).status as NotificationStatus;
+}
+
+/**
+ * This phone's Expo push token; `null` on a simulator (no token there), until the permission is
+ * granted, or when the build has no EAS project id. It never prompts: the primer does.
+ */
+export async function expoPushToken(): Promise<string | null> {
+  if (!Device.isDevice) return null;
+  await ensureChannel();
+  if ((await notificationStatus()) !== 'granted') return null;
   const projectId: unknown = Constants.expoConfig?.extra?.eas?.projectId;
   if (typeof projectId !== 'string') return null;
   return (await Notifications.getExpoPushTokenAsync({ projectId })).data;

@@ -15,3 +15,17 @@ export const sessionEnded = signal();
  * process. The view layer emits it because viewmodels never import `react-native`.
  */
 export const appBackgrounded = signal();
+
+/**
+ * Fired when a session starts — activation after "Criar PIN", or an unlock (permission prompts
+ * spec §3.1). The permissions store re-reads the OS statuses and re-applies the ad consent.
+ */
+export const sessionStarted = signal();
+
+/** Fired by the chat store after the server accepted a message (retries included). The permissions
+ * store opens the notification primer on the first one. */
+export const messageSent = signal();
+
+/** Fired by the permissions store when the OS grants notifications: the session store registers
+ * the push token at once instead of waiting for the next session. */
+export const pushGranted = signal();

@@ -11,7 +11,7 @@
 // behind the lock screen or revive a wiped session.
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { sessionEnded } from '@/features/shared/signals';
+import { pushGranted, sessionEnded, sessionStarted } from '@/features/shared/signals';
 import type { PinDecision } from '@/services/api/contract';
 import { ApiError } from '@/services/api/errors';
 import { socketWake } from '@/services/api/wake';
@@ -147,8 +147,14 @@ export function createSessionStore(deps: SessionDeps) {
           tokenIssued(expiresInS);
           set({ phase: 'unlocked', lockedUntil: null, attemptsLeft: null, error: null, busy: false });
           socketWake.emit();
+          sessionStarted.emit();
           registerPush(token).catch(() => undefined);
         };
+
+        // The primer granted notifications mid-session: register now, not at the next unlock.
+        pushGranted.subscribe(() => {
+          if (accessToken) registerPush(accessToken).catch(() => undefined);
+        });
 
         /** The end of a failed action started at generation `gen`: ignored when a relock or wipe
          * superseded it; otherwise `handleApiError`, or the error's own (pt-BR) text. */

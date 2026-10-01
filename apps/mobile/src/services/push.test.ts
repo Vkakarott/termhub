@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
-import { expoPushToken, pushConversationId, pushNotificationId } from './push';
+import { expoPushToken, notificationStatus, pushConversationId, pushNotificationId, requestNotifications } from './push';
 
 // A getter, so the switch reaches `push.ts` through Babel's namespace copy of the module.
 jest.mock('expo-device', () => {
@@ -38,12 +38,27 @@ describe('expoPushToken', () => {
     expect(notifications.requestPermissionsAsync).not.toHaveBeenCalled();
   });
 
-  it('asks for the permission when not granted yet, and gives up when refused', async () => {
+  it('never asks for the permission: no token until it is granted (permission prompts spec §3.3)', async () => {
     notifications.getPermissionsAsync!.mockResolvedValueOnce({ status: 'undetermined' });
-    notifications.requestPermissionsAsync!.mockResolvedValueOnce({ status: 'denied' });
     expect(await expoPushToken()).toBeNull();
-    expect(notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+    expect(notifications.requestPermissionsAsync).not.toHaveBeenCalled();
     expect(notifications.getExpoPushTokenAsync).not.toHaveBeenCalled();
+  });
+});
+
+describe('notification permission', () => {
+  it('notificationStatus reads the OS status without prompting', async () => {
+    notifications.getPermissionsAsync!.mockResolvedValueOnce({ status: 'denied' });
+    expect(await notificationStatus()).toBe('denied');
+    expect(notifications.requestPermissionsAsync).not.toHaveBeenCalled();
+  });
+
+  it('requestNotifications creates the Android channel first, then prompts', async () => {
+    notifications.requestPermissionsAsync!.mockResolvedValueOnce({ status: 'granted' });
+    expect(await requestNotifications()).toBe('granted');
+    const channel = notifications.setNotificationChannelAsync!.mock.invocationCallOrder[0]!;
+    const prompt = notifications.requestPermissionsAsync!.mock.invocationCallOrder[0]!;
+    expect(channel).toBeLessThan(prompt);
   });
 
   it('has no token on a simulator or without an EAS project id', async () => {

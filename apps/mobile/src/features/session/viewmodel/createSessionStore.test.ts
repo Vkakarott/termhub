@@ -5,7 +5,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import * as SecureStore from 'expo-secure-store';
 import { decisionProofMessage } from '@termhub/mobile-api';
 import { createChatStore } from '@/features/chat/viewmodel/createChatStore';
-import { sessionEnded } from '@/features/shared/signals';
+import { pushGranted, sessionEnded, sessionStarted } from '@/features/shared/signals';
 import { socketWake } from '@/services/api/wake';
 import { ApiError } from '@/services/api/errors';
 import { b64url, fromB64url, utf8 } from '@/services/crypto/encoding';
@@ -835,4 +835,31 @@ describe('guards', () => {
     await ctx.store.getState().wipe();
     expect(forget).toHaveBeenCalledTimes(2);
   });
+});
+
+it('announces every session start, and registers the push token when the OS grants it (permission prompts spec §3.1)', async () => {
+  const started = jest.fn();
+  const off = sessionStarted.subscribe(started);
+  const ctx = setup();
+  await enrol(ctx);
+  expect(started).toHaveBeenCalledTimes(1);
+
+  const register = jest.spyOn(ctx.api, 'setPushToken');
+  pushGranted.emit();
+  await jest.advanceTimersByTimeAsync(0);
+  expect(register).toHaveBeenCalledWith(expect.anything(), `ExponentPushToken[mock-${ctx.store.getState().deviceId}]`);
+  off();
+});
+
+it('a pushGranted while locked registers nothing', async () => {
+  const ctx = setup();
+  await enrol(ctx);
+  ctx.store.getState().background();
+  ctx.clock.value += RELOCK_AFTER_MS;
+  ctx.store.getState().foreground();
+  expect(ctx.store.getState().phase).toBe('locked');
+  const register = jest.spyOn(ctx.api, 'setPushToken');
+  pushGranted.emit();
+  await jest.advanceTimersByTimeAsync(0);
+  expect(register).not.toHaveBeenCalled();
 });
