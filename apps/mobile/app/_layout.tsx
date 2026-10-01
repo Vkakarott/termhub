@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
 import { AppState, Linking } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { PushPrimerSheet } from '@/features/permissions/view/push-primer-sheet';
 import { setSystemSettingsOpener } from '@/features/permissions/viewmodel/usePermissionsStore';
 import { useNotificationsStore } from '@/features/notifications/viewmodel/useNotificationsStore';
 import { PinPromptSheet } from '@/features/session/view/pin-prompt-sheet';
@@ -117,6 +118,7 @@ function Navigator() {
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }} />
       <PinPromptSheet />
+      <PushPrimerSheet />
     </>
   );
 }
