@@ -9,6 +9,15 @@
 # never sits in the local keychain, Xcode signs the export through Apple, and
 # `-allowProvisioningUpdates` lets it create or refresh the App Store profile.
 #
+# Optionally, an App Store Connect API key with access to the team signs and uploads instead of
+# the Xcode account, so a release no longer depends on an Apple ID staying signed in to Xcode:
+#
+#   ASC_KEY_ID=ABC123DEFG ASC_ISSUER_ID=<issuer uuid> bash scripts/ios-release.sh --upload
+#
+# ASC_KEY_PATH points at the .p8 file; it defaults to
+# ~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8. Without ASC_KEY_ID the script uses the
+# Xcode account, as before.
+#
 # Bump `expo.version` and/or `expo.ios.buildNumber` in app.json before each upload: App Store
 # Connect refuses a build number it has already seen for the same version.
 set -euo pipefail
@@ -18,6 +27,19 @@ cd "$(dirname "$0")/.."
 TEAM_ID="${TEAM_ID:-S873WHF2TZ}"
 UPLOAD=0
 [ "${1:-}" = "--upload" ] && UPLOAD=1
+
+AUTH_ARGS=()
+if [ -n "${ASC_KEY_ID:-}" ]; then
+  [ -n "${ASC_ISSUER_ID:-}" ] || { echo "ASC_KEY_ID is set but ASC_ISSUER_ID is not" >&2; exit 2; }
+  ASC_KEY_PATH="${ASC_KEY_PATH:-$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8}"
+  [ -f "$ASC_KEY_PATH" ] || { echo "App Store Connect key not found: $ASC_KEY_PATH" >&2; exit 2; }
+  AUTH_ARGS=(
+    -authenticationKeyPath "$ASC_KEY_PATH"
+    -authenticationKeyID "$ASC_KEY_ID"
+    -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+  )
+  echo "Signing and uploading with App Store Connect API key $ASC_KEY_ID"
+fi
 
 # Baked into the JS bundle by Metro during the Xcode build phase; without them the app would
 # fall back to mock mode (src/services/api/index.ts).
@@ -39,6 +61,7 @@ xcodebuild archive \
   -destination 'generic/platform=iOS' \
   -archivePath "$ARCHIVE" \
   -allowProvisioningUpdates \
+  ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} \
   DEVELOPMENT_TEAM="$TEAM_ID" \
   CODE_SIGN_STYLE=Automatic
 
@@ -62,7 +85,8 @@ PLIST
     -archivePath "$ARCHIVE" \
     -exportOptionsPlist "$BUILD_DIR/ExportOptions-$destination.plist" \
     -exportPath "$out" \
-    -allowProvisioningUpdates
+    -allowProvisioningUpdates \
+    ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"}
 }
 
 export_with export "$BUILD_DIR/export"
