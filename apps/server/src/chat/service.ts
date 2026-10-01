@@ -58,6 +58,12 @@ class LimitFallback {
   readonly tried = new Set<string>();
   private first: { label: string | null; resets_at: string | null } | null = null;
   account: RunAccount;
+  /**
+   * The model the run is on: the configured one, else — once the CLI's `init` said it — the one the
+   * account's default resolved to (TER-837). It decides which usage windows count when picking the next
+   * account, and the turn keeps it there: that account's own default may be a model it has no room for.
+   */
+  model: string | null;
 
   /** The run is on the project's account list (TER-589): the account that takes over becomes the project chat's own. */
   private readonly projectRun: boolean;
@@ -68,15 +74,18 @@ class LimitFallback {
     private projectId: string | null,
     private conversationId: string,
     host: RunHost,
+    model: string | null,
   ) {
     this.account = runAccountOf(host);
+    this.model = model;
     if (this.account.id) this.tried.add(this.account.id);
     this.projectRun = host.account.kind === 'chosen' && host.account.via === 'project';
   }
 
   /** The next account, its session moved there when it can be, and the notice its answer carries. */
-  async next(limit: { resets_at: string | null }, session: { dir: string | null; id: string | null }): Promise<{ pick: FallbackPick; notice: ChatNotice } | { pick: null; notice: ChatNotice }> {
+  async next(limit: { resets_at: string | null }, session: { dir: string | null; id: string | null; model: string | null }): Promise<{ pick: FallbackPick; notice: ChatNotice } | { pick: null; notice: ChatNotice }> {
     this.first ??= { label: this.account.label, resets_at: limit.resets_at };
+    this.model ??= session.model;
     // The same opt-in as the tabs' automatic swap (TER-55): an account of the machine is used for
     // someone else's quota only when its owner asked for that.
     if (!this.machine.claude_auto_swap) {
@@ -85,7 +94,7 @@ class LimitFallback {
     }
     let pick: FallbackPick | null = null;
     try {
-      pick = await pickFallback(this.repos, { machine: this.machine, currentAccountId: this.account.id, tried: this.tried, projectId: this.projectId, sessionDir: session.dir, sessionId: session.id });
+      pick = await pickFallback(this.repos, { machine: this.machine, currentAccountId: this.account.id, tried: this.tried, projectId: this.projectId, sessionDir: session.dir, sessionId: session.id, model: this.model });
     } catch (err) {
       console.error('chat: account fallback failed', { conversation_id: this.conversationId, error: failureLabel(err) });
     }
@@ -1269,6 +1278,8 @@ export class ChatService {
       /** Whether the answer called a tool: then it is never re-run elsewhere. */
       let acted = false;
       let sessionDir: string | null = null;
+      /** The model the CLI's `init` said the run is on (TER-837). */
+      let runModel: string | null = null;
       let notice: ChatNotice | undefined;
 
       const consume = async (run: RunnerInput) => {
@@ -1292,8 +1303,9 @@ export class ChatService {
             turnReason = frame.reason;
           } else if (frame.type === 'usage_limit') {
             limit = { resets_at: frame.resets_at };
-          } else if (frame.type === 'session_dir') {
-            sessionDir = frame.dir;
+          } else if (frame.type === 'init') {
+            sessionDir = frame.dir ?? sessionDir;
+            runModel = frame.model ?? runModel;
           } else if (frame.type === 'error') {
             // The reason is the container's closed-set classification, so a failure is diagnosable
             // from the stored row alone: CLI_REJECTED means our own flags were refused, which no
@@ -1332,14 +1344,14 @@ export class ChatService {
       }
 
       if (token !== undefined) {
-        const fallback = new LimitFallback(this.deps.repos, host.machine, conversation.project_id, conversation.id, host);
+        // the conversation's own model, else the project's default (TER-589)
+        const fallback = new LimitFallback(this.deps.repos, host.machine, conversation.project_id, conversation.id, host, conversation.model ?? host.model ?? null);
         let input: RunnerInput = {
           session_id: conversation.cli_session_id ?? randomUUID(),
           resume: conversation.cli_session_id !== null,
           text,
           config_dir: fallback.account.configDir,
-          // the conversation's own model, else the project's default (TER-589)
-          model: conversation.model ?? host.model ?? null,
+          model: fallback.model,
           token,
           append_system_prompt: appendSystemPrompt,
         };
@@ -1386,7 +1398,7 @@ export class ChatService {
           // (Read through a widened copy: `consume` assigns it, which the compiler cannot see here.)
           const failed = errorCode as ChatErrorCode;
           if (failed === 'USAGE_LIMIT' && collected === '' && !acted) {
-            const next = await fallback.next(limit ?? { resets_at: null }, { dir: sessionDir, id: input.session_id });
+            const next = await fallback.next(limit ?? { resets_at: null }, { dir: sessionDir, id: input.session_id, model: runModel });
             notice = next.notice;
             if (!next.pick) break;
             startOver();
@@ -1394,7 +1406,7 @@ export class ChatService {
               freshTried = true;
               await this.deps.repos.chat.setCliSession(conversation.id, null);
             }
-            input = { ...input, config_dir: next.pick.account.config_dir, resume: next.pick.resume, session_id: next.pick.resume ? input.session_id : randomUUID() };
+            input = { ...input, config_dir: next.pick.account.config_dir, model: fallback.model, resume: next.pick.resume, session_id: next.pick.resume ? input.session_id : randomUUID() };
             continue;
           }
 
@@ -1499,7 +1511,8 @@ export class ChatService {
         else await live.failOpen('TOKEN_FAILED');
         return;
       }
-      const fallback = new LimitFallback(this.deps.repos, host.machine, conversation.project_id, conversation.id, host);
+      // the conversation's own model, else the project's default (TER-589)
+      const fallback = new LimitFallback(this.deps.repos, host.machine, conversation.project_id, conversation.id, host, conversation.model ?? host.model ?? null);
       /** A missing session is retried on a fresh one once — and never after a swap started one fresh. */
       let freshTried = false;
       for (;;) {
@@ -1510,8 +1523,7 @@ export class ChatService {
           resume,
           text: live.initialText(),
           config_dir: fallback.account.configDir,
-          // the conversation's own model, else the project's default (TER-589)
-          model: conversation.model ?? host.model ?? null,
+          model: fallback.model,
           token,
           append_system_prompt: appendSystemPrompt,
           stream_input: true,
@@ -1536,7 +1548,7 @@ export class ChatService {
         // The account hit its usage limit and the turn that met it waits again (TER-588): it goes on
         // another account of the machine, or every open turn is stored as the limit.
         if (outcome.limit) {
-          const next = await fallback.next(outcome.limit, { dir: live.sessionDir, id: live.sessionId });
+          const next = await fallback.next(outcome.limit, { dir: live.sessionDir, id: live.sessionId, model: live.model });
           if (this.suspending) {
             live.rejectOpen(serverRestarting());
             return;

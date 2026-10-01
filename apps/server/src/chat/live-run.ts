@@ -97,6 +97,7 @@ export class LiveRun {
   /** Whether this process put a turn back because of the usage limit (see `consume`). */
   private limited = false;
   private dir: string | null = null;
+  private runModel: string | null = null;
   /** What each answer says besides its text, stored with it (an account that took over, a limit). */
   private notices = new Map<string, ChatNotice>();
   /** The process was ended on purpose (`stop`): a turn of its own that was cut is not a failed answer. */
@@ -130,6 +131,10 @@ export class LiveRun {
   /** Where the session lives on the machine, as the last process's `init` said. */
   get sessionDir(): string | null {
     return this.dir;
+  }
+  /** The model the last process's `init` said it runs on (TER-837). */
+  get model(): string | null {
+    return this.runModel;
   }
 
   /** Takes a turn: written now to the live process, or kept for `initialText` before it starts. False
@@ -281,8 +286,9 @@ export class LiveRun {
           this.turnReason = frame.reason;
         } else if (frame.type === 'usage_limit') {
           this.limitHit = { resets_at: frame.resets_at };
-        } else if (frame.type === 'session_dir') {
-          this.dir = frame.dir;
+        } else if (frame.type === 'init') {
+          this.dir = frame.dir ?? this.dir;
+          this.runModel = frame.model ?? this.runModel;
         } else if (frame.type === 'error') {
           await this.saveSession(frame.session_id);
           if (frame.turn_ended) {
