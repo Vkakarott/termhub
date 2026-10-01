@@ -49,6 +49,11 @@ const workType = z.enum(['story', 'task', 'bug', 'spike']);
 const taskTitle = z.string().trim().min(1).max(TASK_TITLE_MAX);
 const taskDescription = z.string().trim().max(TASK_DESCRIPTION_MAX).nullable();
 const subtaskItems = z.array(z.object({ title: taskTitle, description: taskDescription.optional() })).min(1).max(MAX_SUBTASKS_PER_CALL);
+/** TER-641: what send_input/send_key take when the call follows a precedent from memory — the refs (as
+ * answer_tab_question's) and the reason. Optional: the send is the same; the chat card shows "Decisão
+ * automática" with them. */
+const precedentInput = { sources: z.array(z.string().regex(MEMORY_REF)).min(1).max(10).optional(), reason: z.string().trim().min(1).max(500).optional() };
+const PRECEDENT_NOTE = 'When you send this on a precedent from memory, pass the search_memory refs you followed in sources and a short reason in the person\'s language: the chat shows it as an automatic decision. Leave both out otherwise.';
 
 /** The object schema a tool's arguments are validated against — by `parseArgs` and by the MCP SDK. */
 export function inputSchemaOf(tool: ToolDef) {
@@ -145,16 +150,16 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'send_input',
-    description: `Type text into a terminal tab (max ${INPUT_MAX_CHARS} chars) and press Enter unless enter is false. A tab waiting for a permission needs answering_permission: true.`,
+    description: `Type text into a terminal tab (max ${INPUT_MAX_CHARS} chars) and press Enter unless enter is false. A tab waiting for a permission needs answering_permission: true. ${PRECEDENT_NOTE}`,
     scope: 'terminals', resource: 'terminals', action: 'write',
-    input: { tab_id: id, text: z.string().max(INPUT_MAX_CHARS), enter: z.boolean().optional(), answering_permission: z.boolean().optional() },
+    input: { tab_id: id, text: z.string().max(INPUT_MAX_CHARS), enter: z.boolean().optional(), answering_permission: z.boolean().optional(), ...precedentInput },
     run: (ctx, a) => sendInput(ctx, a as { tab_id: string; text: string; enter?: boolean; answering_permission?: boolean }),
   },
   {
     name: 'send_key',
-    description: `Press one key in a terminal tab: ${TMUX_KEYS.join(', ')}.`,
+    description: `Press one key in a terminal tab: ${TMUX_KEYS.join(', ')}. ${PRECEDENT_NOTE}`,
     scope: 'terminals', resource: 'terminals', action: 'write',
-    input: { tab_id: id, key: tmuxKey },
+    input: { tab_id: id, key: tmuxKey, ...precedentInput },
     run: (ctx, a) => sendKey(ctx, a as { tab_id: string; key: (typeof TMUX_KEYS)[number] }),
   },
   {

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { MAX_ATTACHMENTS_PER_MESSAGE } from './attachments.js';
-import { tabQuestionSchema, type StandingGrantKind } from './events.js';
+import { tabQuestionSchema, type StandingGrantKind, type TAutoDecision } from './events.js';
 
 /** `POST chat/messages`: text, or attachments, or both (spec 2026-09-26 §5.5). An empty text with ids
  * is a message made of files alone; neither is refused before anything is stored. */
@@ -242,3 +242,18 @@ export const lessonListSchema = z.object({ lessons: z.array(lessonItemSchema), n
 /** `DELETE chat/lessons/:id` ("Esquecer"): `note` is present only for a file lesson, saying the file
  * itself stays in the repository until a PR removes it. */
 export const lessonForgetSchema = z.object({ ok: z.literal(true), note: z.string().optional() });
+
+/** "Decisão automática" (TER-641) on an action card: the precedent a send cited, but only when the call
+ * also ran without a click (`grant_id`, a default allowance or a grant). A pending card, or one the person
+ * approved by hand, is never an automatic decision. Null otherwise — and on an older server (absent). */
+export function actionAutoDecision(action: { status: string; grant_id?: string | null; auto_decision?: TAutoDecision | null }): TAutoDecision | null {
+  if (!action.auto_decision || !action.grant_id || action.status === 'pending') return null;
+  return action.auto_decision;
+}
+
+/** One cited ref as the badge's detail reads it: the recorded question and answer when it is a decision
+ * of the person's, else the bare ref (a card, a note… or a decision forgotten since). */
+export function autoDecisionSourceLine(source: TAutoDecision['sources'][number]): string {
+  if (source.question === null) return source.ref;
+  return source.answer ? `«${source.question}» → ${source.answer}` : `«${source.question}»`;
+}

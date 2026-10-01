@@ -164,7 +164,7 @@ it('GET / returns the conversation\'s tab questions, named owner-scoped', async 
   const q = { id: 'q1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'permission', payload: { tool_name: 'Bash' }, tool_use_id: null, status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z' };
   const { app, repos } = build({ tabs: [{ id: 't1', project_id: 'p1', name: 'api' }], tabQuestions: [q] });
   const res = await app.inject({ method: 'GET', url: '/chat' });
-  expect(res.json().tab_questions).toEqual([{ id: 'q1', tab_id: 't1', tab_name: 'api', kind: 'permission', payload: { tool_name: 'Bash' }, status: 'open', answer: null, error_code: null, created_at: '2026-09-25T12:00:00.000Z', answered_at: null, closed_at: null, auto_answer: null, answered_via: null, surfaced_at: null }]);
+  expect(res.json().tab_questions).toEqual([{ id: 'q1', tab_id: 't1', tab_name: 'api', kind: 'permission', payload: { tool_name: 'Bash' }, status: 'open', answer: null, error_code: null, created_at: '2026-09-25T12:00:00.000Z', answered_at: null, closed_at: null, auto_answer: null, answered_via: null, surfaced_at: null, auto_decision: null }]);
   expect(repos.tabQuestions.listByConversation).toHaveBeenCalledWith('c1');
 });
 
@@ -961,7 +961,7 @@ it('GET / keeps suggestions out of tab_questions and lists them in tab_suggestio
   const { app } = build({ tabs: [{ id: 't1', project_id: 'p1', name: 'api' }], tabQuestions: [q, s] });
   const res = await app.inject({ method: 'GET', url: '/chat' });
   expect(res.json().tab_questions.map((x: { id: string }) => x.id)).toEqual(['q1']);
-  expect(res.json().tab_suggestions).toEqual([{ id: 's1', tab_id: 't1', tab_name: 'api', kind: 'suggestion', payload: { text: 'commit it', context: null }, status: 'open', answer: null, error_code: null, created_at: '2026-09-25T12:00:00.000Z', answered_at: null, closed_at: null, auto_answer: null, answered_via: null, surfaced_at: null }]);
+  expect(res.json().tab_suggestions).toEqual([{ id: 's1', tab_id: 't1', tab_name: 'api', kind: 'suggestion', payload: { text: 'commit it', context: null }, status: 'open', answer: null, error_code: null, created_at: '2026-09-25T12:00:00.000Z', answered_at: null, closed_at: null, auto_answer: null, answered_via: null, surfaced_at: null, auto_decision: null }]);
 });
 
 const listedRow = { id: 'g1', conversation_id: 'c1', tab_id: 't1', tool: 'send_input', source_action_id: 'act1', granted_by: 'u1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z', revoked_at: '2026-09-25T12:00:00.000Z', revoked_by: 'u1', conversation_project_id: null, conversation_archived: false };

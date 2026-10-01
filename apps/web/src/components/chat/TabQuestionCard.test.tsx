@@ -395,3 +395,18 @@ it('carries its id for the pending bar to find it (TER-477)', () => {
   const { container } = render(<TabQuestionCard question={permission()} answering={false} onAnswer={vi.fn()} />);
   expect(container.querySelector('[data-chat-card="q2"]')).not.toBeNull();
 });
+
+// TER-641: a card the countdown decides (or decided) by itself carries the badge; one answered by a click does not.
+describe('"Decisão automática" (TER-641)', () => {
+  const auto = { reason: 'Já decidido', sources: [{ ref: 'decision:d1', question: 'Qual cor?', answer: 'Blue' }] };
+  it('shows the badge and its decision on an automatically answered card', () => {
+    render(<TabQuestionCard question={choice({ status: 'answered', answer: { answers: [{ selected: [0] }, { selected: [1] }] }, answered_via: 'auto', auto_decision: auto })} answering={false} onAnswer={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Decisão automática' }));
+    expect(screen.getByText('Motivo: Já decidido')).toBeInTheDocument();
+    expect(screen.getByText(/«Qual cor\?» → Blue/)).toBeInTheDocument();
+  });
+  it('no badge without auto_decision', () => {
+    render(<TabQuestionCard question={choice({ status: 'answered', answer: { answers: [{ selected: [0] }, { selected: [1] }] }, answered_via: 'card' })} answering={false} onAnswer={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Decisão automática' })).toBeNull();
+  });
+});

@@ -984,6 +984,17 @@ export interface ChatAction {
   /** When the card was last brought back to the end of the chat (TER-477): the thread orders it by
    * `surfaced_at ?? created_at`. Absent from an older server. */
   surfaced_at?: string | null;
+  /** A send the concierge made on a precedent from memory (TER-641); null when it cited none, absent
+   * from an older server. Shown as "Decisão automática" only when the call ran without a click. */
+  auto_decision?: AutoDecision | null;
+}
+
+/** Mirrors the server's `AutoDecisionView` (auto-decision-view.ts, TER-641): what the concierge sent a
+ * tab on its own from memory. A `decision:` ref of the person's own carries its recorded question and
+ * answer; any other ref (a card, a note, a decision forgotten since) only `ref`. */
+export interface AutoDecision {
+  reason: string | null;
+  sources: { ref: string; question: string | null; answer: string | null }[];
 }
 
 /** Mirrors the server's `SubagentStatus` (apps/server/src/chat/stream.ts). */
@@ -1168,6 +1179,8 @@ interface TabQuestionBase {
   auto_answer?: TabQuestionAutoAnswer | null;
   /** `'auto'` when the countdown sent the answer; absent from an older server. */
   answered_via?: 'card' | 'auto' | null;
+  /** "Decisão automática" (TER-641): set while the countdown runs, or on a card it answered. */
+  auto_decision?: AutoDecision | null;
 }
 export type TabQuestionChoice = TabQuestionBase & { kind: 'choice'; payload: { questions: TabQuestionItem[]; agent?: 'codex' }; answer: ChoiceAnswer | null };
 export type TabQuestionPermission = TabQuestionBase & { kind: 'permission'; payload: { tool_name: string; agent?: 'codex'; question?: string }; answer: PermissionAnswer | null };

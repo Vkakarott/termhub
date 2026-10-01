@@ -1,6 +1,6 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import type { TabQuestion } from './tab-questions.js';
-import { toTabQuestionView } from './tab-questions-view.js';
+import { describeTabQuestions, toTabQuestionView } from './tab-questions-view.js';
 
 const row = (over: Partial<TabQuestion> = {}): TabQuestion => ({
   id: 'q1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'permission', payload: { tool_name: 'Bash' }, tool_use_id: null,
@@ -42,4 +42,34 @@ it('carries the countdown while the card is open, and afterwards only once sent 
 it('carries surfaced_at, null until the card is brought back (TER-477)', () => {
   expect(toTabQuestionView(row(), 'api').surfaced_at).toBeNull();
   expect(toTabQuestionView(row({ surfaced_at: '2026-09-30T06:00:00.000Z' }), 'api').surfaced_at).toBe('2026-09-30T06:00:00.000Z');
+});
+
+// TER-641: "Decisão automática" on a card the countdown decides or decided by itself.
+it('describes the automatic decision while the countdown runs or once it answered; never for a click or a cancel', async () => {
+  const auto = { answer: { answers: [{ selected: [0] }] }, by: 'concierge' as const, reason: 'Já decidido', sources: [{ kind: 'decision' as const, id: 'd1' }, { kind: 'note' as const, id: 'n1' }], due_at: '2026-09-26T12:01:00.000Z' };
+  const open = row({ kind: 'choice', payload: { questions: [] }, status: 'open', closed_at: null });
+  const findManyForUser = vi.fn(async (ids: string[], userId: string) => (userId === 'u1' && ids.includes('d1') ? [{ id: 'd1', question: 'Faço o rebase?', answer: { labels: [], text: 'pode' } }] : []));
+  const repos = { tabs: { findByIdsForOwner: vi.fn(async () => [{ id: 't1', name: 'api' }]) }, chatDecisions: { findManyForUser } } as never;
+  const views = await describeTabQuestions(
+    repos,
+    [
+      { ...open, auto_answer: { ...auto, status: 'scheduled' } },
+      { ...open, status: 'answered', auto_answer: { ...auto, status: 'sent' }, answered_via: 'auto' },
+      { ...open, auto_answer: { ...auto, status: 'cancelled' } },
+      { ...open, auto_answer: { ...auto, status: 'failed' } },
+      { ...open, status: 'answered', answered_via: 'card' },
+    ],
+    'u1',
+  );
+  const expected = { reason: 'Já decidido', sources: [{ ref: 'decision:d1', question: 'Faço o rebase?', answer: 'pode' }, { ref: 'note:n1', question: null, answer: null }] };
+  expect(views.map((v) => v.auto_decision)).toEqual([expected, expected, null, null, null]);
+  expect(findManyForUser).toHaveBeenCalledTimes(1);
+});
+
+it('reads no decision when no card has a countdown', async () => {
+  const findManyForUser = vi.fn();
+  const repos = { tabs: { findByIdsForOwner: vi.fn(async () => []) }, chatDecisions: { findManyForUser } } as never;
+  const [view] = await describeTabQuestions(repos, [row()], 'u1');
+  expect(view!.auto_decision).toBeNull();
+  expect(findManyForUser).not.toHaveBeenCalled();
 });

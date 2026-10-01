@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 import type { TTabQuestionAnswerBody } from '@/services/api/contract';
 import { AppText, Button } from '@/ui';
+import { AutoDecisionBadge } from './auto-decision-badge';
 import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerDescription, choiceAnswerLabel, choiceTitle, formatCountdown, permissionTitle, statusLabel, suggestionLine, suggestionSourceSentence } from '../model/tab-question-text';
 import type { TabQuestion, TabQuestionSuggestionItem } from '../model/types';
 
@@ -39,6 +40,8 @@ export const TabQuestionCard = memo(function TabQuestionCard(props: Props) {
     // form) from the composer's own button of the same accessible name, both on screen at once.
     <View testID={`tab-question-${question.id}`} className="gap-3 rounded-2xl border border-app-accent bg-app-surface2 p-4">
       {question.kind === 'choice' ? <ChoiceBody {...props} question={question} /> : <PermissionBody {...props} question={question} />}
+      {/* TER-641: the countdown decides (or decided) this card by itself, from memory. */}
+      {question.auto_decision ? <AutoDecisionBadge decision={question.auto_decision} /> : null}
       {question.status !== 'open' ? <AppText variant="muted">{statusLabel(question)}</AppText> : null}
       {props.error ? <AppText className="text-app-danger">{props.error}</AppText> : null}
     </View>

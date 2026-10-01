@@ -265,3 +265,17 @@ it('start_agent and wait_for_state say to follow a tab with one waiting subagent
   expect(wait).toContain('read_last_answer');
   expect(wait).not.toContain('a few times at most');
 });
+
+// TER-641: send_input and send_key take the precedent they follow, optional, in answer_tab_question's format.
+it('send_input and send_key accept optional sources and reason, and refuse a malformed ref', () => {
+  for (const [name, base] of [['send_input', { tab_id: 't1', text: '1' }], ['send_key', { tab_id: 't1', key: 'Enter' }]] as const) {
+    const tool = TOOLS.find((t) => t.name === name)!;
+    expect(tool.description).toMatch(/sources/);
+    expect(parseArgs(tool, base).ok).toBe(true);
+    const sourced = parseArgs(tool, { ...base, sources: ['decision:abc123'], reason: 'Mesma pergunta de ontem' });
+    expect(sourced).toEqual({ ok: true, value: { ...base, sources: ['decision:abc123'], reason: 'Mesma pergunta de ontem' } });
+    expect(parseArgs(tool, { ...base, sources: ['Decision:ABC'] }).ok).toBe(false);
+    expect(parseArgs(tool, { ...base, sources: [] }).ok).toBe(false);
+    expect(parseArgs(tool, { ...base, reason: '  ' }).ok).toBe(false);
+  }
+});

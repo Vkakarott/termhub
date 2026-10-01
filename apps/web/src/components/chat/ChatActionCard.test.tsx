@@ -205,3 +205,30 @@ describe('an expired or stale card (TER-477)', () => {
     expect(screen.getByRole('listitem')).toHaveAttribute('data-chat-card', 'a1');
   });
 });
+
+// TER-641: a send the concierge made on a precedent from memory, without a click.
+describe('"Decisão automática" (TER-641)', () => {
+  const auto = { reason: 'Mesma pergunta de ontem', sources: [{ ref: 'decision:d1', question: 'Rodo os testes?', answer: 'Sim' }, { ref: 'task:tk1', question: null, answer: null }] };
+  it('shows the badge beside "liberado por padrão", and its detail on click', () => {
+    render(<ChatActionCard action={card({ status: 'executed', grant_id: 'default:terminal:u1', auto_decision: auto })} deciding={false} onDecide={vi.fn()} />);
+    expect(screen.getByText('Executado · liberado por padrão')).toBeInTheDocument();
+    const badge = screen.getByRole('button', { name: 'Decisão automática' });
+    expect(badge).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Motivo: Mesma pergunta de ontem')).toBeNull();
+    fireEvent.click(badge);
+    expect(badge).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Motivo: Mesma pergunta de ontem')).toBeInTheDocument();
+    expect(screen.getByText(/«Rodo os testes\?» → Sim/)).toBeInTheDocument();
+    expect(screen.getByText('(decision:d1)')).toBeInTheDocument();
+    expect(screen.getByText('(task:tk1)')).toBeInTheDocument();
+  });
+  it.each([
+    ['pending', card({ auto_decision: auto })],
+    ['approved by hand', card({ status: 'executed', grant_id: null, auto_decision: auto })],
+    ['with no precedent', card({ status: 'executed', grant_id: 'g1', auto_decision: null })],
+    ['from an older server', card({ status: 'executed', grant_id: 'g1' })],
+  ])('no badge on a card %s', (_l, action) => {
+    render(<ChatActionCard action={action} deciding={false} onDecide={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Decisão automática' })).toBeNull();
+  });
+});

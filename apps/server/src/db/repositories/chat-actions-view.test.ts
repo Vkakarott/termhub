@@ -53,6 +53,8 @@ const foreignTask = { id: 'tk9', project_id: 'p9', title: 'Tarefa Alheia' };
 // A subagent (`chat_subagents`, spec 2026-09-26 §4) that proposed an action, and one that belongs to
 // another conversation entirely — resolving that one must read as "no subagent", exactly like every
 // other cross-scope reference this view is careful never to disclose.
+// A decision of this owner's (TER-641), cited by a send the concierge made on a precedent.
+const ownDecision = { id: 'd1', question: 'Rodo os testes?', answer: { labels: ['Sim'] } };
 const subagent = { id: 'sub1', conversation_id: 'c1', description: 'Escrever testes' };
 const otherConversationSubagent = { id: 'sub9', conversation_id: 'c9', description: 'De outra conversa' };
 
@@ -89,6 +91,8 @@ function fakeRepos(tabOverride?: Partial<typeof tab>) {
     // conversation check inside `describeActions` is what keeps a foreign-conversation row from
     // ever being named on a card.
     chatSubagents: { listByIds: vi.fn(async (ids: string[]) => [subagent, otherConversationSubagent].filter((s) => ids.includes(s.id))) },
+    // Owner-scoped like the real `findManyForUser`: another user's decision resolves to nothing.
+    chatDecisions: { findManyForUser: vi.fn(async (ids: string[], userId: string) => (userId === OWNER ? [ownDecision].filter((d) => ids.includes(d.id)) : [])) },
   } as never;
 }
 
@@ -715,4 +719,42 @@ it('describeStandingGrantList: kind standing, no tab, no expiry, no scope; activ
 it('tab and project list rows carry standing_kind: null', async () => {
   const [p] = await describeProjectGrantList(fakeRepos(), [listedProject({ id: 'pg1', project_id: project.id })], OWNER, NOW);
   expect(p.standing_kind).toBeNull();
+});
+
+// TER-641: a send the concierge made on a precedent cites its refs; the card resolves the decisions.
+it('resolves a send_input\'s cited decisions into auto_decision, owner-scoped; a send that cites none has null', async () => {
+  const repos = fakeRepos();
+  const cards = await describeActions(
+    repos,
+    [
+      action({ id: 'a1', args: { tab_id: 't1', text: '1', sources: ['decision:d1', 'decision:d9', 'task:tk1'], reason: 'Mesma pergunta de ontem' }, tab_id: 't1', status: 'executed', grant_id: 'default:terminal:u1' }),
+      action({ id: 'a2', tool: 'send_key', args: { tab_id: 't1', key: 'Enter', sources: ['decision:d1'] }, tab_id: 't1' }),
+      action({ id: 'a3', args: { tab_id: 't1', text: 'oi' }, tab_id: 't1' }),
+      action({ id: 'a4', tool: 'create_task', args: { project_id: 'p1', title: 'x', sources: ['decision:d1'] }, project_id: 'p1' }),
+    ],
+    OWNER,
+  );
+  expect(cards[0]!.auto_decision).toEqual({
+    reason: 'Mesma pergunta de ontem',
+    sources: [
+      { ref: 'decision:d1', question: 'Rodo os testes?', answer: 'Sim' },
+      { ref: 'decision:d9', question: null, answer: null },
+      { ref: 'task:tk1', question: null, answer: null },
+    ],
+  });
+  expect(cards[1]!.auto_decision).toEqual({ reason: null, sources: [{ ref: 'decision:d1', question: 'Rodo os testes?', answer: 'Sim' }] });
+  expect(cards[2]!.auto_decision).toBeNull();
+  expect(cards[3]!.auto_decision).toBeNull(); // only send_input/send_key carry a precedent
+  expect((repos as { chatDecisions: { findManyForUser: { mock: { calls: unknown[] } } } }).chatDecisions.findManyForUser.mock.calls).toHaveLength(1);
+});
+
+it('never resolves another owner\'s decision on a card', async () => {
+  const [card] = await describeActions(fakeRepos(), [action({ args: { tab_id: 't1', text: '1', sources: ['decision:d1'] }, tab_id: 't1' })], OTHER_OWNER);
+  expect(card!.auto_decision).toEqual({ reason: null, sources: [{ ref: 'decision:d1', question: null, answer: null }] });
+});
+
+it('reads nothing from memory when no card cites a precedent', async () => {
+  const repos = fakeRepos();
+  await describeActions(repos, [action({ args: { tab_id: 't1', text: 'oi', sources: 'decision:d1' }, tab_id: 't1' })], OWNER);
+  expect((repos as { chatDecisions: { findManyForUser: { mock: { calls: unknown[] } } } }).chatDecisions.findManyForUser.mock.calls).toHaveLength(0);
 });

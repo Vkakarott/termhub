@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import type { ChatAction, ChatDecisionWord, ChatGrant, ChatProjectGrant, ChatStandingGrant, ChatStandingKind } from '../../lib/types';
+import { actionAutoDecision, AutoDecisionBadge } from './AutoDecisionBadge';
 import { STANDING_KIND_LABEL, standingKindLabel } from './grant-list-text';
 import { untilLabel } from './grant-time';
 
@@ -97,6 +98,7 @@ export interface ChatActionCardProps {
 export const ChatActionCard = memo(function ChatActionCard({ action, deciding, note, grant, projectGrant, standingGrant, revoking, onRevoke, onDecide, onRepropose }: ChatActionCardProps) {
   const standingKind = standingKindOf(action);
   const stale = staleLabel(action);
+  const autoDecision = actionAutoDecision(action);
   return (
     // `data-chat-card`: how the pending bar finds this card to scroll to it (TER-477). A stale card waits
     // on nobody, so it drops the attention border.
@@ -154,6 +156,8 @@ export const ChatActionCard = memo(function ChatActionCard({ action, deciding, n
           {action.grant_id ? grantedLabel(action) : ''}
         </p>
       )}
+      {/* TER-641: sent without a click on a precedent from memory — apart from the allowance it ran under. */}
+      {autoDecision && <AutoDecisionBadge decision={autoDecision} />}
       {grant && (
         <p className="mt-1 flex items-center gap-2 text-xs text-fg-dim">
           <span>

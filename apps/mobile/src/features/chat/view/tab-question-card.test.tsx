@@ -314,3 +314,21 @@ describe('TabQuestionCard: a question that came from Codex', () => {
     expect(screen.getByText('A aba «api» pede permissão para usar «Bash»')).toBeTruthy();
   });
 });
+
+// TER-641: a card the countdown answered by itself carries "Decisão automática"; one answered by a tap does not.
+describe('TabQuestionCard: "Decisão automática" (TER-641)', () => {
+  const auto = { reason: 'Já decidido', sources: [{ ref: 'decision:d1', question: 'Usar worktree?', answer: 'Não' }] };
+  const answered = { ...BASE_QUESTION, status: 'answered' as const, answer: { answers: [{ selected: [1] }] } };
+
+  it('shows the badge and its decision on an automatically answered card', async () => {
+    await render(<TabQuestionCard question={{ ...answered, answered_via: 'auto', auto_decision: auto }} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} onForget={jest.fn()} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Decisão automática' }));
+    expect(screen.getByText('Motivo: Já decidido')).toBeTruthy();
+    expect(screen.getByText('• «Usar worktree?» → Não (decision:d1)')).toBeTruthy();
+  });
+
+  it('no badge on a card answered by a tap', async () => {
+    await render(<TabQuestionCard question={{ ...answered, answered_via: 'card' }} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} onForget={jest.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Decisão automática' })).toBeNull();
+  });
+});
