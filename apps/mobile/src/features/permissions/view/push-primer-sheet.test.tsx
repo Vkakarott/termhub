@@ -38,7 +38,7 @@ it('stays hidden while the session is locked, and shows again once unlocked', as
 
 it('stays hidden while the PIN sheet is open, and shows again once it closes', async () => {
   await render(<PushPrimerSheet />);
-  await act(async () => stores.store.setState({ pinPrompt: { actionId: 'a1', decision: 'allow' } }));
+  await act(async () => stores.store.setState({ pinPrompt: { actionId: 'a1', decision: 'approve' } }));
   expect(screen.queryByText('Receba avisos das suas conversas')).toBeNull();
   await act(async () => stores.store.setState({ pinPrompt: null }));
   expect(screen.getByText('Receba avisos das suas conversas')).toBeTruthy();
