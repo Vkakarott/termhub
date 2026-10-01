@@ -341,7 +341,7 @@ export function ChatMemoryPage() {
   };
 
   return (
-    <div className="mx-auto w-full min-w-0 max-w-3xl flex-1 overflow-y-auto px-4 py-6">
+    <div className="w-full min-w-0 flex-1 overflow-y-auto px-4 py-6">
       <h2 className="text-lg font-semibold text-fg">Memória do chat</h2>
       <p className="mt-1 text-sm text-fg-muted">
         O que o concierge lembra das suas respostas anteriores, para sugerir a mesma resposta quando uma aba perguntar de novo.

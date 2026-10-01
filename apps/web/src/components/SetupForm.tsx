@@ -109,7 +109,7 @@ export function SetupForm({ project }: Props) {
   const anyDuplicate = sources.some((_, i) => duplicate(i));
 
   return (
-    <div className="max-w-2xl space-y-5">
+    <div className="space-y-5">
       <Card title="Repositório" hint="Onde o agente cria branch e abre PR.">
         {byProvider('github').length === 0 ? (
           <Empty>Cadastre uma integração GitHub em Integrações.</Empty>

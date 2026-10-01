@@ -127,7 +127,7 @@ export function ProjectMachines({ project }: { project: Project }) {
   };
 
   return (
-    <section className="mb-8 max-w-2xl space-y-3 rounded-lg border border-line bg-bg-2 p-4">
+    <section className="mb-8 space-y-3 rounded-lg border border-line bg-bg-2 p-4">
       <h3 className="text-sm font-semibold">Máquinas</h3>
       {project.machines.length === 0 && <p className="text-xs text-fg-muted">Nenhuma máquina vinculada: o projeto tem quadro e notas, mas nenhum terminal.</p>}
       <ul className="space-y-2">

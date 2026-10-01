@@ -147,7 +147,7 @@ export function DevicesView() {
   const empty = !loading && requests.length === 0 && devices.length === 0;
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="space-y-6">
       {error && <p className="text-sm text-danger">{error}</p>}
 
       {loading ? (

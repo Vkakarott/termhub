@@ -106,7 +106,7 @@ export function HomePage() {
     body = (
       <>
         {readFailed && (
-          <div role="status" aria-label="Aviso de carregamento" className="mb-4 flex max-w-2xl flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-fg">
+          <div role="status" aria-label="Aviso de carregamento" className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-fg">
             <span className="min-w-0 flex-1">Não foi possível carregar tudo: algumas listas podem estar incompletas.</span>
             <button
               type="button"
@@ -166,7 +166,7 @@ function NextStepsCard({ userId, steps, onInstallHooks }: { userId: string; step
   const [dismissed, setDismissed] = useState(() => loadNextStepsDismissed(userId));
   if (dismissed || steps.length === 0) return null;
   return (
-    <section aria-labelledby="next-steps-title" className="mb-5 max-w-2xl rounded-lg border border-line bg-bg-2 px-4 py-3">
+    <section aria-labelledby="next-steps-title" className="mb-5 rounded-lg border border-line bg-bg-2 px-4 py-3">
       <div className="flex items-center gap-2">
         <ListChecks size={16} aria-hidden="true" className="shrink-0 text-accent" />
         <h2 id="next-steps-title" className="flex-1 text-sm font-semibold">

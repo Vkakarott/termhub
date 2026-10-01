@@ -56,6 +56,12 @@ describe('MachinesPage', () => {
     expect(macRow).toHaveTextContent('alpha');
   });
 
+  it('lets the machine list take the full page width (no max-w cap)', () => {
+    mount();
+    const list = screen.getByText('mac').closest('ul')!;
+    expect(list.className).not.toMatch(/max-w-/);
+  });
+
   it('shows a machine\'s subtitle on its card, and nothing for one without', () => {
     mount();
     const macRow = screen.getByText('mac').closest('li')!;

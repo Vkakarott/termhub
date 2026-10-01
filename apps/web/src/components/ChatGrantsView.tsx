@@ -105,7 +105,7 @@ export function ChatGrantsView() {
   if (active === null || history === null) return <p className="text-sm text-fg-dim">Carregando…</p>;
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="space-y-6">
       <p className="text-sm text-fg-muted">O que o chat pode fazer sem pedir confirmação. Permissões de conversa valem por até 24 horas; as sem prazo valem até você revogar.</p>
       {error && <p className="text-sm text-danger">{error}</p>}
       {defaults && (
