@@ -24,7 +24,12 @@ vi.mock('../lib/api', () => {
     },
   };
 });
-vi.mock('../lib/data', () => ({ useData: () => ({ machines: [{ id: 'm1', name: 'mac' }] as Machine[] }) }));
+const machines = [
+  { id: 'm1', name: 'mac', subtitle: null },
+  { id: 'm2', name: 'jarvis', subtitle: 'servidor de casa' },
+  { id: 'm3', name: 'hulk', subtitle: null },
+] as Machine[];
+vi.mock('../lib/data', () => ({ useData: () => ({ machines, statuses: { m1: 'online', m2: 'offline' } }) }));
 vi.mock('./AutoSwapSettings', () => ({ AutoSwapSettings: () => null }));
 
 import { AiAccountsView } from './AiAccountsView';
@@ -32,6 +37,7 @@ import { AiAccountsView } from './AiAccountsView';
 const account = (over: Partial<AiAccount> & { id: string }): AiAccount => ({ provider: 'claude', label: over.id, machine_id: 'm1', config_dir: null, created_at: '', ...over });
 
 beforeEach(() => {
+  localStorage.clear();
   listMock.mockResolvedValue({ accounts: [] });
   usageMock.mockResolvedValue({ usage: [] });
   usageOfMock.mockResolvedValue({ usage: { account_id: 'x', ok: false, windows: [], error: null, hint: null, plan: null, fetched_at: '', stale: false } });
@@ -85,8 +91,80 @@ describe('AiAccountsView: which login an account is (TER-499)', () => {
     listMock.mockResolvedValue({ accounts: [account({ id: 'home' }), account({ id: 'work', config_dir: '~/.claude-work' })] });
     render(<AiAccountsView />);
     const [home, work] = await screen.findAllByRole('listitem');
-    expect(home).toHaveTextContent('mac · login padrão');
-    expect(work).toHaveTextContent('mac · ~/.claude-work');
+    expect(home).toHaveTextContent('login padrão');
+    expect(work).toHaveTextContent('~/.claude-work');
     expect(work).not.toHaveTextContent('login padrão');
+  });
+});
+
+describe('AiAccountsView: accounts grouped by machine (TER-640)', () => {
+  const sections = () => screen.getAllByRole('region');
+  // the section's header is the button that says whether it is expanded (the other one adds an account)
+  const toggleOf = (name: string) => within(screen.getByRole('region', { name })).getAllByRole('button').find((b) => b.hasAttribute('aria-expanded'))!;
+
+  it('shows one section per machine with accounts, in the order of the Máquinas page', async () => {
+    listMock.mockResolvedValue({
+      accounts: [account({ id: 'a', machine_id: 'm3' }), account({ id: 'b', machine_id: 'm1' }), account({ id: 'c', machine_id: 'm3', provider: 'chatgpt' })],
+    });
+    render(<AiAccountsView />);
+    await screen.findAllByRole('listitem');
+    expect(sections().map((s) => s.getAttribute('aria-label'))).toEqual(['mac', 'hulk']);
+    const hulk = within(screen.getByRole('region', { name: 'hulk' }));
+    expect(hulk.getAllByRole('listitem').map((li) => li.textContent)).toEqual([expect.stringContaining('a'), expect.stringContaining('c')]);
+    expect(hulk.getByText('2 contas')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'mac' })).getByText('1 conta')).toBeInTheDocument();
+  });
+
+  it("shows the machine's subtitle and whether it is online", async () => {
+    listMock.mockResolvedValue({ accounts: [account({ id: 'a', machine_id: 'm2' }), account({ id: 'b', machine_id: 'm1' })] });
+    render(<AiAccountsView />);
+    await screen.findAllByRole('listitem');
+    const jarvis = within(screen.getByRole('region', { name: 'jarvis' }));
+    expect(jarvis.getByText('servidor de casa')).toBeInTheDocument();
+    expect(jarvis.getByTitle('offline')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'mac' })).getByTitle('online')).toBeInTheDocument();
+  });
+
+  it('puts accounts of a machine outside the list in a last section', async () => {
+    listMock.mockResolvedValue({ accounts: [account({ id: 'gone', machine_id: 'mx' }), account({ id: 'b', machine_id: 'm1' })] });
+    render(<AiAccountsView />);
+    await screen.findAllByRole('listitem');
+    expect(sections().map((s) => s.getAttribute('aria-label'))).toEqual(['mac', 'Máquina desconhecida']);
+  });
+
+  it('starts open, collapses on click and remembers it per machine', async () => {
+    listMock.mockResolvedValue({ accounts: [account({ id: 'a', machine_id: 'm1' }), account({ id: 'b', machine_id: 'm3' })] });
+    render(<AiAccountsView />);
+    await screen.findAllByRole('listitem');
+    const toggle = toggleOf('mac');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(within(screen.getByRole('region', { name: 'mac' })).queryByRole('listitem')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'hulk' })).getAllByRole('listitem')).toHaveLength(1);
+
+    cleanup();
+    render(<AiAccountsView />);
+    await screen.findAllByRole('listitem');
+    expect(toggleOf('mac')).toHaveAttribute('aria-expanded', 'false');
+    expect(toggleOf('hulk')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it("adds an account from a section with that section's machine already chosen", async () => {
+    listMock.mockResolvedValue({ accounts: [account({ id: 'a', machine_id: 'm1' }), account({ id: 'b', machine_id: 'm3' })] });
+    render(<AiAccountsView />);
+    await screen.findAllByRole('listitem');
+    fireEvent.click(within(screen.getByRole('region', { name: 'hulk' })).getByRole('button', { name: 'Adicionar conta em hulk' }));
+    const form = within(screen.getByRole('dialog'));
+    expect(form.getByRole('combobox')).toHaveValue('m3');
+    fireEvent.click(form.getByRole('button', { name: 'Adicionar' }));
+    await waitFor(() => expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ machine_id: 'm3' })));
+  });
+
+  it('still edits an account from inside its section', async () => {
+    listMock.mockResolvedValue({ accounts: [account({ id: 'b', machine_id: 'm3' })] });
+    render(<AiAccountsView />);
+    fireEvent.click(await within(await screen.findByRole('region', { name: 'hulk' })).findByTitle('Editar'));
+    expect(within(screen.getByRole('dialog')).getByRole('combobox')).toHaveValue('m3');
   });
 });

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { api, ApiError } from '../lib/api';
 import { useData } from '../lib/data';
-import { AI_PROVIDER_LABEL, type AiAccount, type AiAccountUsage, type AiProvider, type AiUsageWindow } from '../lib/types';
+import { STATUS_DOT, STATUS_LABEL } from '../lib/machine-status';
+import { AI_PROVIDER_LABEL, type AiAccount, type AiAccountUsage, type AiProvider, type AiUsageWindow, type Machine } from '../lib/types';
 import { AutoSwapSettings } from './AutoSwapSettings';
 import { ConfirmDialog, Modal } from './Modal';
 
@@ -77,7 +78,6 @@ function AccountCard({
   account,
   usage,
   now,
-  machineName,
   onRefresh,
   onEdit,
   onDelete,
@@ -85,7 +85,6 @@ function AccountCard({
   account: AiAccount;
   usage: AiAccountUsage | undefined;
   now: number;
-  machineName: string;
   onRefresh: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -119,8 +118,7 @@ function AccountCard({
         </span>
       </div>
       <div className="mt-0.5 truncate font-mono text-[11px] text-fg-dim" title={account.config_dir ?? undefined}>
-        {machineName}
-        {account.config_dir ? ` · ${account.config_dir}` : ' · login padrão'}
+        {account.config_dir ?? 'login padrão'}
       </div>
 
       <div className="mt-3 flex-1">
@@ -150,11 +148,22 @@ function AccountCard({
   );
 }
 
-function AccountForm({ account, onClose, onSaved }: { account: AiAccount | null; onClose: () => void; onSaved: (a: AiAccount) => void }) {
+function AccountForm({
+  account,
+  machineId: initialMachineId,
+  onClose,
+  onSaved,
+}: {
+  account: AiAccount | null;
+  /** the machine a new account starts on (the section it was added from) */
+  machineId?: string;
+  onClose: () => void;
+  onSaved: (a: AiAccount) => void;
+}) {
   const { machines } = useData();
   const [provider, setProvider] = useState<AiProvider>(account?.provider ?? 'claude');
   const [label, setLabel] = useState(account?.label ?? '');
-  const [machineId, setMachineId] = useState(account?.machine_id ?? machines[0]?.id ?? '');
+  const [machineId, setMachineId] = useState(account?.machine_id ?? initialMachineId ?? machines[0]?.id ?? '');
   // Which login the account is (TER-499): the machine's default one (no config dir, stored as null) or
   // another one kept in its own config dir.
   const [custom, setCustom] = useState(!!account?.config_dir);
@@ -251,6 +260,58 @@ function AccountForm({ account, onClose, onSaved }: { account: AiAccount | null;
   );
 }
 
+export interface MachineAccounts {
+  /** null: accounts whose machine is not in the list (deleted, or outside the scope) */
+  machine: Machine | null;
+  accounts: AiAccount[];
+}
+
+/** One group per machine that has accounts, in the order of the Máquinas page; unknown machines last. Pure. */
+export function groupAccountsByMachine(machines: Machine[], accounts: AiAccount[]): MachineAccounts[] {
+  const groups: MachineAccounts[] = machines.map((machine) => ({ machine, accounts: accounts.filter((a) => a.machine_id === machine.id) }));
+  const known = new Set(machines.map((m) => m.id));
+  groups.push({ machine: null, accounts: accounts.filter((a) => !known.has(a.machine_id)) });
+  return groups.filter((g) => g.accounts.length > 0);
+}
+
+const OPEN_KEY = 'termhub:ai-accounts-open';
+const UNKNOWN_MACHINE = 'Máquina desconhecida';
+
+function readOpen(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(OPEN_KEY) ?? '{}') as Record<string, boolean>;
+  } catch {
+    return {};
+  }
+}
+
+function MachineSection({ machine, count, open, onToggle, onAdd, children }: { machine: Machine | null; count: number; open: boolean; onToggle: () => void; onAdd?: () => void; children: ReactNode }) {
+  const { statuses } = useData();
+  const name = machine?.name ?? UNKNOWN_MACHINE;
+  const status = machine ? (statuses[machine.id] ?? 'checking') : null;
+  return (
+    <section aria-label={name} className="rounded-lg border border-line bg-bg-2">
+      <div className="flex items-center gap-2 pr-2">
+        <button type="button" className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg px-3 py-2 text-left text-sm hover:bg-bg-3" onClick={onToggle} aria-expanded={open}>
+          <span className={`text-[10px] text-fg-dim transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden>
+            ▶
+          </span>
+          {status && <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[status]}`} title={STATUS_LABEL[status]} />}
+          <span className="truncate font-medium">{name}</span>
+          {machine?.subtitle && <span className="truncate text-xs text-fg-muted">{machine.subtitle}</span>}
+          <span className="text-xs text-fg-dim">{count === 1 ? '1 conta' : `${count} contas`}</span>
+        </button>
+        {onAdd && (
+          <button type="button" className="btn-ghost shrink-0 text-xs" aria-label={`Adicionar conta em ${name}`} title={`Adicionar conta em ${name}`} onClick={onAdd}>
+            + conta
+          </button>
+        )}
+      </div>
+      {open && <div className="border-t border-line p-3">{children}</div>}
+    </section>
+  );
+}
+
 // the server caches each account for 5 min and backs off on 429, so polling faster only re-reads the cache
 const POLL_MS = 5 * 60_000;
 
@@ -258,7 +319,8 @@ export function AiAccountsView() {
   const { machines } = useData();
   const [accounts, setAccounts] = useState<AiAccount[] | null>(null);
   const [usage, setUsage] = useState<Record<string, AiAccountUsage>>({});
-  const [form, setForm] = useState<{ open: boolean; account: AiAccount | null }>({ open: false, account: null });
+  const [form, setForm] = useState<{ open: boolean; account: AiAccount | null; machineId?: string }>({ open: false, account: null });
+  const [open, setOpen] = useState<Record<string, boolean>>(readOpen);
   const [deleting, setDeleting] = useState<AiAccount | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -302,7 +364,19 @@ export function AiAccountsView() {
     }
   };
 
-  const machineName = (id: string) => machines.find((m) => m.id === id)?.name ?? '—';
+  const groups = useMemo(() => groupAccountsByMachine(machines, accounts ?? []), [machines, accounts]);
+  const groupKey = (g: MachineAccounts) => g.machine?.id ?? '';
+  // open unless the person closed it
+  const isOpen = (g: MachineAccounts) => open[groupKey(g)] ?? true;
+  const toggle = (g: MachineAccounts) => {
+    const next = { ...open, [groupKey(g)]: !isOpen(g) };
+    setOpen(next);
+    try {
+      localStorage.setItem(OPEN_KEY, JSON.stringify(next));
+    } catch {
+      /* private mode: the choice just does not persist */
+    }
+  };
 
   return (
     <div>
@@ -326,20 +400,35 @@ export function AiAccountsView() {
         <p className="text-sm text-fg-dim">Nenhuma conta cadastrada. Adicione uma conta apontando para a máquina onde o Claude Code, Codex, Gemini CLI ou Antigravity CLI está logado.</p>
       )}
 
-      <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {accounts?.map((a) => (
-          <AccountCard
-            key={a.id}
-            account={a}
-            usage={usage[a.id]}
-            now={now}
-            machineName={machineName(a.machine_id)}
-            onRefresh={() => refreshOne(a.id)}
-            onEdit={() => setForm({ open: true, account: a })}
-            onDelete={() => setDeleting(a)}
-          />
-        ))}
-      </ul>
+      <div className="space-y-3">
+        {groups.map((g) => {
+          const m = g.machine;
+          return (
+          <MachineSection
+            key={groupKey(g)}
+            machine={m}
+            count={g.accounts.length}
+            open={isOpen(g)}
+            onToggle={() => toggle(g)}
+            onAdd={m ? () => setForm({ open: true, account: null, machineId: m.id }) : undefined}
+          >
+            <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {g.accounts.map((a) => (
+                <AccountCard
+                  key={a.id}
+                  account={a}
+                  usage={usage[a.id]}
+                  now={now}
+                  onRefresh={() => refreshOne(a.id)}
+                  onEdit={() => setForm({ open: true, account: a })}
+                  onDelete={() => setDeleting(a)}
+                />
+              ))}
+            </ul>
+          </MachineSection>
+          );
+        })}
+      </div>
 
       {accounts && <AutoSwapSettings machines={machines} accounts={accounts} />}
 
@@ -347,6 +436,7 @@ export function AiAccountsView() {
         <AccountForm
           key={form.account?.id ?? 'new'}
           account={form.account}
+          machineId={form.machineId}
           onClose={() => setForm({ open: false, account: null })}
           onSaved={(saved) => {
             setForm({ open: false, account: null });
