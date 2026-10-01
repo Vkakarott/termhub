@@ -131,10 +131,10 @@ Derived: `showAdCard(state)` = `adConsent === 'unknown'` and (Android, or ATT `u
   `expo-tracking-transparency` plugin with `userTrackingPermission`: "Usamos o identificador de
   publicidade só para medir quais anúncios trouxeram você ao termhub.".
 - `apps/mobile/firebase.json` (new): `react-native` →
-  `google_analytics_default_allow_analytics_storage: true`,
-  `google_analytics_default_allow_ad_storage: false`,
-  `google_analytics_default_allow_ad_user_data: false`,
-  `google_analytics_default_allow_ad_personalization_signals: false`.
+  `analytics_default_allow_analytics_storage: true`,
+  `analytics_default_allow_ad_storage: false`,
+  `analytics_default_allow_ad_user_data: false`,
+  `analytics_default_allow_ad_personalization_signals: false`.
 - Bump the app version (minor): `runtimeVersion` follows `appVersion`, so older binaries never get
   this JS over the air (it imports a native module they lack).
 
