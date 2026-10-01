@@ -7,6 +7,7 @@ export const PERMISSIONS_MSG = {
   adTitle: 'Ajude a medir nossos anúncios',
   adBody: 'Com sua permissão, usamos o identificador de publicidade do aparelho só para saber quais anúncios trouxeram novas pessoas ao termhub. Você pode mudar isso em Ajustes.',
   adAccept: 'Permitir',
+  adContinue: 'Continuar',
   notificationStatus: {
     granted: 'Ativadas neste aparelho.',
     denied: 'Desativadas. Para receber avisos, ative nos Ajustes do sistema.',

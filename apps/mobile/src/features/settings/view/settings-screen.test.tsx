@@ -1,3 +1,4 @@
+import { AppState } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 jest.mock('@/features/session/viewmodel/useSessionStore', () => ({ useSessionStore: require('../../../../test/helpers/ui-stores').stores.store }));
@@ -144,5 +145,20 @@ describe('Notificações e Privacidade (permission prompts spec §2)', () => {
     expect(toggle.props.value).toBe(true);
     await act(async () => fireEvent(toggle, 'valueChange', false));
     expect(stores.permissions.getState().adConsent).toBe('denied');
+  });
+
+  it('coming back to the app drops a grant revoked in the system settings', async () => {
+    stores.permissions.setState({ adConsent: 'granted' });
+    let onChange: (state: string) => void = () => undefined;
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
+      onChange = handler as (state: string) => void;
+      return { remove: jest.fn() };
+    });
+    await render(<SettingsScreen />);
+    expect(screen.getByRole('switch', { name: 'Medição de anúncios' }).props.value).toBe(true);
+    stores.permissionDeps.trackingStatus.mockResolvedValue('denied');
+    await act(async () => onChange('active'));
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Medição de anúncios' }).props.value).toBe(false));
+    stores.permissionDeps.trackingStatus.mockResolvedValue('undetermined');
   });
 });

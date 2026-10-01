@@ -213,3 +213,7 @@ it('native failures leave the state as it was and never throw', async () => {
   await expect(store.getState().syncAdConsent()).resolves.toBeUndefined();
   await expect(store.getState().setAdsFromSettings(true)).resolves.toBeUndefined();
 });
+
+it('exposes the platform it was built for', () => {
+  expect(createPermissionsStore(fakeDeps({ platform: 'android' })).getState().platform).toBe('android');
+});

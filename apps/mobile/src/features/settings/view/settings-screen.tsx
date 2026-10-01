@@ -52,6 +52,7 @@ export function SettingsScreen() {
   const notificationStatus = usePermissionsStore((s) => s.notificationStatus);
   const adConsent = usePermissionsStore((s) => s.adConsent);
   const refreshStatuses = usePermissionsStore((s) => s.refreshStatuses);
+  const syncAdConsent = usePermissionsStore((s) => s.syncAdConsent);
   const acceptPush = usePermissionsStore((s) => s.acceptPush);
   const openSystemSettings = usePermissionsStore((s) => s.openSystemSettings);
   const setAdsFromSettings = usePermissionsStore((s) => s.setAdsFromSettings);
@@ -74,10 +75,10 @@ export function SettingsScreen() {
   useEffect(() => {
     void refreshStatuses();
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void refreshStatuses();
+      if (state === 'active') void syncAdConsent(); // also downgrades an ATT grant revoked in the system settings
     });
     return () => sub.remove();
-  }, [refreshStatuses]);
+  }, [refreshStatuses, syncAdConsent]);
 
   const runDiagnostic = () => {
     setDiagnosticResult(null);

@@ -41,6 +41,7 @@ export function createPermissionsStore(deps: PermissionsDeps) {
     persist(
       (set, get) => ({
         ...initialData,
+        platform: deps.platform,
 
         async refreshStatuses() {
           const [notificationStatus, trackingStatus] = await Promise.all([safe(deps.notificationStatus, null), safe(deps.trackingStatus, null)]);

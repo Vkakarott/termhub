@@ -82,6 +82,14 @@ describe('Home (TER-541)', () => {
     expect(await screen.findByText('Nenhum projeto fixado')).toBeTruthy();
   });
 
+  it('re-reads the OS statuses on focus, and asks for ad consent while undecided', async () => {
+    stores.permissions.setState({ adConsent: 'unknown', trackingStatus: null });
+    stores.permissionDeps.trackingStatus.mockClear();
+    await render(<HomeScreen />);
+    expect(stores.permissionDeps.trackingStatus).toHaveBeenCalled();
+    expect(await screen.findByText('Ajude a medir nossos anúncios', undefined, LOAD)).toBeTruthy();
+  });
+
   it('does not claim nothing is pinned while the first load is running', async () => {
     await act(() => useChatStore.setState({ projects: [] }));
     jest.spyOn(stores.api, 'chatProjects').mockImplementationOnce(() => new Promise(() => undefined));

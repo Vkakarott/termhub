@@ -20,6 +20,7 @@ export interface PermissionsState {
   pushPrimerDismissals: number;
   adConsent: AdConsent;
   /** Memory only. */
+  platform: 'ios' | 'android';
   pushPrimerOpen: boolean;
   notificationStatus: NotificationStatus | null;
   trackingStatus: TrackingStatus | null;

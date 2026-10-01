@@ -33,7 +33,7 @@ Read from the code at `30cdd6d0`.
 | When the ad consent card shows | On Home, from the **first unlocked session after "Criar PIN"**. For an existing install, from the first unlock after the update, while consent is still unknown. | Maintainer: earliest signal for install attribution. |
 | Android | The same card, with our own "Permitir" / "Agora não" and no system prompt. | Maintainer. Same behaviour on both platforms; LGPD. |
 | Default | Ad consent **denied** until the person accepts; set natively in `firebase.json` so it holds before any JS runs. Analytics storage stays granted (today's screen views are unchanged). | Opt-in per device. |
-| iOS accept | "Permitir" opens the ATT prompt; only `authorized` grants consent. Any other answer stores `denied`. | ATT is the source of truth on iOS. |
+| iOS accept | The card has a single "Continuar" that always opens the ATT prompt; only `authorized` grants consent. Any other answer stores `denied`. | ATT is the source of truth on iOS. App Review rejects pre-prompts that can be dismissed without the system request or that mirror its "Allow". Android keeps "Permitir" / "Agora não". |
 | Changing one's mind | Ajustes → "Privacidade" → "Medição de anúncios" switch. Android: toggles consent. iOS: turns it off directly; turning it on when ATT is `denied` opens the system settings (iOS never shows the ATT prompt twice). | A choice must be reversible. |
 | Notifications in Ajustes | Ajustes → "Notificações": shows the status; when undetermined, "Ativar notificações" (the OS prompt); when denied, "Abrir Ajustes do sistema" (`Linking.openSettings()`). The status is re-read when the app returns to the foreground. | The only way back after a refusal. |
 | Mock mode | The primer and the card show as in http mode; permission calls go to the real OS modules (a simulator answers them), and push registration keeps sending the fake mock token. | Keeps the flows testable in the simulator. |
@@ -69,6 +69,7 @@ interface PermissionsState {
   pushPrimerDismissals: number;       // persisted, 0..2
   adConsent: AdConsent;               // persisted
   pushPrimerOpen: boolean;            // memory
+  platform: 'ios' | 'android';        // memory, from the deps; the ad card reads it
   notificationStatus: NotificationStatus | null; // memory, last read from the OS
   trackingStatus: TrackingStatus | null;         // memory, last read from the OS
 }
@@ -113,11 +114,14 @@ Derived: `showAdCard(state)` = `adConsent === 'unknown'` and (Android, or ATT `u
 - `PushPrimerSheet` — global, mounted in `app/_layout.tsx` next to `PinPromptSheet`, built on
   `@/ui` `Sheet`. Title "Receba avisos das suas conversas"; body: "O termhub avisa quando uma aba
   pede confirmação, faz uma pergunta ou responde no chat."; buttons "Ativar notificações" (primary)
-  and "Agora não" (ghost).
+  and "Agora não" (ghost). It only presents while the session is unlocked and no PIN sheet is up
+  (`pushPrimerOpen` stays set meanwhile, so it shows once those go away).
 - `AdConsentCard` — on Home, in the header block after the error `Banner`. Title "Ajude a medir
   nossos anúncios"; body: "Com sua permissão, usamos o identificador de publicidade do aparelho só
   para saber quais anúncios trouxeram novas pessoas ao termhub. Você pode mudar isso em Ajustes.";
-  buttons "Permitir" and "Agora não".
+  buttons: on iOS a single full-width "Continuar" that always opens the ATT prompt (App Review
+  rejects pre-prompts that can be dismissed without the system request or mirror its "Allow"); on
+  Android "Permitir" and "Agora não".
 - Ajustes: section "Notificações" (status text + "Abrir Ajustes do sistema" when denied) and
   section "Privacidade" (switch "Medição de anúncios"), both following the "Biometria" row.
 
