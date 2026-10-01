@@ -29,7 +29,7 @@ Self-hosted web app to reach the terminals of the machines on your local network
 - Docker + Docker Compose (Postgres, Mailpit and, optionally, the app)
 - To run the app on the host: Node.js 20+ and `tmux`
 - On every SSH machine: `tmux` installed and termhub's public key in `~/.ssh/authorized_keys`
-- On every agent machine: `tmux` and Node.js 20+ (for `@termhub/agent`)
+- On every agent machine: `tmux` and Node.js 20+ (for `@termhub/agent`); on Linux also the build tools (`make`, a C++ compiler, `python3`) to compile node-pty
 
 ## Development
 
@@ -258,7 +258,7 @@ your own user, that opens one outbound WebSocket to the termhub server and attac
 the agent to run a fixed set of named operations (RPCs — start a shell, list tmux sessions, read a
 directory…), never a shell command.
 
-- **Install:** `npm i -g @termhub/agent && termhub-agent --version` (Node 20+ and `tmux` on that machine). `command not found` right after: with asdf run `asdf reshim nodejs`; otherwise npm's global bin dir is not on `PATH` (`export PATH="$(npm prefix -g)/bin:$PATH"`).
+- **Install:** `npm i -g @termhub/agent && termhub-agent --version` (Node 20+ and `tmux` on that machine; on Linux also `make`, a C++ compiler and `python3`, since npm compiles node-pty there). The **Add machine** screen shows the full command in a Linux and a macOS tab, and so does [`apps/agent/README.md`](apps/agent/README.md#install). `command not found` right after: with asdf run `asdf reshim nodejs`; otherwise npm's global bin dir is not on `PATH` (`export PATH="$(npm prefix -g)/bin:$PATH"`).
 - **Enroll:** in the app, "+ machine" → name it → copy the generated
   `termhub-agent connect --url … --token …` and run it on the target machine. The card polls and
   turns green once the agent is online.

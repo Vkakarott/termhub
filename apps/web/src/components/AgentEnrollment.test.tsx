@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AgentEnrollment, INSTALL_COMMAND } from './AgentEnrollment';
+import { AgentEnrollment, LINUX_INSTALL_COMMAND, MACOS_INSTALL_COMMAND, detectClientOs } from './AgentEnrollment';
 import type { Machine } from '../lib/types';
 
 const statusMock = vi.fn();
@@ -129,15 +129,36 @@ describe('AgentEnrollment', () => {
   });
 });
 
-describe('INSTALL_COMMAND', () => {
-  it('installs tmux only when it is missing, then the agent', () => {
-    expect(INSTALL_COMMAND.startsWith('command -v tmux >/dev/null || ')).toBe(true);
-    expect(INSTALL_COMMAND).toContain('brew install tmux');
-    expect(INSTALL_COMMAND).toContain('sudo apt-get install -y tmux');
-    expect(INSTALL_COMMAND.endsWith(' && npm i -g @termhub/agent && termhub-agent --version')).toBe(true);
-  });
+describe('OS tabs', () => {
+  const installBlock = () => screen.getAllByText((_, el) => el?.tagName === 'CODE' && !!el.textContent?.includes('npm i -g @termhub/agent'))[0]!;
 
-  it('stops with a message instead of installing the agent when no package manager is found', () => {
-    expect(INSTALL_COMMAND).toContain("{ echo 'instale o tmux manualmente e rode o comando de novo'; false; } && npm i -g");
+  it('starts on the tab of the browser OS and switches to the other one', () => {
+    statusMock.mockResolvedValue({ id: 'm1', online: false, tmux: false, os: null, capabilities: [] });
+    const platform = vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('MacIntel');
+    try {
+      render(<AgentEnrollment machine={machine} token="thb_ag_abc123" />);
+    } finally {
+      platform.mockRestore();
+    }
+    expect(screen.getByRole('tab', { name: 'macOS' }).getAttribute('aria-selected')).toBe('true');
+    expect(installBlock().textContent).toBe(MACOS_INSTALL_COMMAND);
+    expect(screen.getByText(/Acesso Total ao Disco/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Linux' }));
+    expect(screen.getByRole('tab', { name: 'Linux' }).getAttribute('aria-selected')).toBe('true');
+    expect(installBlock().textContent).toBe(LINUX_INSTALL_COMMAND);
+    expect(screen.queryByText(/Acesso Total ao Disco/)).toBeNull();
+    // the connect step is the same on both tabs
+    expect(screen.getByText(`termhub-agent connect --url ${window.location.origin} --token thb_ag_abc123`)).toBeTruthy();
+  });
+});
+
+describe('detectClientOs', () => {
+  it('picks macOS on a Mac and Linux everywhere else', () => {
+    expect(detectClientOs({ platform: 'MacIntel', userAgent: 'Mozilla/5.0 (Macintosh)' })).toBe('macos');
+    expect(detectClientOs({ platform: '', userAgent: '', userAgentData: { platform: 'macOS' } })).toBe('macos');
+    expect(detectClientOs({ platform: 'Linux x86_64', userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' })).toBe('linux');
+    expect(detectClientOs({ platform: 'Win32', userAgent: 'Mozilla/5.0 (Windows NT 10.0)' })).toBe('linux');
+    expect(detectClientOs({ platform: 'iPhone', userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' })).toBe('linux');
   });
 });

@@ -91,7 +91,7 @@
               "name": "Como conecto uma máquina?",
               "acceptedAnswer": {
                 "@type": "Answer",
-                "text": "Instale o agente com npm i -g @termhub/agent (precisa de Node 20+ e tmux), gere um token em Máquinas › Adicionar máquina e rode o termhub-agent connect que o app mostra. Depois, termhub-agent service install deixa o agente rodando em segundo plano (launchd no macOS, systemd no Linux). A conexão sai da máquina por WebSocket: não precisa abrir porta, configurar SSH nem estar na mesma rede."
+                "text": "Instale o agente com npm i -g @termhub/agent (precisa de Node 20+ e tmux; no Linux, também make, g++ e python3, porque o npm compila o node-pty — a tela Adicionar máquina mostra o comando completo para Linux e macOS), gere um token em Máquinas › Adicionar máquina e rode o termhub-agent connect que o app mostra. Depois, termhub-agent service install deixa o agente rodando em segundo plano (launchd no macOS, systemd no Linux). A conexão sai da máquina por WebSocket: não precisa abrir porta, configurar SSH nem estar na mesma rede."
               }
             },
             {

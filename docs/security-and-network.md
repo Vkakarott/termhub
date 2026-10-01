@@ -21,10 +21,10 @@ Short version for the firewall ticket:
 ```
 
 - **Server.** It serves the web app, the REST API and the WebSocket endpoints. In the Cloud it sits behind Cloudflare, which terminates TLS. The server process itself speaks plain HTTP to that reverse proxy and never terminates TLS on its own.
-- **Agent** (`@termhub/agent`, npm). It runs on each machine you want to reach, on **macOS or Linux** (Windows through WSL), with Node.js 20+ and tmux.
+- **Agent** (`@termhub/agent`, npm). It runs on each machine you want to reach, on **macOS or Linux** (Windows through WSL), with Node.js 20+ and tmux. On Linux, `npm i -g` also needs `make`, a C++ compiler and `python3`: node-pty publishes no Linux prebuild, so npm compiles it.
   - It dials out to the server over one persistent WebSocket, `wss://<server>/agent/ws`, and keeps it open.
   - Every terminal is a tmux session on the machine. Its bytes travel over that one socket, multiplexed as channels.
-  - The agent runs as the **logged-in user**: a systemd user unit on Linux, a LaunchAgent on macOS. It needs no root, and no admin rights beyond installing tmux.
+  - The agent runs as the **logged-in user**: a systemd user unit on Linux, a LaunchAgent on macOS. It needs no root, and no admin rights beyond installing tmux (and the build tools on Linux).
 - **Web app.** A single-page app served by the server. Every API call and every WebSocket goes to the **same origin** it was loaded from; there is no third-party script, CDN or font host.
 - **Mobile app.** It talks only to `termhub.dev` (`/api/m/v1/*` and `wss://termhub.dev/ws/m/chat`).
 - **Monitor hooks** (optional, installed from the app). A small shell script that Claude Code, Codex or the Cursor CLI call on their events. It forwards the event with `curl` as an HTTPS POST to `termhub.dev/api/hooks/events`, so the app can show which tab is waiting for you.
@@ -70,7 +70,7 @@ A proxy or firewall that closes idle connections after **60 s or more** does not
 
 | Host | Used by | Needed for |
 |---|---|---|
-| Your OS package mirrors or Homebrew | machines | Installing tmux with the one-line install command (`brew`, `apt-get`, `dnf` or `pacman`). |
+| Your OS package mirrors or Homebrew | machines | Installing tmux (and, on Linux, the build tools for node-pty) with the install command from Add machine (`brew` on macOS; `apt-get`, `dnf` or `pacman` on Linux). |
 | The hosts your AI CLIs already use (e.g. Anthropic for Claude Code, OpenAI for Codex, Google for Gemini) | machines | The CLIs run in termhub tabs exactly as they would in any terminal. termhub adds no host of its own for them; follow each vendor's documentation. |
 | `github.com` | macOS machines | Only the first time you set up the iOS Simulator viewer (clones Appium's WebDriverAgent). |
 
@@ -192,8 +192,8 @@ A terminal tab is a real shell. Whoever can type into that tab — you in the br
 2. **No inbound rule** on the machines. No SSH, no VPN, no port forwarding.
 3. **Exempt those hosts from TLS inspection.**
 4. **No explicit proxy on the agent's path** (not supported yet): direct egress, or a transparent proxy.
-5. **Machine prerequisites:** macOS or Linux, Node.js 20+, tmux, and a user account. No root, apart from installing tmux with your package manager.
-6. Optional: the hosts of the AI CLIs your users run, and your package mirrors for tmux.
+5. **Machine prerequisites:** macOS or Linux, Node.js 20+, tmux, and a user account; on Linux, also `make`, a C++ compiler and `python3` (`build-essential python3` on apt, `"Development Tools" python3` on dnf, `base-devel python` on pacman). No root, apart from installing those packages with your package manager.
+6. Optional: the hosts of the AI CLIs your users run, and your package mirrors for tmux and the build tools.
 7. **Test from the machine:**
    ```bash
    npm i -g @termhub/agent                # reaches registry.npmjs.org
