@@ -3826,6 +3826,10 @@ describe('usage limit (TER-588)', () => {
     first.end();
     const second = await runAt(lr, 1);
     expect(second.input).toMatchObject({ config_dir: '~/.claude-work', resume: true, session_id: SID });
+    // the same text under a new uuid: the resumed session already holds the first one, and a CLI that
+    // reads a uuid it has on file replays it without answering (TER-837)
+    expect(JSON.parse(second.input.text.trim()).message).toEqual(JSON.parse(first.input.text.trim()).message);
+    expect(JSON.parse(second.input.text.trim()).uuid).not.toBe(JSON.parse(first.input.text.trim()).uuid);
     second.push(replayOf(second.input.text.trim()));
     second.push(delta('oi!'));
     second.push(done(SID));

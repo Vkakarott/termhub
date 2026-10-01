@@ -385,7 +385,12 @@ export class LiveRun {
    * with `notice` when it ends.
    */
   async retryElsewhere(opts: { fresh: boolean; notice: ChatNotice }): Promise<void> {
+    // Every line goes again under a new uuid: the process that met the limit already wrote the turn to
+    // the session, and a resumed CLI that reads a uuid it has on file replays it and answers nothing —
+    // with the input open, the run then waits forever (TER-837). A restarted server does the same.
+    this.notes = new Map([...this.notes.values()].map((text) => [randomUUID(), text]));
     for (const t of this.waiting) {
+      t.uuid = randomUUID();
       this.notices.set(t.answer.id, opts.notice);
       if (opts.fresh) chatBus.publish({ type: 'reset', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message_id: t.answer.id });
       this.announce(t.answer.id);
