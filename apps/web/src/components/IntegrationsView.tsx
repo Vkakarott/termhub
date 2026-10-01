@@ -65,10 +65,10 @@ export function IntegrationsView() {
         </button>
       }
     >
-      <p className="mb-5 max-w-2xl text-sm text-fg-muted">Credenciais de GitHub, Linear e Jira. Os segredos ficam criptografados no banco; cada projeto escolhe qual usar no Setup.</p>
+      <p className="mb-5 text-sm text-fg-muted">Credenciais de GitHub, Linear e Jira. Os segredos ficam criptografados no banco; cada projeto escolhe qual usar no Setup.</p>
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
       {items && items.length === 0 && <p className="text-sm text-fg-dim">Nenhuma integração ainda.</p>}
-      <ul className="max-w-2xl space-y-2">
+      <ul className="space-y-2">
         {items?.map((i) => {
           const t = testing[i.id];
           return (

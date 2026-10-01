@@ -33,7 +33,7 @@ export function MachinesPage() {
         <p className="text-sm text-fg-dim">Nenhuma máquina cadastrada. Cadastre uma pelo botão acima ou ao criar um projeto.</p>
       )}
 
-      <ul className="max-w-2xl space-y-2">
+      <ul className="space-y-2">
         {machines.map((m) => {
           const status = statuses[m.id] ?? 'checking';
           const linked = projects.filter((p) => p.machines.some((l) => l.machine_id === m.id));
@@ -119,7 +119,7 @@ export function MachinesPage() {
       </ul>
 
       {hiddenLocal.length > 0 && (
-        <div className="mt-3 max-w-2xl text-xs text-fg-dim">
+        <div className="mt-3 text-xs text-fg-dim">
           <p title="Máquinas marcadas como “o computador que estou usando” em outro navegador. Se esta for a máquina onde você está, clique para vê-la aqui.">
             {hiddenLocal.length === 1 ? '1 máquina local de outro computador' : `${hiddenLocal.length} máquinas locais de outros computadores`}
           </p>

@@ -67,7 +67,7 @@ export function ApiTokensView() {
   };
 
   return (
-    <div className="max-w-4xl space-y-4">
+    <div className="space-y-4">
       <div className="flex items-start gap-4">
         <p className="flex-1 text-sm text-fg-muted">
           Tokens pessoais para o terminal global (MCP): um Claude Code com o token consegue agir nas suas máquinas dentro dos escopos escolhidos, nunca além das suas próprias permissões. Trate como senha.

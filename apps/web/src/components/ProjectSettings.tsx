@@ -39,7 +39,7 @@ export function ProjectSettings({ project }: { project: Project }) {
   return (
     // sem padding inferior: a barra sticky do SetupForm cola no fundo real da área de rolagem e leva o espaçamento
     <div className="h-full overflow-y-auto p-6 pb-0">
-      <form onSubmit={submit} className="mb-8 max-w-2xl space-y-4 rounded-lg border border-line bg-bg-2 p-4">
+      <form onSubmit={submit} className="mb-8 space-y-4 rounded-lg border border-line bg-bg-2 p-4">
         <h3 className="text-sm font-semibold">Geral</h3>
         <div>
           <label className="label">Nome</label>
@@ -84,7 +84,7 @@ export function ProjectSettings({ project }: { project: Project }) {
 
       <SetupForm project={project} />
 
-      <div className="mt-10 max-w-2xl rounded-lg border border-danger/30 p-4">
+      <div className="mt-10 rounded-lg border border-danger/30 p-4">
         <h3 className="text-sm font-semibold text-danger">Excluir projeto</h3>
         <p className="mt-1 text-xs text-fg-muted">
           Remove o projeto, suas tasks, notas e tickets, e encerra as sessões tmux das tabs nas máquinas vinculadas. Não apaga arquivos.

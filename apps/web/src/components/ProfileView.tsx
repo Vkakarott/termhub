@@ -15,7 +15,7 @@ export function ProfileView() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   return (
-    <div className="max-w-2xl space-y-4">
+    <div className="space-y-4">
       <section aria-label="Conta" className="flex items-center gap-3 rounded-lg border border-line bg-bg-2 p-4">
         <Avatar user={user} size={40} />
         <div className="min-w-0">

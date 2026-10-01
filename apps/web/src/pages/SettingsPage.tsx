@@ -270,7 +270,7 @@ function UsersSection() {
         )
       }
     >
-    <div className="max-w-5xl">
+    <div>
       <p className="mb-4 text-sm text-fg-muted">
         {users ? `${users.length} usuário(s).` : 'Carregando…'} Convide pelo e-mail: o usuário entra com Google ou com o código enviado por e-mail.
         {access?.configured && (
@@ -487,7 +487,7 @@ function RolesSection() {
         )
       }
     >
-    <div className="max-w-4xl">
+    <div>
       <p className="mb-4 text-sm text-fg-muted">Uma role é um conjunto de permissões. Roles de administrador têm acesso total; roles do sistema não podem ser excluídas.</p>
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
       <ul className="grid gap-3 md:grid-cols-2">
@@ -612,7 +612,7 @@ function PermissionsSection() {
   const role = roles.find((r) => r.id === roleId);
 
   return (
-    <div className="max-w-4xl">
+    <div>
       <div className="mb-4 flex items-end gap-4">
         <p className="text-sm text-fg-muted">O que cada role pode fazer em cada recurso. Roles de administrador não aparecem aqui: têm acesso total.</p>
         <select className="input ml-auto w-auto py-1 text-sm" value={roleId} onChange={(e) => setRoleId(e.target.value)}>

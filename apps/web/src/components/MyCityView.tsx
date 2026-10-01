@@ -43,7 +43,7 @@ export function MyCityView() {
   const onStreet = mine.some((p) => p.is_public && p.status !== 'archived');
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="space-y-6">
       <p className="text-sm text-fg-muted">Sua cidade pública mostra, para quem tiver o link, cada projeto que você publicar e os agentes dele que rodam nas suas máquinas.</p>
 
       <section className="rounded-lg border border-line bg-bg-2 p-4">

@@ -46,7 +46,7 @@ export function BoardColumnsSettings({ project }: { project: Project }) {
   };
 
   if (!columns) {
-    return <section className="mb-8 max-w-2xl rounded-lg border border-line bg-bg-2 p-4 text-sm text-fg-dim">{error ?? 'Carregando colunas…'}</section>;
+    return <section className="mb-8 rounded-lg border border-line bg-bg-2 p-4 text-sm text-fg-dim">{error ?? 'Carregando colunas…'}</section>;
   }
 
   const lastOfCategory = (c: TaskColumn) => columns.filter((x) => x.category === c.category).length === 1;
@@ -62,7 +62,7 @@ export function BoardColumnsSettings({ project }: { project: Project }) {
   };
 
   return (
-    <section aria-label="Colunas do board" className="mb-8 max-w-2xl space-y-3 rounded-lg border border-line bg-bg-2 p-4">
+    <section aria-label="Colunas do board" className="mb-8 space-y-3 rounded-lg border border-line bg-bg-2 p-4">
       <h3 className="text-sm font-semibold">Colunas do board</h3>
       <p className="text-xs text-fg-dim">
         O nome é seu; o tipo diz ao termhub o que a coluna significa. O board precisa de ao menos uma coluna de cada tipo e aceita até 12.

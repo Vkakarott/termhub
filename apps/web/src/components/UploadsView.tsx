@@ -145,7 +145,7 @@ export function UploadsView() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold">Arquivos enviados aos terminais</h2>
