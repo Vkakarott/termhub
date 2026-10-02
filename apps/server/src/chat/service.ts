@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { CAPABILITY_CLAUDE_STREAM_INPUT, CAPABILITY_CLAUDE_SYSTEM_PROMPT } from '@termhub/agent-protocol';
-import { STANDING_KIND_LABEL, replyExcerpt, type ChatAttachment } from '@termhub/mobile-api';
+import { STANDING_KIND_LABEL, replyExcerpt, tabQuestionReplyText, type ChatAttachment, type ReplyCardRef } from '@termhub/mobile-api';
 import type { Repositories } from '../db/repositories/index.js';
 import type { ChatConversation, ChatMessage, ChatNotice } from '../db/repositories/chat.js';
 import type { ChatAction } from '../db/repositories/chat-actions.js';
@@ -26,6 +26,7 @@ import { RESUME_WINDOW_MS, STALE_MS, resumeNote } from './resume.js';
 import { codeForReason, parseFrame, type ChatErrorCode, type ChatFailureReason } from './stream.js';
 import { toSubagentView, type SubagentView } from './subagent-view.js';
 import { tabQuestionContext } from './tab-question-context.js';
+import type { ChoicePayload, PermissionPayload } from './tab-question-payload.js';
 import { mintConciergeToken } from './token.js';
 import { indexMessage } from '../memory/index-items.js';
 import { groupsOf, type GroupView } from '../control/groups.js';
@@ -133,12 +134,15 @@ export interface SendOptions {
   attachmentIds?: string[];
   /** The message this one answers (TER-447): a message of this conversation that has something in it. */
   replyToId?: string;
+  /** Or the card it answers (TER-849): a gate card or a tab's question of this conversation. */
+  replyToCard?: ReplyCardRef;
 }
 /** What `startIn` takes besides the text: a decision's marking hook, and the attachment ids of a typed message. */
 interface StartOptions {
   beforeRun?: () => Promise<void>;
   attachmentIds?: string[];
   replyToId?: string;
+  replyToCard?: ReplyCardRef;
 }
 /** The attachment rows a message checked before storing anything (`attachableRows`): the ids to bind and the rows themselves. */
 interface Attachable {
@@ -907,7 +911,7 @@ export class ChatService {
    */
   async start(user: User, text: string, opts: SendOptions = {}): Promise<StartedRun> {
     const conversation = await this.conversationFor(user, opts.projectId ?? null);
-    const started = await this.startIn(user, conversation, text, { attachmentIds: opts.attachmentIds, replyToId: opts.replyToId });
+    const started = await this.startIn(user, conversation, text, { attachmentIds: opts.attachmentIds, replyToId: opts.replyToId, replyToCard: opts.replyToCard });
     // Only a message the person typed is memory (spec D3/D4): re-injections and wakes go through
     // `startIn` directly and never reach here. Best effort, fire-and-forget: `indexMessage` never throws.
     void this.deps.indexMessage({ id: started.user_message_id, owner_id: user.id, project_id: conversation.project_id, text, created_at: new Date().toISOString() });
@@ -1000,7 +1004,7 @@ export class ChatService {
       role: 'user',
       text,
       // The quote the thread shows, cut now: it has to read the same once the original is gone (TER-447).
-      ...(reply ? { reply_to: { id: reply.id, role: reply.role, excerpt: replyExcerpt(reply.text, reply.attachmentNames) } } : {}),
+      ...(reply ? { reply_to: { id: reply.id, role: reply.role, excerpt: replyExcerpt(reply.text, reply.attachmentNames), ...(reply.card ? { card: { kind: reply.card.kind, id: reply.card.id } } : {}) } } : {}),
     });
     const question = await this.bindAttachments(stored, attachable.ids, user, conversationId);
     chatBus.publish({ type: 'message', user_id: user.id, conversation_id: conversationId, message: question });
@@ -1052,7 +1056,7 @@ export class ChatService {
     // `startIn`: a bad id is a message never sent — 409, nothing stored, no decision marked, no tab
     // context stamped — whether the message is injected or queued.
     const attachable = await this.attachableRows(user, conversation.id, opts?.attachmentIds ?? []);
-    const reply = await this.replyTargetFor(conversation.id, opts?.replyToId);
+    const reply = await this.replyTargetFor(user, conversation.id, opts);
     if (live?.accepting && opts?.beforeRun) await opts.beforeRun();
     let runText = live?.accepting ? await this.runTextFor(user, conversation.id, text, attachable.rows, reply) : undefined;
     const { question, answer } = await this.storeTurn(user, conversation.id, text, attachable, reply);
@@ -1082,13 +1086,36 @@ export class ChatService {
    * still being written, or one that never came) is not quotable. Anything else is a message never
    * sent: 409, nothing stored, nothing stamped.
    */
-  private async replyTargetFor(conversationId: string, id: string | undefined): Promise<ReplyTarget | null> {
+  private async replyTargetFor(user: User, conversationId: string, opts: Pick<StartOptions, 'replyToId' | 'replyToCard'> | undefined): Promise<ReplyTarget | null> {
+    if (opts?.replyToCard) return this.replyCardTargetFor(user, conversationId, opts.replyToCard);
+    const id = opts?.replyToId;
     if (id === undefined) return null;
     const [row] = await this.deps.repos.chat.findMessagesByIds(conversationId, [id]);
     if (!row) throw replyUnavailable();
     const attachmentNames = row.text ? [] : (await this.deps.repos.chatAttachments.listForMessages([row.id])).map((a) => a.name);
     if (!row.text && attachmentNames.length === 0) throw replyUnavailable();
     return { id: row.id, role: row.role, text: row.text, attachmentNames };
+  }
+
+  /**
+   * The card a reply answers (TER-849), under the same rule as a message: read before anything is
+   * written, and refused (409, nothing stored) unless it is a card of this conversation — a gate card,
+   * or a tab's question (a suggestion is not one). Its words are what the card shows: the action's
+   * summary, resolved owner-scoped like the card's own, or what the question asks.
+   */
+  private async replyCardTargetFor(user: User, conversationId: string, ref: ReplyCardRef): Promise<ReplyTarget> {
+    const repos = this.deps.repos;
+    if (ref.kind === 'action') {
+      const row = await repos.chatActions.findByIdForUser(ref.id, user.id);
+      if (!row || row.conversation_id !== conversationId) throw replyUnavailable();
+      const [card] = await describeActions(repos, [row], user.id);
+      return { id: null, role: 'assistant', text: card?.summary ?? '', attachmentNames: [], card: { kind: 'action', id: row.id, status: row.status } };
+    }
+    const row = await repos.tabQuestions.findByIdForUser(ref.id, user.id);
+    if (!row || row.conversation_id !== conversationId || row.kind === 'suggestion') throw replyUnavailable();
+    const [view] = await describeTabQuestions(repos, [row], user.id);
+    const text = row.kind === 'choice' ? tabQuestionReplyText({ kind: 'choice', payload: row.payload as ChoicePayload }) : tabQuestionReplyText({ kind: 'permission', payload: row.payload as PermissionPayload });
+    return { id: null, role: 'assistant', text, attachmentNames: [], card: { kind: 'tab_question', id: row.id, status: row.status, tab_name: view?.tab_name ?? null } };
   }
 
   /**
@@ -1191,7 +1218,7 @@ export class ChatService {
       // injected and before the tab context is stamped.
       const attachable = await this.attachableRows(user, conversation.id, opts?.attachmentIds ?? []);
       // The message this one answers (TER-447), under the same rule: read before anything is written.
-      const reply = await this.replyTargetFor(conversation.id, opts?.replyToId);
+      const reply = await this.replyTargetFor(user, conversation.id, opts);
 
       // The host this run uses is the host this conversation has, and from here on it says so: a
       // conversation whose machine was auto-picked (one candidate, nothing stored) is otherwise
