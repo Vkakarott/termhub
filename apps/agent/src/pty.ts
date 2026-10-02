@@ -87,8 +87,14 @@ interface ChannelProc {
   sendClosed(code: number | null): void;
 }
 
+interface OpeningChannel {
+  cancelled: boolean;
+  sendClosed(code: number | null): void;
+}
+
 export function createPtyManager(deps: PtyManagerDeps): PtyManager {
   const procs = new Map<number, ChannelProc>();
+  const openings = new Map<number, OpeningChannel>();
   const tmux = deps.tmuxPath ?? tmuxPath();
   const repairSpawnHelper = deps.repairSpawnHelper ?? (() => ensureSpawnHelperExecutable());
   let spawnFn: SpawnFn | undefined = deps.spawn;
@@ -103,10 +109,25 @@ export function createPtyManager(deps: PtyManagerDeps): PtyManager {
 
   return {
     async open(ch, params: PtyOpenParams, socket: AgentSocket): Promise<void> {
-      if (procs.has(ch)) {
+      if (procs.has(ch) || openings.has(ch)) {
         socket.sendControl({ type: 'open_error', ch, error: { code: 'invalid', message: 'channel in use' } });
         return;
       }
+
+      let closedSent = false;
+      const opening: OpeningChannel = {
+        cancelled: false,
+        sendClosed: (code) => {
+          if (closedSent) return;
+          closedSent = true;
+          try {
+            socket.sendControl({ type: 'closed', ch, code });
+          } catch (err) {
+            deps.log('pty closed send failed', { ch, error: err instanceof Error ? err.message : String(err) });
+          }
+        },
+      };
+      openings.set(ch, opening);
 
       // Everything that can throw before the PTY exists — size clamping, cwd resolution, env
       // building (`agentEnv()` can throw if `REMOTE_PATH_PREFIX` is ever malformed), resolving
@@ -124,6 +145,7 @@ export function createPtyManager(deps: PtyManagerDeps): PtyManager {
           TERMHUB_SESSION: params.session,
         };
         const spawn = await resolveSpawn();
+        if (opening.cancelled) return;
         const spawnTmux = () => spawn(tmux, ['-u', 'new-session', '-A', '-s', params.session, '-c', cwd], { name: 'xterm-256color', cols, rows, cwd, env });
         try {
           proc = spawnTmux();
@@ -136,7 +158,16 @@ export function createPtyManager(deps: PtyManagerDeps): PtyManager {
           deps.log('spawn-helper exec bit repaired on open', { path: helper.path });
           proc = spawnTmux();
         }
+        if (opening.cancelled) {
+          try {
+            proc.kill();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
       } catch (err) {
+        if (opening.cancelled) return;
         // The wire message stays generic; the local log keeps the real reason (no PTY bytes here).
         deps.log('pty open failed', { ch, session: params.session, tmux, cwd: params.cwd, error: err instanceof Error ? err.message : String(err) });
         socket.sendControl({
@@ -145,21 +176,14 @@ export function createPtyManager(deps: PtyManagerDeps): PtyManager {
           error: isEnoent(err) ? { code: 'no_tmux', message: 'tmux not found' } : { code: 'internal', message: 'failed to start pty' },
         });
         return;
+      } finally {
+        if (openings.get(ch) === opening) openings.delete(ch);
       }
 
-      let closedSent = false;
       const entry: ChannelProc = {
         proc,
         closed: false,
-        sendClosed: (code) => {
-          if (closedSent) return;
-          closedSent = true;
-          try {
-            socket.sendControl({ type: 'closed', ch, code });
-          } catch (err) {
-            deps.log('pty closed send failed', { ch, error: err instanceof Error ? err.message : String(err) });
-          }
-        },
+        sendClosed: opening.sendClosed,
       };
       procs.set(ch, entry);
       deps.log('pty opened', { ch, session: params.session, cols, rows });
@@ -209,7 +233,14 @@ export function createPtyManager(deps: PtyManagerDeps): PtyManager {
 
     close(ch): void {
       const entry = procs.get(ch);
-      if (!entry) return;
+      if (!entry) {
+        const opening = openings.get(ch);
+        if (!opening) return;
+        opening.cancelled = true;
+        openings.delete(ch);
+        opening.sendClosed(null);
+        return;
+      }
       // Mark closed and drop the slot before the kill, so output/exit the kill triggers (sync
       // or async) is treated as the tail of this close, not as live traffic.
       entry.closed = true;
@@ -227,6 +258,10 @@ export function createPtyManager(deps: PtyManagerDeps): PtyManager {
 
     closeAll(): void {
       // Session is over (socket gone): no acks to send, just stop forwarding and kill.
+      for (const [ch, opening] of openings) {
+        opening.cancelled = true;
+        openings.delete(ch);
+      }
       for (const [ch, entry] of procs) {
         entry.closed = true;
         procs.delete(ch);

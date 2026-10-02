@@ -248,6 +248,74 @@ describe('createPtyManager', () => {
     expect(spawn).toHaveBeenCalledTimes(1);
   });
 
+  it('cancels an opening when closeAll runs before spawn resolution', async () => {
+    const fake = makeFakePty();
+    const spawn = vi.fn<SpawnFn>(() => fake.proc);
+    const manager = createPtyManager({ spawn, tmuxPath: 'tmux', log: vi.fn() });
+    const { socket, sendControl } = makeSocket();
+
+    const opening = manager.open(1, openParams, socket);
+    manager.closeAll();
+    await opening;
+
+    expect(spawn).not.toHaveBeenCalled();
+    expect(sendControl).not.toHaveBeenCalledWith({ type: 'opened', ch: 1 });
+    await manager.open(1, openParams, socket);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    manager.closeAll();
+    expect(fake.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels an opening and acknowledges close before spawn resolution', async () => {
+    const spawn = vi.fn<SpawnFn>(() => makeFakePty().proc);
+    const manager = createPtyManager({ spawn, tmuxPath: 'tmux', log: vi.fn() });
+    const { socket, sendControl } = makeSocket();
+
+    const opening = manager.open(2, openParams, socket);
+    manager.close(2);
+    await opening;
+
+    expect(spawn).not.toHaveBeenCalled();
+    expect(sendControl.mock.calls.map(([message]) => message)).toEqual([{ type: 'closed', ch: 2, code: null }]);
+  });
+
+  it('kills a PTY if closeAll runs during spawn', async () => {
+    const fake = makeFakePty();
+    let manager: ReturnType<typeof createPtyManager>;
+    const spawn = vi.fn<SpawnFn>(() => {
+      manager.closeAll();
+      return fake.proc;
+    });
+    manager = createPtyManager({ spawn, tmuxPath: 'tmux', log: vi.fn() });
+    const { socket, sendControl } = makeSocket();
+
+    await manager.open(3, openParams, socket);
+
+    expect(fake.kill).toHaveBeenCalledTimes(1);
+    expect(sendControl).not.toHaveBeenCalledWith({ type: 'opened', ch: 3 });
+    manager.close(3);
+    expect(sendControl).not.toHaveBeenCalled();
+  });
+
+  it('reserves a channel before awaiting spawn resolution', async () => {
+    const fake = makeFakePty();
+    const spawn = vi.fn<SpawnFn>(() => fake.proc);
+    const manager = createPtyManager({ spawn, tmuxPath: 'tmux', log: vi.fn() });
+    const { socket, sendControl } = makeSocket();
+
+    const first = manager.open(4, openParams, socket);
+    const second = manager.open(4, openParams, socket);
+    await Promise.all([first, second]);
+
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(sendControl.mock.calls.map(([message]) => message)).toEqual([
+      { type: 'open_error', ch: 4, error: { code: 'invalid', message: 'channel in use' } },
+      { type: 'opened', ch: 4 },
+    ]);
+    manager.closeAll();
+    expect(fake.kill).toHaveBeenCalledTimes(1);
+  });
+
   it('write/resize/close on an unknown channel are no-ops', () => {
     const spawn = vi.fn<SpawnFn>();
     const manager = createPtyManager({ spawn, tmuxPath: 'tmux', log: vi.fn() });
